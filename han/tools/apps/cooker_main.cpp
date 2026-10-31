@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "han/render/ktx2_io.h"
 #include "han/render/mesh_io.h"
 #include "han/tools/blender.h"
 #include "han/tools/cook.h"
@@ -21,7 +22,8 @@ namespace {
 
 void printStats(const render::MeshData& mesh, std::size_t bytes) {
     const render::MeshBounds b = render::computeBounds(mesh);
-    std::printf("вершин: %zu, треугольников: %zu, размер: %zu байт\n", mesh.vertices.size(), mesh.indices.size() / 3, bytes);
+    std::printf("вершин: %zu, треугольников: %zu, частей: %zu, текстур: %zu, размер: %zu байт\n", mesh.vertices.size(),
+                mesh.indices.size() / 3, render::effectiveSubmeshes(mesh).size(), mesh.textures.size(), bytes);
     std::printf("бокс: (%.3f %.3f %.3f) .. (%.3f %.3f %.3f), размеры: %.3f x %.3f x %.3f м\n", b.min.x, b.min.y, b.min.z, b.max.x,
                 b.max.y, b.max.z, b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
 }
@@ -74,21 +76,42 @@ int main(int argc, char** argv) {
     }
 
 #ifdef HAN_WITH_GLTF
-    const bool imported = tools::importGltf(gltfPath, mesh, error);
+    tools::ImportResult imported;
+    const bool ok = tools::importGltf(gltfPath, imported, error);
 #else
-    const bool imported = false;
+    const bool ok = false;
     error = "han_cooker собран без fastgltf (включите vcpkg-функцию assets)";
 #endif
     std::error_code ec;
     if (!tempGlb.empty()) fs::remove(tempGlb, ec);
-    if (!imported) {
+    if (!ok) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 1;
     }
 
-    if (optimize) tools::optimizeMesh(mesh);
+#ifdef HAN_WITH_GLTF
+    for (const std::string& warning : imported.warnings) std::fprintf(stderr, "предупреждение: %s\n", warning.c_str());
+    mesh = std::move(imported.mesh);
     if (!output.parent_path().empty()) fs::create_directories(output.parent_path(), ec);
-    if (!render::saveMeshFile(output, mesh, error)) {
+
+    // Текстуры: "<имя>.tex<N>.ktx2" рядом с мешем, с полной цепочкой мипов (sRGB: усреднение в линейном свете).
+    const std::string stem = output.stem().string();
+    for (std::size_t i = 0; i < imported.textures.size(); ++i) {
+        const std::string name = stem + ".tex" + std::to_string(i) + ".ktx2";
+        render::TextureData texture = render::makeTexture(imported.textures[i].width, imported.textures[i].height,
+                                                          std::move(imported.textures[i].rgba), true);
+        render::generateMips(texture);
+        if (!render::saveKtx2File(output.parent_path() / name, texture, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 1;
+        }
+        mesh.textures.push_back(name);
+        std::printf("текстура: %s (%ux%u, %zu мипов)\n", name.c_str(), texture.width, texture.height, texture.mips.size());
+    }
+#endif
+
+    if (optimize) tools::optimizeMesh(mesh);
+    if (!render::saveMeshFile(output, mesh, error)) {  // меш пишется последним: по нему горячая перезагрузка видит готовый ассет
         std::fprintf(stderr, "%s\n", error.c_str());
         return 1;
     }

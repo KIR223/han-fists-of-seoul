@@ -15,8 +15,8 @@
       "dependencies": ["sdl3", "vulkan-headers", "vulkan-loader"]
     },
     "assets": {
-      "description": "Конвейер ассетов (E3): импорт glTF и оптимизация мешей",
-      "dependencies": ["fastgltf", "meshoptimizer"]
+      "description": "Конвейер ассетов (E3): импорт glTF, декодирование картинок, оптимизация мешей",
+      "dependencies": ["fastgltf", "meshoptimizer", "stb"]
     },
     "ui": {
       "description": "Отладочный интерфейс (E1, E2): Dear ImGui с привязками SDL3 и Vulkan",

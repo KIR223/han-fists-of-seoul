@@ -3,13 +3,19 @@
 //
 //   смещение  размер  поле
 //   0         4       магия "HMSH"
-//   4         4       версия формата (сейчас 1)
+//   4         4       версия формата (сейчас 2)
 //   8         4       число вершин
 //   12        4       число индексов (кратно 3)
-//   16        4       размер вершины в байтах (sizeof(Vertex) = 36)
+//   16        4       размер вершины в байтах (sizeof(Vertex) = 44: позиция, нормаль, цвет, uv — по float)
 //   20        12      ограничивающий бокс: минимум (x, y, z)
 //   32        12      ограничивающий бокс: максимум (x, y, z)
-//   44        ...     вершины, затем индексы uint32
+//   44        ...     вершины, затем индексы uint32, затем:
+//             4       число частей (подмешей)
+//             12 * N  часть: первый индекс, число индексов (кратно 3), номер текстуры (int32, -1 — нет)
+//             4       число текстур
+//             ...     текстура: uint16 длина имени, имя в UTF-8 (файл .ktx2 рядом с мешем)
+//
+// Версия 1 (вершина 36 байт, без частей и текстур) больше не читается: файлов такого вида нигде не осталось.
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -20,7 +26,7 @@
 
 namespace han::render {
 
-constexpr std::uint32_t kMeshFormatVersion = 1;
+constexpr std::uint32_t kMeshFormatVersion = 2;
 constexpr std::size_t kMeshHeaderSize = 44;
 
 struct MeshBounds {
@@ -30,7 +36,8 @@ struct MeshBounds {
 MeshBounds computeBounds(const MeshData& mesh);
 
 std::vector<std::uint8_t> serializeMesh(const MeshData& mesh);
-// Проверяет заголовок, размеры (с защитой от переполнения) и что все индексы указывают на существующие вершины.
+// Проверяет заголовок, размеры (с защитой от переполнения), что индексы указывают на существующие вершины,
+// что части лежат внутри индексов и ссылаются на существующие текстуры.
 bool deserializeMesh(const std::uint8_t* data, std::size_t size, MeshData& out, std::string& error);
 
 bool saveMeshFile(const std::filesystem::path& path, const MeshData& mesh, std::string& error);

@@ -41,10 +41,23 @@ bool fail(std::string& err, const char* what, VkResult r) {
     return false;
 }
 
+struct GpuSubmesh {
+    std::uint32_t firstIndex = 0, indexCount = 0;
+    TextureId texture = 0;  // 0 — белая текстура
+};
+
 struct GpuMesh {
     VkBuffer vertexBuffer = VK_NULL_HANDLE, indexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexMemory = VK_NULL_HANDLE, indexMemory = VK_NULL_HANDLE;
     std::uint32_t indexCount = 0;
+    std::vector<GpuSubmesh> submeshes;
+};
+
+struct GpuTexture {
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;
+    VkDescriptorSet set = VK_NULL_HANDLE;
 };
 
 }  // namespace
@@ -84,6 +97,15 @@ struct Renderer::Impl {
     std::vector<GpuMesh> meshes;  // MeshId = индекс + 1
     IOverlay* overlay = nullptr;
 
+    // Текстуры: общий сэмплер, один набор дескрипторов на текстуру. TextureId = индекс + 1; освобождённые слоты пустые.
+    VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    VkSampler sampler = VK_NULL_HANDLE;
+    std::vector<GpuTexture> textures;
+    TextureId whiteTexture = 0;
+    bool anisotropySupported = false;
+    float maxAnisotropy = 1.0f;
+
     bool createInstance(const RendererDesc& desc, std::string& err);
     bool pickDevice(std::string& err);
     bool createSwapchain(int width, int height, std::string& err);
@@ -94,8 +116,13 @@ struct Renderer::Impl {
     bool createBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory,
                       std::string& err);
     bool findMemoryType(std::uint32_t typeBits, VkMemoryPropertyFlags flags, std::uint32_t& index) const;
-    bool createMesh(const MeshData& mesh, GpuMesh& out, std::string& err);
+    bool createMesh(const MeshData& mesh, std::span<const TextureId> textureIds, GpuMesh& out, std::string& err);
     void destroyMesh(GpuMesh& m);
+    bool createTextureObjects(std::string& err);
+    bool createTexture(const TextureData& data, GpuTexture& out, std::string& err);
+    void destroyTexture(GpuTexture& t);
+    bool submitOneTime(const std::function<void(VkCommandBuffer)>& record, std::string& err);
+    VkDescriptorSet descriptorFor(TextureId id) const;
     void destroyAll();
 };
 
@@ -200,9 +227,19 @@ bool Renderer::Impl::pickDevice(std::string& err) {
     f13.dynamicRendering = VK_TRUE;
     f13.synchronization2 = VK_TRUE;
 
+    VkPhysicalDeviceFeatures supported{};
+    vkGetPhysicalDeviceFeatures(physical, &supported);
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(physical, &props);
+    anisotropySupported = supported.samplerAnisotropy == VK_TRUE;
+    maxAnisotropy = std::min(16.0f, props.limits.maxSamplerAnisotropy);
+    VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    f2.features.samplerAnisotropy = anisotropySupported ? VK_TRUE : VK_FALSE;
+    f2.pNext = &f13;
+
     const char* devExt = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-    ci.pNext = &f13;
+    ci.pNext = &f2;
     ci.queueCreateInfoCount = 1;
     ci.pQueueCreateInfos = &q;
     ci.enabledExtensionCount = 1;
@@ -386,6 +423,8 @@ bool Renderer::Impl::createPipeline(std::string& err) {
 
     VkPushConstantRange pcr{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants)};
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    lci.setLayoutCount = 1;
+    lci.pSetLayouts = &setLayout;
     lci.pushConstantRangeCount = 1;
     lci.pPushConstantRanges = &pcr;
     r = vkCreatePipelineLayout(device, &lci, nullptr, &pipelineLayout);
@@ -395,10 +434,11 @@ bool Renderer::Impl::createPipeline(std::string& err) {
     stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag, "main", nullptr};
 
     const VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    const std::array<VkVertexInputAttributeDescription, 3> attrs{{
+    const std::array<VkVertexInputAttributeDescription, 4> attrs{{
         {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
         {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
         {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)},
+        {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)},
     }};
     VkPipelineVertexInputStateCreateInfo vin{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vin.vertexBindingDescriptionCount = 1;
@@ -490,8 +530,220 @@ void Renderer::Impl::destroyMesh(GpuMesh& m) {
     m = GpuMesh{};
 }
 
-bool Renderer::Impl::createMesh(const MeshData& mesh, GpuMesh& out, std::string& err) {
+VkDescriptorSet Renderer::Impl::descriptorFor(TextureId id) const {
+    if (id != 0 && id <= textures.size() && textures[id - 1].set) return textures[id - 1].set;
+    return whiteTexture ? textures[whiteTexture - 1].set : VK_NULL_HANDLE;
+}
+
+bool Renderer::Impl::createTextureObjects(std::string& err) {
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo lci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    lci.bindingCount = 1;
+    lci.pBindings = &binding;
+    VkResult r = vkCreateDescriptorSetLayout(device, &lci, nullptr, &setLayout);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateDescriptorSetLayout", r);
+
+    constexpr std::uint32_t kMaxTextures = 1024;
+    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxTextures};
+    VkDescriptorPoolCreateInfo pci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    pci.maxSets = kMaxTextures;
+    pci.poolSizeCount = 1;
+    pci.pPoolSizes = &size;
+    r = vkCreateDescriptorPool(device, &pci, nullptr, &descriptorPool);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateDescriptorPool", r);
+
+    VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sci.magFilter = VK_FILTER_LINEAR;
+    sci.minFilter = VK_FILTER_LINEAR;
+    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sci.anisotropyEnable = anisotropySupported ? VK_TRUE : VK_FALSE;
+    sci.maxAnisotropy = anisotropySupported ? maxAnisotropy : 1.0f;
+    sci.minLod = 0.0f;
+    sci.maxLod = VK_LOD_CLAMP_NONE;
+    r = vkCreateSampler(device, &sci, nullptr, &sampler);
+    return r == VK_SUCCESS ? true : fail(err, "vkCreateSampler", r);
+}
+
+bool Renderer::Impl::submitOneTime(const std::function<void(VkCommandBuffer)>& record, std::string& err) {
+    VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    ai.commandPool = pool;
+    ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = 1;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    VkResult r = vkAllocateCommandBuffers(device, &ai, &cmd);
+    if (r != VK_SUCCESS) return fail(err, "vkAllocateCommandBuffers (загрузка)", r);
+
+    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &bi);
+    record(cmd);
+    vkEndCommandBuffer(cmd);
+
+    VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    VkFence fence = VK_NULL_HANDLE;
+    r = vkCreateFence(device, &fi, nullptr, &fence);
+    if (r == VK_SUCCESS) {
+        VkCommandBufferSubmitInfo cbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+        cbi.commandBuffer = cmd;
+        VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+        submit.commandBufferInfoCount = 1;
+        submit.pCommandBufferInfos = &cbi;
+        r = vkQueueSubmit2(queue, 1, &submit, fence);
+        if (r == VK_SUCCESS) r = vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(device, fence, nullptr);
+    }
+    vkFreeCommandBuffers(device, pool, 1, &cmd);
+    return r == VK_SUCCESS ? true : fail(err, "отправка команд загрузки", r);
+}
+
+void Renderer::Impl::destroyTexture(GpuTexture& t) {
+    if (t.set) vkFreeDescriptorSets(device, descriptorPool, 1, &t.set);
+    if (t.view) vkDestroyImageView(device, t.view, nullptr);
+    if (t.image) vkDestroyImage(device, t.image, nullptr);
+    if (t.memory) vkFreeMemory(device, t.memory, nullptr);
+    t = GpuTexture{};
+}
+
+bool Renderer::Impl::createTexture(const TextureData& data, GpuTexture& out, std::string& err) {
+    // Все уровни подряд в одном промежуточном буфере.
+    std::vector<std::uint8_t> packed;
+    std::vector<VkBufferImageCopy> regions;
+    std::uint32_t w = data.width, h = data.height;
+    for (std::uint32_t level = 0; level < data.mips.size(); ++level) {
+        VkBufferImageCopy region{};
+        region.bufferOffset = packed.size();
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1};
+        region.imageExtent = {w, h, 1};
+        regions.push_back(region);
+        packed.insert(packed.end(), data.mips[level].begin(), data.mips[level].end());
+        w = std::max(1u, w / 2);
+        h = std::max(1u, h / 2);
+    }
+    const auto levels = static_cast<std::uint32_t>(data.mips.size());
+
+    VkBuffer staging = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+    auto cleanupStaging = [&] {
+        if (staging) vkDestroyBuffer(device, staging, nullptr);
+        if (stagingMemory) vkFreeMemory(device, stagingMemory, nullptr);
+    };
+    if (!createBuffer(packed.data(), packed.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, stagingMemory, err)) {
+        cleanupStaging();
+        return false;
+    }
+
+    VkImageCreateInfo ii{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ii.imageType = VK_IMAGE_TYPE_2D;
+    ii.format = data.srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+    ii.extent = {data.width, data.height, 1};
+    ii.mipLevels = levels;
+    ii.arrayLayers = 1;
+    ii.samples = VK_SAMPLE_COUNT_1_BIT;
+    ii.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ii.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ii.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkResult r = vkCreateImage(device, &ii, nullptr, &out.image);
+    if (r != VK_SUCCESS) {
+        cleanupStaging();
+        return fail(err, "vkCreateImage (текстура)", r);
+    }
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(device, out.image, &req);
+    VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    mai.allocationSize = req.size;
+    if (!findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mai.memoryTypeIndex)) {
+        cleanupStaging();
+        destroyTexture(out);
+        err = "нет памяти GPU для текстуры";
+        return false;
+    }
+    r = vkAllocateMemory(device, &mai, nullptr, &out.memory);
+    if (r != VK_SUCCESS) {
+        cleanupStaging();
+        destroyTexture(out);
+        return fail(err, "vkAllocateMemory (текстура)", r);
+    }
+    vkBindImageMemory(device, out.image, out.memory, 0);
+
+    const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, levels, 0, 1};
+    const bool uploaded = submitOneTime(
+        [&](VkCommandBuffer cmd) {
+            auto transition = [&](VkImageLayout from, VkImageLayout to, VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
+                                  VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess) {
+                VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+                b.srcStageMask = srcStage;
+                b.srcAccessMask = srcAccess;
+                b.dstStageMask = dstStage;
+                b.dstAccessMask = dstAccess;
+                b.oldLayout = from;
+                b.newLayout = to;
+                b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.image = out.image;
+                b.subresourceRange = all;
+                VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                dep.imageMemoryBarrierCount = 1;
+                dep.pImageMemoryBarriers = &b;
+                vkCmdPipelineBarrier2(cmd, &dep);
+            };
+            transition(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_NONE, 0,
+                       VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            vkCmdCopyBufferToImage(cmd, staging, out.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<std::uint32_t>(regions.size()),
+                                   regions.data());
+            transition(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                       VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        },
+        err);
+    cleanupStaging();
+    if (!uploaded) {
+        destroyTexture(out);
+        return false;
+    }
+
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = out.image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = ii.format;
+    vi.subresourceRange = all;
+    r = vkCreateImageView(device, &vi, nullptr, &out.view);
+    if (r != VK_SUCCESS) {
+        destroyTexture(out);
+        return fail(err, "vkCreateImageView (текстура)", r);
+    }
+
+    VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    dai.descriptorPool = descriptorPool;
+    dai.descriptorSetCount = 1;
+    dai.pSetLayouts = &setLayout;
+    r = vkAllocateDescriptorSets(device, &dai, &out.set);
+    if (r != VK_SUCCESS) {
+        destroyTexture(out);
+        return fail(err, "vkAllocateDescriptorSets (слишком много текстур?)", r);
+    }
+    VkDescriptorImageInfo imageInfo{sampler, out.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = out.set;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imageInfo;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    return true;
+}
+
+bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId> textureIds, GpuMesh& out, std::string& err) {
     out.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
+    for (const Submesh& s : effectiveSubmeshes(mesh)) {
+        TextureId tex = 0;
+        if (s.texture >= 0 && static_cast<std::size_t>(s.texture) < textureIds.size()) tex = textureIds[static_cast<std::size_t>(s.texture)];
+        out.submeshes.push_back({s.firstIndex, s.indexCount, tex});
+    }
     const bool ok = createBuffer(mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                  out.vertexBuffer, out.vertexMemory, err) &&
                     createBuffer(mesh.indices.data(), mesh.indices.size() * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
@@ -508,6 +760,10 @@ void Renderer::Impl::destroyAll() {
             if (imageAvailable[i]) vkDestroySemaphore(device, imageAvailable[i], nullptr);
             if (inFlight[i]) vkDestroyFence(device, inFlight[i], nullptr);
         }
+        for (GpuTexture& t : textures) destroyTexture(t);
+        if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+        if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
+        if (sampler) vkDestroySampler(device, sampler, nullptr);
         if (pool) vkDestroyCommandPool(device, pool, nullptr);
         if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
         if (pipelineLayout) vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
@@ -560,18 +816,52 @@ std::unique_ptr<Renderer> Renderer::create(const RendererDesc& desc, std::string
         error = "не удалось создать поверхность окна";
         return nullptr;
     }
-    if (!s.pickDevice(error) || !s.createSwapchain(desc.width, desc.height, error) || !s.createPipeline(error) ||
-        !s.createFrameObjects(error))
+    if (!s.pickDevice(error) || !s.createSwapchain(desc.width, desc.height, error) || !s.createTextureObjects(error) ||
+        !s.createPipeline(error) || !s.createFrameObjects(error))
         return nullptr;
+
+    // Белая текстура 1x1 для частей меша без текстуры.
+    GpuTexture white;
+    if (!s.createTexture(makeTexture(1, 1, {255, 255, 255, 255}, false), white, error)) return nullptr;
+    s.textures.push_back(white);
+    s.whiteTexture = static_cast<TextureId>(s.textures.size());
     return r;
 }
 
-MeshId Renderer::uploadMesh(const MeshData& mesh) {
+TextureId Renderer::uploadTexture(const TextureData& texture) {
+    if (!texture.valid()) return 0;
+    Impl& s = *impl_;
+    GpuTexture gpu;
+    std::string err;
+    if (!s.createTexture(texture, gpu, err)) {
+        std::fprintf(stderr, "uploadTexture: %s\n", err.c_str());
+        return 0;
+    }
+    // Свободный слот (после releaseTexture) используем повторно, иначе добавляем в конец.
+    for (std::size_t i = 0; i < s.textures.size(); ++i) {
+        if (!s.textures[i].image && static_cast<TextureId>(i + 1) != s.whiteTexture) {
+            s.textures[i] = gpu;
+            return static_cast<TextureId>(i + 1);
+        }
+    }
+    s.textures.push_back(gpu);
+    return static_cast<TextureId>(s.textures.size());
+}
+
+void Renderer::releaseTexture(TextureId id) {
+    Impl& s = *impl_;
+    if (id == 0 || id > s.textures.size() || id == s.whiteTexture || !s.textures[id - 1].image) return;
+    vkDeviceWaitIdle(s.device);
+    // Меши, ссылавшиеся на текстуру, дальше берут белую: descriptorFor видит пустой слот.
+    s.destroyTexture(s.textures[id - 1]);
+}
+
+MeshId Renderer::uploadMesh(const MeshData& mesh, std::span<const TextureId> textures) {
     if (mesh.vertices.empty() || mesh.indices.empty()) return 0;
     Impl& s = *impl_;
     GpuMesh gpu;
     std::string err;
-    if (!s.createMesh(mesh, gpu, err)) {
+    if (!s.createMesh(mesh, textures, gpu, err)) {
         std::fprintf(stderr, "uploadMesh: %s\n", err.c_str());
         return 0;
     }
@@ -579,12 +869,12 @@ MeshId Renderer::uploadMesh(const MeshData& mesh) {
     return static_cast<MeshId>(s.meshes.size());
 }
 
-bool Renderer::replaceMesh(MeshId id, const MeshData& mesh) {
+bool Renderer::replaceMesh(MeshId id, const MeshData& mesh, std::span<const TextureId> textures) {
     Impl& s = *impl_;
     if (id == 0 || id > s.meshes.size() || mesh.vertices.empty() || mesh.indices.empty()) return false;
     GpuMesh fresh;
     std::string err;
-    if (!s.createMesh(mesh, fresh, err)) {
+    if (!s.createMesh(mesh, textures, fresh, err)) {
         std::fprintf(stderr, "replaceMesh: %s\n", err.c_str());
         return false;
     }
@@ -675,6 +965,7 @@ bool Renderer::drawFrame(const core::Mat4& viewProjection, std::span<const DrawI
 
     PushConstants pc{};
     std::memcpy(pc.viewProj, viewProjection.m, sizeof(pc.viewProj));
+    VkDescriptorSet boundSet = VK_NULL_HANDLE;
     for (const DrawItem& item : items) {
         if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
         const GpuMesh& mesh = s.meshes[item.mesh - 1];
@@ -684,7 +975,15 @@ bool Renderer::drawFrame(const core::Mat4& viewProjection, std::span<const DrawI
         vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
         vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
         vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
-        vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
+        for (const GpuSubmesh& part : mesh.submeshes) {
+            if (part.indexCount == 0) continue;
+            const VkDescriptorSet set = s.descriptorFor(part.texture);
+            if (set != boundSet) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 0, 1, &set, 0, nullptr);
+                boundSet = set;
+            }
+            vkCmdDrawIndexed(cmd, part.indexCount, 1, part.firstIndex, 0, 0);
+        }
     }
     vkCmdEndRendering(cmd);
 

@@ -52,8 +52,13 @@ void optimizeMesh(render::MeshData& mesh) {
     weldVertices(mesh);
 #ifdef HAN_WITH_MESHOPT
     if (mesh.indices.empty() || mesh.vertices.empty()) return;
+    // Кэш оптимизируем внутри каждой части меша отдельно: части (материалы) должны остаться непрерывными диапазонами индексов.
     std::vector<std::uint32_t> optimized(mesh.indices.size());
-    meshopt_optimizeVertexCache(optimized.data(), mesh.indices.data(), mesh.indices.size(), mesh.vertices.size());
+    for (const render::Submesh& part : render::effectiveSubmeshes(mesh)) {
+        if (part.indexCount == 0) continue;
+        meshopt_optimizeVertexCache(optimized.data() + part.firstIndex, mesh.indices.data() + part.firstIndex, part.indexCount,
+                                    mesh.vertices.size());
+    }
     std::vector<render::Vertex> fetched(mesh.vertices.size());
     const std::size_t used = meshopt_optimizeVertexFetch(fetched.data(), optimized.data(), optimized.size(), mesh.vertices.data(),
                                                          mesh.vertices.size(), sizeof(render::Vertex));
