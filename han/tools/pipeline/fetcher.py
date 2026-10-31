@@ -144,7 +144,7 @@ def extract_zip(archive: Path, out_dir: Path) -> list[Path]:
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as src, open(target, "wb") as dst:
                 shutil.copyfileobj(src, dst)
-            extracted.append(target)
+            extracted.append(out_dir / Path(*rel.parts))  # путь в той же форме, что и переданный out_dir (не «разрешённый»)
     return extracted
 
 
