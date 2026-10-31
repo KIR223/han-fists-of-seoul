@@ -1,0 +1,10 @@
+#!/bin/sh
+# Хук pre-push: защита main, запрет force push, проверка зон владения.
+# Включается командой: python tools/setup_local.py  (git config core.hooksPath .githooks)
+PY=$(command -v python3 || command -v python || command -v py)
+if [ -z "$PY" ]; then
+  echo "⚠ Python не найден — проверка зон пропущена. Поставь Python 3 (см. docs/team/SETUP.md)." >&2
+  exit 0
+fi
+ROOT=$(git rev-parse --show-toplevel)
+exec "$PY" "$ROOT/tools/han_zones.py" pre-push "$@"

@@ -1,0 +1,334 @@
+{
+ "_comment": "Зоны владения: у каждой папки ровно один хозяин (без вложенных исключений). Роли: A, B, OWNER; shared — можно всем через PR. Папки оканчиваются на /, файлы — нет. Путь, которого нет в списке, — ничей. Менять только OWNER.",
+ "zones": [
+  {
+   "path": "han/core/",
+   "owner": "A"
+  },
+  {
+   "path": "han/platform/",
+   "owner": "A"
+  },
+  {
+   "path": "han/render/",
+   "owner": "A"
+  },
+  {
+   "path": "han/physics/",
+   "owner": "A"
+  },
+  {
+   "path": "han/audio/",
+   "owner": "A"
+  },
+  {
+   "path": "han/world/",
+   "owner": "A"
+  },
+  {
+   "path": "han/ui/",
+   "owner": "A"
+  },
+  {
+   "path": "han/editor/",
+   "owner": "A"
+  },
+  {
+   "path": "han/tools/",
+   "owner": "A"
+  },
+  {
+   "path": "game/vehicles/",
+   "owner": "A"
+  },
+  {
+   "path": "data/vehicles/",
+   "owner": "A"
+  },
+  {
+   "path": "tests/engine/",
+   "owner": "A"
+  },
+  {
+   "path": "bench/",
+   "owner": "A"
+  },
+  {
+   "path": "shaders/",
+   "owner": "A"
+  },
+  {
+   "path": "cmake/",
+   "owner": "A"
+  },
+  {
+   "path": "CMakeLists.txt",
+   "owner": "A"
+  },
+  {
+   "path": "CMakePresets.json",
+   "owner": "A"
+  },
+  {
+   "path": "vcpkg.json",
+   "owner": "A"
+  },
+  {
+   "path": ".github/workflows/",
+   "owner": "A"
+  },
+  {
+   "path": "docs/arch/A.md",
+   "owner": "A"
+  },
+  {
+   "path": "docs/progress/A.md",
+   "owner": "A"
+  },
+  {
+   "path": "docs/credits/A.md",
+   "owner": "A"
+  },
+  {
+   "path": "han/anim/",
+   "owner": "B"
+  },
+  {
+   "path": "han/ragdoll/",
+   "owner": "B"
+  },
+  {
+   "path": "han/cloth/",
+   "owner": "B"
+  },
+  {
+   "path": "game/combat/",
+   "owner": "B"
+  },
+  {
+   "path": "game/styles/",
+   "owner": "B"
+  },
+  {
+   "path": "game/learning/",
+   "owner": "B"
+  },
+  {
+   "path": "game/minigames/",
+   "owner": "B"
+  },
+  {
+   "path": "game/player/",
+   "owner": "B"
+  },
+  {
+   "path": "data/combat/",
+   "owner": "B"
+  },
+  {
+   "path": "data/ai/",
+   "owner": "B"
+  },
+  {
+   "path": "data/progress/",
+   "owner": "B"
+  },
+  {
+   "path": "tests/combat/",
+   "owner": "B"
+  },
+  {
+   "path": "docs/arch/B.md",
+   "owner": "B"
+  },
+  {
+   "path": "docs/progress/B.md",
+   "owner": "B"
+  },
+  {
+   "path": "docs/credits/B.md",
+   "owner": "B"
+  },
+  {
+   "path": "han/ai/",
+   "owner": "A"
+  },
+  {
+   "path": "han/script/",
+   "owner": "B"
+  },
+  {
+   "path": "game/missions/",
+   "owner": "B"
+  },
+  {
+   "path": "game/police/",
+   "owner": "A"
+  },
+  {
+   "path": "game/gangs/",
+   "owner": "A"
+  },
+  {
+   "path": "game/stream/",
+   "owner": "B"
+  },
+  {
+   "path": "game/economy/",
+   "owner": "B"
+  },
+  {
+   "path": "game/phone/",
+   "owner": "B"
+  },
+  {
+   "path": "game/customization/",
+   "owner": "B"
+  },
+  {
+   "path": "game/activities/",
+   "owner": "B"
+  },
+  {
+   "path": "game/save/",
+   "owner": "B"
+  },
+  {
+   "path": "data/world/",
+   "owner": "A"
+  },
+  {
+   "path": "data/city/",
+   "owner": "A"
+  },
+  {
+   "path": "data/people/",
+   "owner": "A"
+  },
+  {
+   "path": "data/economy/",
+   "owner": "B"
+  },
+  {
+   "path": "data/story/",
+   "owner": "B"
+  },
+  {
+   "path": "data/ui/",
+   "owner": "B"
+  },
+  {
+   "path": "data/loc/",
+   "owner": "B"
+  },
+  {
+   "path": "data/audio/",
+   "owner": "B"
+  },
+  {
+   "path": "data/_tools/",
+   "owner": "B"
+  },
+  {
+   "path": "tests/gameplay/",
+   "owner": "B"
+  },
+  {
+   "path": "docs/scripting.md",
+   "owner": "B"
+  },
+  {
+   "path": "VOICE_RIGHTS.md",
+   "owner": "B"
+  },
+  {
+   "path": "AI_USAGE.md",
+   "owner": "B"
+  },
+  {
+   "path": "contracts/",
+   "owner": "shared"
+  },
+  {
+   "path": "contracts/loc_requests/",
+   "owner": "shared",
+   "codeowners": "B"
+  },
+  {
+   "path": "docs/design/",
+   "owner": "OWNER"
+  },
+  {
+   "path": "docs/team/",
+   "owner": "OWNER"
+  },
+  {
+   "path": "tools/",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".githooks/",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".github/CODEOWNERS",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".claude/settings.json",
+   "owner": "OWNER"
+  },
+  {
+   "path": "CLAUDE.md",
+   "owner": "OWNER"
+  },
+  {
+   "path": "README.md",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".gitignore",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".gitattributes",
+   "owner": "OWNER"
+  },
+  {
+   "path": "CREDITS.md",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".github/workflows/repo-check.yml",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".github/workflows/automerge.yml",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".github/workflows/contract-notify.yml",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".github/workflows/weekly-digest.yml",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".github/workflows/notify-failure.yml",
+   "owner": "OWNER"
+  },
+  {
+   "path": ".github/workflows/weekly-build.yml",
+   "owner": "OWNER"
+  },
+  {
+   "path": "data/terrain/",
+   "owner": "A"
+  },
+  {
+   "path": "data/materials/",
+   "owner": "A"
+  }
+ ]
+}

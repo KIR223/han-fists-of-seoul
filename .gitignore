@@ -1,0 +1,32 @@
+# --- личное (не в Git) ---
+CLAUDE.local.md
+START_HERE_*.txt
+JOIN_HAN.ps1
+.claude/settings.local.json
+
+# --- сборка ---
+build/
+out/
+cmake-build-*/
+vcpkg_installed/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+CMakeUserPresets.json
+
+# --- ассеты: большие исходники не хранятся в Git (см. часть «Ассеты», han_fetch и манифест) ---
+assets_bin/
+assets_cache/
+downloads/
+
+# --- прочее ---
+__pycache__/
+*.pyc
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+saves/
+screenshots_out/

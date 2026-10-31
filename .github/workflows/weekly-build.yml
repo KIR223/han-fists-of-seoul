@@ -1,0 +1,49 @@
+name: weekly-build
+
+# Недельная сборка Release для приёмки владельцем. Заработает, когда A сделает CMakePresets.json (этап E0).
+on:
+  schedule:
+    - cron: "0 12 * * 5"   # пятница 15:00 по Москве
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Есть ли сборка?
+        id: has
+        shell: bash
+        run: |
+          if [ -f CMakePresets.json ]; then echo "yes=true" >> "$GITHUB_OUTPUT"; else echo "Каркас сборки ещё не готов (E0) — пропускаю."; fi
+      - uses: actions/cache@v4
+        if: steps.has.outputs.yes == 'true'
+        with:
+          path: ~\AppData\Local\vcpkg\archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+      - name: Сборка и тесты
+        if: steps.has.outputs.yes == 'true'
+        shell: pwsh
+        run: |
+          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
+          cmake --preset windows-release
+          cmake --build --preset windows-release --parallel
+          ctest --preset windows-release --output-on-failure
+          cmake --install build/windows-release --prefix dist
+      - name: Выложить в Releases
+        if: steps.has.outputs.yes == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $d = Get-Date -Format "yyyy-MM-dd"
+          Compress-Archive -Path dist\* -DestinationPath "HAN_weekly_$d.zip"
+          $notes = (gh pr list --state merged --search "merged:>=$((Get-Date).AddDays(-7).ToString('yyyy-MM-dd'))" --json number,title --jq '.[] | "- #\(.number) \(.title)"') -join "`n"
+          gh release create "weekly-$d" "HAN_weekly_$d.zip" --title "Недельная сборка $d" --notes "Что вошло за неделю:`n$notes"

@@ -1,0 +1,77 @@
+name: repo-check
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  zones:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Проверка зон владения
+        run: python tools/han_zones.py check --base origin/${{ github.base_ref }} --head HEAD --branch "${{ github.head_ref }}"
+
+  russian:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Заголовок PR и коммиты — по-русски
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys
+          sys.path.insert(0, "tools")
+          from commit_msg_check import is_russian
+          bad = []
+          if not is_russian(os.environ["PR_TITLE"]):
+              bad.append("Заголовок PR: " + os.environ["PR_TITLE"])
+          log = subprocess.run(["git", "log", "--format=%s", "origin/${{ github.base_ref }}..HEAD"], capture_output=True, text=True).stdout.splitlines()
+          bad += ["Коммит: " + s for s in log if not is_russian(s)]
+          if bad:
+              print("✖ Нужно по-русски:\n  " + "\n  ".join(bad))
+              sys.exit(1)
+          print("✔ Заголовок и коммиты на русском")
+          PY
+
+  credits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Лицензии новых ассетов
+        run: python tools/ci/credits_check.py --base origin/${{ github.base_ref }} --head HEAD
+
+  labels:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Метки зон
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: python tools/ci/label_pr.py

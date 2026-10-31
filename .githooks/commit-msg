@@ -1,0 +1,6 @@
+#!/bin/sh
+# Хук commit-msg: сообщение коммита должно быть на русском. Включается python tools/setup_local.py
+PY=$(command -v python3 || command -v python || command -v py)
+[ -z "$PY" ] && exit 0
+ROOT=$(git rev-parse --show-toplevel)
+exec "$PY" "$ROOT/tools/commit_msg_check.py" "$1"
