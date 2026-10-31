@@ -28,6 +28,18 @@ void printStats(const render::MeshData& mesh, std::size_t bytes) {
                 b.max.y, b.max.z, b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
 }
 
+// Имя файла текстуры по содержимому: размеры и 64-битный хэш FNV-1a пикселей (не криптографический, нужен для дедупликации).
+std::string textureFileName(std::uint32_t width, std::uint32_t height, const std::vector<std::uint8_t>& rgba) {
+    std::uint64_t hash = 1469598103934665603ull;
+    for (const std::uint8_t byte : rgba) {
+        hash ^= byte;
+        hash *= 1099511628211ull;
+    }
+    char buffer[64];
+    std::snprintf(buffer, sizeof(buffer), "tex_%ux%u_%016llx.ktx2", width, height, static_cast<unsigned long long>(hash));
+    return buffer;
+}
+
 int info(const fs::path& path) {
     render::MeshData mesh;
     std::string error;
@@ -94,19 +106,24 @@ int main(int argc, char** argv) {
     mesh = std::move(imported.mesh);
     if (!output.parent_path().empty()) fs::create_directories(output.parent_path(), ec);
 
-    // Текстуры: "<имя>.tex<N>.ktx2" рядом с мешем, с полной цепочкой мипов (sRGB: усреднение в линейном свете).
-    const std::string stem = output.stem().string();
+    // Текстуры: "tex_<ширина>x<высота>_<хэш содержимого>.ktx2" рядом с мешем, с полной цепочкой мипов (sRGB: усреднение в
+    // линейном свете). Имя зависит только от содержимого, поэтому LOD-ы одного ассета и разные ассеты делят один файл.
     for (std::size_t i = 0; i < imported.textures.size(); ++i) {
-        const std::string name = stem + ".tex" + std::to_string(i) + ".ktx2";
-        render::TextureData texture = render::makeTexture(imported.textures[i].width, imported.textures[i].height,
-                                                          std::move(imported.textures[i].rgba), true);
-        render::generateMips(texture);
-        if (!render::saveKtx2File(output.parent_path() / name, texture, error)) {
-            std::fprintf(stderr, "%s\n", error.c_str());
-            return 1;
+        const std::string name = textureFileName(imported.textures[i].width, imported.textures[i].height, imported.textures[i].rgba);
+        const fs::path file = output.parent_path() / name;
+        if (fs::exists(file, ec)) {
+            std::printf("текстура: %s (уже есть)\n", name.c_str());
+        } else {
+            render::TextureData texture = render::makeTexture(imported.textures[i].width, imported.textures[i].height,
+                                                              std::move(imported.textures[i].rgba), true);
+            render::generateMips(texture);
+            if (!render::saveKtx2File(file, texture, error)) {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return 1;
+            }
+            std::printf("текстура: %s (%ux%u, %zu мипов)\n", name.c_str(), texture.width, texture.height, texture.mips.size());
         }
         mesh.textures.push_back(name);
-        std::printf("текстура: %s (%ux%u, %zu мипов)\n", name.c_str(), texture.width, texture.height, texture.mips.size());
     }
 #endif
 

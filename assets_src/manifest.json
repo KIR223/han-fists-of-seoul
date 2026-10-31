@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "id": "pr_lantern_01",
+      "name": "PR_Lantern01",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "polyhaven",
+        "page": "https://polyhaven.com/a/Lantern_01",
+        "asset_id": "Lantern_01"
+      },
+      "author": "Rajil Jose Macatangay",
+      "license": "CC0",
+      "retrieved": "2026-11-01",
+      "sha256": "47bb9ecdaef36dbd0ea95af81f625f8c08351b12a00774ed72b96739467c6abe",
+      "used_in": "пропсы храмов и праздник фонарей (G54), витрины и лавки",
+      "modified": "да — упрощён до бюджета пропса, пивот в центре основания, LOD1–3, коллизия; покраска и корёизация — позже",
+      "license_url": "https://polyhaven.com/license"
+    }
+  ]
+}

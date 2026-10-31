@@ -8,5 +8,5 @@ add_executable(han_tests_engine src/modules_test.cpp src/core_test.cpp src/tools
 target_link_libraries(han_tests_engine PRIVATE doctest::doctest
     han_core han_platform han_render han_physics han_audio han_ui han_world han_ai han_editor han_tools
     han_police han_gangs han_vehicles)
-target_compile_definitions(han_tests_engine PRIVATE HAN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+target_compile_definitions(han_tests_engine PRIVATE HAN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data" HAN_REPO_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME engine COMMAND han_tests_engine)

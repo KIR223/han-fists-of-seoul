@@ -1,0 +1,41 @@
+# Слова, по которым конвейер ловит реальные бренды в именах объектов, материалов и картинок (часть 76.4, шаг 6).
+# Только маленькие буквы, подстрока без учёта регистра. Список неполный: логотипы внутри текстур надо смотреть глазами.
+# Правила проекта: реальные бренды, логотипы и марки запрещены; используем пародийную вселенную (часть 13).
+adidas
+audi
+budweiser
+burgerking
+coca
+daewoo
+disney
+emart
+familymart
+fanta
+gs25
+heineken
+honda
+hyundai
+kakao
+kfc
+lotte
+marlboro
+mcdonald
+mercedes
+naver
+nike
+nintendo
+nissan
+panasonic
+pepsi
+playstation
+samsung
+seveneleven
+7-eleven
+7eleven
+sony
+ssangyong
+starbucks
+tesla
+toyota
+volkswagen
+xbox

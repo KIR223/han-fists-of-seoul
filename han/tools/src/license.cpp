@@ -26,7 +26,7 @@ LicenseVerdict classifyLicense(std::string_view text) {
     if (s.empty()) return LicenseVerdict::Forbidden;
 
     // Запреты проверяются первыми: «CC-BY-NC-SA» — это NC, то есть нельзя.
-    for (const char* bad : {"bync", "bynd", "ccnc", "ccnd", "editorial", "personaluse", "noncommercial", "gamerip", "nolicense"})
+    for (const char* bad : {"bync", "bynd", "ccnc", "ccnd", "editorial", "personaluse", "noncommercial", "noderiv", "gamerip", "nolicense"})
         if (has(s, bad)) return LicenseVerdict::Forbidden;
     // 공공누리: тип 1 можно, типы 2-4 нельзя.
     if (has(s, "kogl") || has(s, "공공누리")) {
@@ -34,10 +34,10 @@ LicenseVerdict classifyLicense(std::string_view text) {
                                                                                           : LicenseVerdict::Forbidden;
     }
 
-    if (has(s, "ccbysa") || has(s, "royaltyfree")) return LicenseVerdict::NeedsOwner;
+    if (has(s, "ccbysa") || has(s, "ccattributionsharealike") || has(s, "royaltyfree")) return LicenseVerdict::NeedsOwner;
 
     if (has(s, "cc0") || has(s, "publicdomain") || s == "pd") return LicenseVerdict::Allowed;
-    if (has(s, "ccby")) return LicenseVerdict::Allowed;
+    if (has(s, "ccby") || has(s, "ccattribution")) return LicenseVerdict::Allowed;
     for (const char* ok : {"bsd", "apache", "zlib", "ofl", "openfontlicense"})
         if (has(s, ok)) return LicenseVerdict::Allowed;
     if (s.rfind("mit", 0) == 0) return LicenseVerdict::Allowed;
