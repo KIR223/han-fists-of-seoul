@@ -7,6 +7,7 @@ namespace han::platform {
 
 struct Window::Impl {
     SDL_Window* window = nullptr;
+    EventHook hook;
 };
 
 Window::Window() : impl_(std::make_unique<Impl>()) {}
@@ -28,6 +29,7 @@ FrameEvents Window::pump(InputMap& input) {
     FrameEvents out;
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
+        if (impl_->hook) impl_->hook(&e);
         switch (e.type) {
             case SDL_EVENT_QUIT: out.quitRequested = true; break;
             case SDL_EVENT_KEY_DOWN:
@@ -42,6 +44,10 @@ FrameEvents Window::pump(InputMap& input) {
     SDL_GetWindowSize(impl_->window, &out.width, &out.height);
     return out;
 }
+
+void Window::setEventHook(EventHook hook) { impl_->hook = std::move(hook); }
+
+void* Window::nativeHandle() const { return impl_->window; }
 
 void Window::setCaptureMouse(bool capture) { SDL_SetWindowRelativeMouseMode(impl_->window, capture); }
 

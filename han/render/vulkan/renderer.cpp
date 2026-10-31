@@ -82,6 +82,7 @@ struct Renderer::Impl {
     int frame = 0;
 
     std::vector<GpuMesh> meshes;  // MeshId = индекс + 1
+    IOverlay* overlay = nullptr;
 
     bool createInstance(const RendererDesc& desc, std::string& err);
     bool pickDevice(std::string& err);
@@ -507,7 +508,33 @@ void Renderer::Impl::destroyAll() {
 }
 
 Renderer::Renderer() : impl_(std::make_unique<Impl>()) {}
-Renderer::~Renderer() { impl_->destroyAll(); }
+Renderer::~Renderer() {
+    if (impl_->overlay && impl_->device) {
+        vkDeviceWaitIdle(impl_->device);
+        impl_->overlay->onRendererShutdown();
+    }
+    impl_->destroyAll();
+}
+
+void Renderer::setOverlay(IOverlay* overlay) {
+    Impl& s = *impl_;
+    if (s.overlay && s.device) {
+        vkDeviceWaitIdle(s.device);
+        s.overlay->onRendererShutdown();
+    }
+    s.overlay = overlay;
+    if (!overlay) return;
+    VulkanHandles h;
+    h.instance = s.instance;
+    h.physicalDevice = s.physical;
+    h.device = s.device;
+    h.queue = s.queue;
+    h.queueFamily = s.queueFamily;
+    h.colorFormat = static_cast<int>(s.format);
+    h.imageCount = static_cast<std::uint32_t>(s.images.size());
+    h.apiVersion = VK_API_VERSION_1_3;
+    overlay->onRendererReady(h);
+}
 
 std::unique_ptr<Renderer> Renderer::create(const RendererDesc& desc, std::string& error) {
     std::unique_ptr<Renderer> r(new Renderer());
@@ -637,6 +664,30 @@ bool Renderer::drawFrame(const core::Mat4& viewProjection, std::span<const DrawI
         vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
     }
     vkCmdEndRendering(cmd);
+
+    if (s.overlay) {
+        // Второй проход поверх сцены без глубины: сначала дожидаемся записи цвета первым проходом.
+        VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+        mb.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        mb.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        mb.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        mb.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &mb;
+        vkCmdPipelineBarrier2(cmd, &dep);
+
+        VkRenderingAttachmentInfo overlayColor = color;
+        overlayColor.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        VkRenderingInfo ori{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        ori.renderArea = {{0, 0}, s.extent};
+        ori.layerCount = 1;
+        ori.colorAttachmentCount = 1;
+        ori.pColorAttachments = &overlayColor;
+        vkCmdBeginRendering(cmd, &ori);
+        s.overlay->record(cmd);
+        vkCmdEndRendering(cmd);
+    }
 
     barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, 0);
