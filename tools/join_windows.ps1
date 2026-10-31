@@ -1,4 +1,4 @@
-﻿# HAN: Fists of Seoul — установка и подключение одним скриптом (Windows 10/11).
+﻿﻿# HAN: Fists of Seoul — установка и подключение одним скриптом (Windows 10/11).
 # Запуск: ПКМ по файлу -> «Выполнить с помощью PowerShell»  или в PowerShell:  powershell -ExecutionPolicy Bypass -File JOIN_HAN.ps1
 # Параметры: -Blender (поставить Blender, нужен B и A)  -SkipVS (не ставить Visual Studio)
 param([switch]$Blender, [switch]$SkipVS)
