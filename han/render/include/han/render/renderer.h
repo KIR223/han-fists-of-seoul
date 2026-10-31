@@ -10,6 +10,7 @@
 
 #include "han/render/mesh.h"
 #include "han/render/overlay.h"
+#include "han/render/texture.h"
 
 namespace han::render {
 
@@ -21,7 +22,8 @@ struct RendererDesc {
     std::function<std::uint64_t(void* vkInstance)> createSurface;
 };
 
-using MeshId = std::uint32_t;  // 0 — «нет меша»
+using MeshId = std::uint32_t;     // 0 — «нет меша»
+using TextureId = std::uint32_t;  // 0 — «нет текстуры» (рисуется белой)
 
 struct DrawItem {
     MeshId mesh = 0;
@@ -40,12 +42,17 @@ public:
     // или быть отключено до его уничтожения. onRendererReady вызывается сразу.
     void setOverlay(IOverlay* overlay);
 
-    // Загружает меш в память GPU. 0 — ошибка. Меши живут до уничтожения рендерера.
-    MeshId uploadMesh(const MeshData& mesh);
+    // Загружает текстуру (RGBA8 со всеми мип-уровнями) в память GPU. 0 — ошибка (в т. ч. некорректные данные).
+    TextureId uploadTexture(const TextureData& texture);
+    // Освобождает текстуру; ждёт простоя GPU. Меши, которые на неё ссылались, дальше рисуются белыми.
+    void releaseTexture(TextureId id);
+
+    // Загружает меш в память GPU. 0 — ошибка. textures[i] — текстура для mesh.textures[i]; нет записи или 0 — белая.
+    MeshId uploadMesh(const MeshData& mesh, std::span<const TextureId> textures = {});
 
     // Заменяет данные существующего меша (горячая перезагрузка); MeshId остаётся прежним. Ждёт простоя GPU.
     // false — id неверный или не хватило памяти; тогда прежний меш остаётся как был.
-    bool replaceMesh(MeshId id, const MeshData& mesh);
+    bool replaceMesh(MeshId id, const MeshData& mesh, std::span<const TextureId> textures = {});
 
     // Рисует кадр. width/height — текущий размер окна в пикселях (для пересоздания swapchain).
     // false — кадр пропущен (окно свёрнуто, пересоздание swapchain) или произошла ошибка устройства.

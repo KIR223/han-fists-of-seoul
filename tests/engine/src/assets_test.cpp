@@ -7,7 +7,9 @@
 #include <fstream>
 
 #include "han/core/asset_watcher.h"
+#include "han/render/ktx2_io.h"
 #include "han/render/mesh_io.h"
+#include "han/render/texture.h"
 #include "han/tools/gltf_import.h"
 #include "han/tools/mesh_tools.h"
 
@@ -24,21 +26,84 @@ fs::path tempDir(const char* name) {
 }
 
 bool sameMesh(const render::MeshData& a, const render::MeshData& b) {
-    return a.indices == b.indices && a.vertices.size() == b.vertices.size() &&
-           std::memcmp(a.vertices.data(), b.vertices.data(), a.vertices.size() * sizeof(render::Vertex)) == 0;
+    if (a.indices != b.indices || a.vertices.size() != b.vertices.size() || a.textures != b.textures ||
+        a.submeshes.size() != b.submeshes.size())
+        return false;
+    for (std::size_t i = 0; i < a.submeshes.size(); ++i) {
+        if (a.submeshes[i].firstIndex != b.submeshes[i].firstIndex || a.submeshes[i].indexCount != b.submeshes[i].indexCount ||
+            a.submeshes[i].texture != b.submeshes[i].texture)
+            return false;
+    }
+    return std::memcmp(a.vertices.data(), b.vertices.data(), a.vertices.size() * sizeof(render::Vertex)) == 0;
 }
+
+// Смещение первого индекса в сериализованном меше: заголовок + вершины.
+std::size_t indexOffset(const render::MeshData& m) { return render::kMeshHeaderSize + m.vertices.size() * sizeof(render::Vertex); }
 
 }  // namespace
 
 TEST_CASE("mesh_io: запись и чтение возвращают тот же меш") {
     const render::MeshData box = render::makeBox({1, 2, 3}, {0.1f, 0.2f, 0.3f});
     const auto bytes = render::serializeMesh(box);
-    CHECK(bytes.size() == render::kMeshHeaderSize + box.vertices.size() * sizeof(render::Vertex) + box.indices.size() * 4);
+    // Заголовок, вершины, индексы, затем два нуля: частей нет, текстур нет.
+    CHECK(bytes.size() == render::kMeshHeaderSize + box.vertices.size() * sizeof(render::Vertex) + box.indices.size() * 4 + 8);
 
     render::MeshData back;
     std::string err;
     REQUIRE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
     CHECK(sameMesh(box, back));
+}
+
+TEST_CASE("mesh_io: UV сохраняются") {
+    const render::MeshData plane = render::makePlane(5, {1, 1, 1}, 4.0f);
+    float maxU = 0;
+    for (const auto& v : plane.vertices) maxU = std::max({maxU, v.uv[0], v.uv[1]});
+    CHECK(maxU == doctest::Approx(4.0f));
+    const auto bytes = render::serializeMesh(plane);
+    render::MeshData back;
+    std::string err;
+    REQUIRE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
+    CHECK(sameMesh(plane, back));
+}
+
+TEST_CASE("mesh_io: части меша и имена текстур") {
+    render::MeshData m = render::makeBox({1, 1, 1}, {1, 1, 1});
+    m.textures = {"lamp.tex0.ktx2", "корея.tex1.ktx2"};
+    m.submeshes = {{0, 12, 0}, {12, 12, -1}, {24, 12, 1}};
+    const auto bytes = render::serializeMesh(m);
+    render::MeshData back;
+    std::string err;
+    REQUIRE_MESSAGE(render::deserializeMesh(bytes.data(), bytes.size(), back, err), err);
+    CHECK(sameMesh(m, back));
+    CHECK(render::effectiveSubmeshes(back).size() == 3);
+    CHECK(render::effectiveSubmeshes(render::makeBox({1, 1, 1}, {1, 1, 1})).size() == 1);
+}
+
+TEST_CASE("mesh_io: некорректные части меша отклоняются") {
+    render::MeshData m = render::makeBox({1, 1, 1}, {1, 1, 1});
+    m.textures = {"a.ktx2"};
+    render::MeshData back;
+    std::string err;
+
+    m.submeshes = {{0, 12, 0}, {12, 30, 0}};  // вторая часть заходит за последний индекс (12 + 30 > 36)
+    auto bytes = render::serializeMesh(m);
+    CHECK_FALSE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
+
+    m.submeshes = {{0, 36, 5}};  // текстуры 5 нет
+    bytes = render::serializeMesh(m);
+    CHECK_FALSE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
+
+    m.submeshes = {{0, 12, 0}, {18, 18, 0}};  // между частями дыра (индексы 12..17 никому не принадлежат)
+    bytes = render::serializeMesh(m);
+    CHECK_FALSE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
+
+    m.submeshes = {{0, 24, 0}};  // не покрыты последние индексы
+    bytes = render::serializeMesh(m);
+    CHECK_FALSE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
+
+    m.submeshes = {{0, 35, 0}};  // не кратно трём
+    bytes = render::serializeMesh(m);
+    CHECK_FALSE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
 }
 
 TEST_CASE("mesh_io: файл на диске") {
@@ -54,7 +119,8 @@ TEST_CASE("mesh_io: файл на диске") {
 }
 
 TEST_CASE("mesh_io: повреждённые данные отклоняются") {
-    const auto good = render::serializeMesh(render::makeBox({1, 1, 1}, {1, 1, 1}));
+    const render::MeshData box = render::makeBox({1, 1, 1}, {1, 1, 1});
+    const auto good = render::serializeMesh(box);
     render::MeshData out;
     std::string err;
 
@@ -64,15 +130,19 @@ TEST_CASE("mesh_io: повреждённые данные отклоняются
     badMagic[0] = 'X';
     CHECK_FALSE(render::deserializeMesh(badMagic.data(), badMagic.size(), out, err));
 
-    auto badVersion = good;
-    badVersion[4] = 99;
-    CHECK_FALSE(render::deserializeMesh(badVersion.data(), badVersion.size(), out, err));
+    auto oldVersion = good;
+    oldVersion[4] = 1;  // формат v1 больше не читается
+    CHECK_FALSE(render::deserializeMesh(oldVersion.data(), oldVersion.size(), out, err));
+    CHECK(err.find("сварите") != std::string::npos);
 
     CHECK_FALSE(render::deserializeMesh(good.data(), good.size() - 1, out, err));  // обрезан
 
+    auto extra = good;
+    extra.push_back(0);
+    CHECK_FALSE(render::deserializeMesh(extra.data(), extra.size(), out, err));  // лишние данные
+
     auto badIndex = good;
-    const std::size_t lastIndex = badIndex.size() - 4;
-    badIndex[lastIndex] = 0xFF;  // индекс 255 при 24 вершинах
+    badIndex[indexOffset(box) + 4 * 35] = 0xFF;  // последний индекс 255 при 24 вершинах
     CHECK_FALSE(render::deserializeMesh(badIndex.data(), badIndex.size(), out, err));
 
     auto hugeCount = good;
@@ -87,10 +157,110 @@ TEST_CASE("mesh_io: границы меша") {
     CHECK(b.min.z == doctest::Approx(-3));
 }
 
+TEST_CASE("texture: число мип-уровней и корректность") {
+    CHECK(render::mipLevelCount(1, 1) == 1);
+    CHECK(render::mipLevelCount(256, 256) == 9);
+    CHECK(render::mipLevelCount(64, 16) == 7);  // до 1x1 по большей стороне
+    CHECK(render::mipLevelCount(5, 3) == 3);
+
+    render::TextureData bad;
+    CHECK_FALSE(bad.valid());
+    auto t = render::makeCheckerTexture(8, 2, 0xFFFFFFFF, 0xFF000000);
+    CHECK(t.valid());
+    t.mips[0].pop_back();
+    CHECK_FALSE(t.valid());
+}
+
+TEST_CASE("texture: мипы строятся до 1x1, средний цвет считается в линейном свете") {
+    // Белый и красный (ABGR): полный белый (255,255,255) и красный (255,0,0). Среднее в линейном свете: G = B = 0.5 → sRGB ≈ 188.
+    auto t = render::makeCheckerTexture(8, 1, 0xFFFFFFFF, 0xFF0000FF);
+    render::generateMips(t);
+    REQUIRE(t.mips.size() == 4);
+    CHECK(t.valid());
+    CHECK(t.mips.back().size() == 4);
+    CHECK(t.mips.back()[0] == 255);
+    CHECK(std::abs(static_cast<int>(t.mips.back()[1]) - 188) <= 2);
+    CHECK(std::abs(static_cast<int>(t.mips.back()[2]) - 188) <= 2);
+    CHECK(t.mips.back()[3] == 255);
+
+    // Линейная текстура усредняется напрямую: 255 и 0 → 128.
+    auto lin = render::makeCheckerTexture(2, 1, 0xFFFFFFFF, 0xFF000000);
+    lin.srgb = false;
+    render::generateMips(lin);
+    REQUIRE(lin.mips.size() == 2);
+    CHECK(std::abs(static_cast<int>(lin.mips[1][0]) - 128) <= 1);
+}
+
+TEST_CASE("texture: неквадратные и нечётные размеры") {
+    std::vector<std::uint8_t> px(5 * 3 * 4, 200);
+    auto t = render::makeTexture(5, 3, px, true);
+    render::generateMips(t);
+    CHECK(t.mips.size() == 3);
+    CHECK(t.valid());
+    CHECK(t.mips[1].size() == 2 * 1 * 4);
+    CHECK(t.mips[2].size() == 4);
+}
+
+TEST_CASE("ktx2: запись и чтение возвращают ту же текстуру") {
+    auto t = render::makeCheckerTexture(32, 4, 0xFF3366CC, 0xFFEEDDAA);
+    render::generateMips(t);
+    const auto bytes = render::serializeKtx2(t);
+    REQUIRE_FALSE(bytes.empty());
+    CHECK(std::memcmp(bytes.data() + 1, "KTX 20", 6) == 0);
+
+    render::TextureData back;
+    std::string err;
+    REQUIRE_MESSAGE(render::deserializeKtx2(bytes.data(), bytes.size(), back, err), err);
+    CHECK(back.width == 32);
+    CHECK(back.height == 32);
+    CHECK(back.srgb);
+    CHECK(back.mips == t.mips);
+
+    t.srgb = false;
+    const auto linearBytes = render::serializeKtx2(t);
+    REQUIRE(render::deserializeKtx2(linearBytes.data(), linearBytes.size(), back, err));
+    CHECK_FALSE(back.srgb);
+}
+
+TEST_CASE("ktx2: файл на диске и повреждения") {
+    const fs::path dir = tempDir("han_ktx2_test");
+    auto t = render::makeCheckerTexture(16, 4, 0xFFFFFFFF, 0xFF000000);
+    render::generateMips(t);
+    std::string err;
+    REQUIRE(render::saveKtx2File(dir / "t.ktx2", t, err));
+    render::TextureData back;
+    REQUIRE(render::loadKtx2File(dir / "t.ktx2", back, err));
+    CHECK(back.mips == t.mips);
+    CHECK_FALSE(render::loadKtx2File(dir / "нет.ktx2", back, err));
+
+    const auto good = render::serializeKtx2(t);
+    CHECK_FALSE(render::deserializeKtx2(good.data(), 40, back, err));  // короче заголовка
+
+    auto badSig = good;
+    badSig[1] = 'Z';
+    CHECK_FALSE(render::deserializeKtx2(badSig.data(), badSig.size(), back, err));
+
+    CHECK_FALSE(render::deserializeKtx2(good.data(), good.size() - 8, back, err));  // обрезан последний (самый большой) уровень
+
+    auto compressed = good;
+    compressed[12] = 0;  // vkFormat = 0 — сжатая (Basis) текстура
+    compressed[13] = compressed[14] = compressed[15] = 0;
+    CHECK_FALSE(render::deserializeKtx2(compressed.data(), compressed.size(), back, err));
+    CHECK(err.find("сжат") != std::string::npos);
+
+    auto hugeLevels = good;
+    hugeLevels[40] = 99;  // уровней больше, чем помещается
+    CHECK_FALSE(render::deserializeKtx2(hugeLevels.data(), hugeLevels.size(), back, err));
+
+    render::TextureData invalid;
+    CHECK(render::serializeKtx2(invalid).empty());
+    fs::remove_all(dir);
+}
+
 TEST_CASE("mesh_tools: сварка склеивает одинаковые вершины и сохраняет геометрию") {
     render::MeshData m;
-    const render::Vertex a{{0, 0, 0}, {0, 0, 1}, {1, 1, 1}}, b{{1, 0, 0}, {0, 0, 1}, {1, 1, 1}}, c{{0, 1, 0}, {0, 0, 1}, {1, 1, 1}},
-        d{{1, 1, 0}, {0, 0, 1}, {1, 1, 1}};
+    const render::Vertex a{{0, 0, 0}, {0, 0, 1}, {1, 1, 1}, {0, 0}}, b{{1, 0, 0}, {0, 0, 1}, {1, 1, 1}, {1, 0}},
+        c{{0, 1, 0}, {0, 0, 1}, {1, 1, 1}, {0, 1}}, d{{1, 1, 0}, {0, 0, 1}, {1, 1, 1}, {1, 1}};
     m.vertices = {a, b, c, b, d, c};  // два треугольника с общим ребром, вершины повторены
     m.indices = {0, 1, 2, 3, 4, 5};
     tools::weldVertices(m);
@@ -101,6 +271,17 @@ TEST_CASE("mesh_tools: сварка склеивает одинаковые ве
     }
     // Третий и шестой индексы указывали на одну и ту же вершину c.
     CHECK(m.indices[2] == m.indices[5]);
+}
+
+TEST_CASE("mesh_tools: вершины с разными UV не склеиваются") {
+    render::MeshData m;
+    render::Vertex a{{0, 0, 0}, {0, 0, 1}, {1, 1, 1}, {0, 0}};
+    render::Vertex b = a;
+    b.uv[0] = 0.5f;
+    m.vertices = {a, b};
+    m.indices = {0, 1, 0};
+    tools::weldVertices(m);
+    CHECK(m.vertices.size() == 2);
 }
 
 TEST_CASE("mesh_tools: нормали плоскости смотрят вверх") {
@@ -114,12 +295,22 @@ TEST_CASE("mesh_tools: нормали плоскости смотрят ввер
     }
 }
 
-TEST_CASE("mesh_tools: оптимизация не меняет число треугольников") {
+TEST_CASE("mesh_tools: оптимизация не меняет число треугольников и сохраняет части меша") {
     render::MeshData box = render::makeBox({1, 1, 1}, {1, 1, 1});
+    box.textures = {"a.ktx2", "b.ktx2"};
+    box.submeshes = {{0, 18, 0}, {18, 18, 1}};
     tools::optimizeMesh(box);
     CHECK(box.indices.size() == 36);
     CHECK(box.vertices.size() == 24);
     for (const auto i : box.indices) CHECK(i < box.vertices.size());
+    REQUIRE(box.submeshes.size() == 2);
+    CHECK(box.submeshes[0].indexCount == 18);
+    CHECK(box.submeshes[1].firstIndex == 18);
+    // После оптимизации меш остаётся корректным для записи.
+    const auto bytes = render::serializeMesh(box);
+    render::MeshData back;
+    std::string err;
+    CHECK_MESSAGE(render::deserializeMesh(bytes.data(), bytes.size(), back, err), err);
 }
 
 TEST_CASE("AssetWatcher: изменение объявляется после стабилизации файла") {
@@ -169,7 +360,7 @@ void putF(std::vector<std::uint8_t>& v, float f) {
     put32(v, x);
 }
 
-// Минимальный GLB: один треугольник (0,0,0) (1,0,0) (0,1,0), индексы uint16, узел сдвинут на translation и масштабирован на scaleX.
+// Минимальный GLB: один треугольник (0,0,0) (1,0,0) (0,1,0), индексы uint16; nodeJson описывает узел с мешем.
 std::vector<std::uint8_t> makeTriangleGlb(const std::string& nodeJson) {
     std::vector<std::uint8_t> bin;
     for (const float f : {0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f}) putF(bin, f);
@@ -202,14 +393,14 @@ std::vector<std::uint8_t> makeTriangleGlb(const std::string& nodeJson) {
     return glb;
 }
 
-bool importFromBytes(const std::vector<std::uint8_t>& glb, render::MeshData& mesh, std::string& err) {
+bool importFromBytes(const std::vector<std::uint8_t>& glb, tools::ImportResult& result, std::string& err) {
     const fs::path dir = tempDir("han_gltf_test");
     const fs::path file = dir / "t.glb";
     {
         std::ofstream out(file, std::ios::binary);
         out.write(reinterpret_cast<const char*>(glb.data()), static_cast<std::streamsize>(glb.size()));
     }
-    const bool ok = tools::importGltf(file, mesh, err);
+    const bool ok = tools::importGltf(file, result, err);
     fs::remove_all(dir);
     return ok;
 }
@@ -217,9 +408,10 @@ bool importFromBytes(const std::vector<std::uint8_t>& glb, render::MeshData& mes
 }  // namespace
 
 TEST_CASE("glTF: узел сдвигает вершины, нормали считаются, обход сохраняется") {
-    render::MeshData mesh;
+    tools::ImportResult r;
     std::string err;
-    REQUIRE_MESSAGE(importFromBytes(makeTriangleGlb("{\"mesh\":0,\"translation\":[1,2,3]}"), mesh, err), err);
+    REQUIRE_MESSAGE(importFromBytes(makeTriangleGlb("{\"mesh\":0,\"translation\":[1,2,3]}"), r, err), err);
+    const render::MeshData& mesh = r.mesh;
     REQUIRE(mesh.vertices.size() == 3);
     REQUIRE(mesh.indices.size() == 3);
     CHECK(mesh.vertices[0].position[0] == doctest::Approx(1));
@@ -229,22 +421,25 @@ TEST_CASE("glTF: узел сдвигает вершины, нормали счи
     CHECK(mesh.vertices[0].normal[2] == doctest::Approx(1));  // против часовой стрелки в плоскости XY: нормаль +Z
     CHECK(mesh.indices[0] == 0);
     CHECK(mesh.indices[1] == 1);
+    CHECK(mesh.submeshes.empty());  // без текстур весь меш одна часть
+    CHECK(r.textures.empty());
 }
 
 TEST_CASE("glTF: зеркальный масштаб переворачивает обход, нормаль остаётся наружу") {
-    render::MeshData mesh;
+    tools::ImportResult r;
     std::string err;
-    REQUIRE_MESSAGE(importFromBytes(makeTriangleGlb("{\"mesh\":0,\"scale\":[-1,1,1]}"), mesh, err), err);
-    REQUIRE(mesh.indices.size() == 3);
-    CHECK(mesh.vertices[1].position[0] == doctest::Approx(-1));
-    CHECK(mesh.indices[1] == 2);  // индексы 1 и 2 поменяны местами
-    CHECK(mesh.vertices[0].normal[2] == doctest::Approx(1));
+    REQUIRE_MESSAGE(importFromBytes(makeTriangleGlb("{\"mesh\":0,\"scale\":[-1,1,1]}"), r, err), err);
+    REQUIRE(r.mesh.indices.size() == 3);
+    CHECK(r.mesh.vertices[1].position[0] == doctest::Approx(-1));
+    CHECK(r.mesh.indices[1] == 2);  // индексы 1 и 2 поменяны местами
+    CHECK(r.mesh.vertices[0].normal[2] == doctest::Approx(1));
 }
 
 TEST_CASE("glTF: реальный файл из Blender (куб и конус), весь путь до .hmesh") {
-    render::MeshData mesh;
+    tools::ImportResult r;
     std::string err;
-    REQUIRE_MESSAGE(tools::importGltf(fs::path(HAN_TEST_DATA_DIR) / "blender_cube_cone.glb", mesh, err), err);
+    REQUIRE_MESSAGE(tools::importGltf(fs::path(HAN_TEST_DATA_DIR) / "blender_cube_cone.glb", r, err), err);
+    render::MeshData& mesh = r.mesh;
     CHECK(mesh.vertices.size() >= 8 + 5);
     CHECK(mesh.indices.size() % 3 == 0);
     for (const auto i : mesh.indices) REQUIRE(i < mesh.vertices.size());
@@ -285,11 +480,59 @@ TEST_CASE("glTF: реальный файл из Blender (куб и конус), 
     CHECK(sameMesh(mesh, back));
 }
 
-TEST_CASE("glTF: ошибки отдаются, а не падают") {
-    render::MeshData mesh;
+#ifdef HAN_WITH_STB
+TEST_CASE("glTF: текстура из Blender извлекается, UV и подмеши на месте") {
+    tools::ImportResult r;
     std::string err;
-    CHECK_FALSE(tools::importGltf("нет-такого-файла.glb", mesh, err));
+    REQUIRE_MESSAGE(tools::importGltf(fs::path(HAN_TEST_DATA_DIR) / "blender_textured_cube.glb", r, err), err);
+    for (const auto& w : r.warnings) MESSAGE(w);
+
+    REQUIRE(r.textures.size() == 1);
+    const tools::ImportedTexture& tex = r.textures[0];
+    REQUIRE(tex.width == 64);
+    REQUIRE(tex.height == 64);
+    REQUIRE(tex.rgba.size() == 64u * 64u * 4u);
+    // Левый верхний угол изображения синий (метка из make_textured_fixture.py): так проверяется ориентация картинки.
+    CHECK(tex.rgba[0] == 0);
+    CHECK(tex.rgba[1] == 0);
+    CHECK(tex.rgba[2] == 255);
+    CHECK(tex.rgba[3] == 255);
+    // Следующая клетка по горизонтали (x = 8) — белая, ниже синей (y = 8) — тоже белая или красная, но не синяя.
+    const std::size_t right = 8 * 4;
+    CHECK(tex.rgba[right + 2] == 255);
+    CHECK(tex.rgba[right + 0] == 255);  // белая клетка (255, 255, 255)
+
+    REQUIRE(r.mesh.submeshes.size() == 1);
+    CHECK(r.mesh.submeshes[0].texture == 0);
+    CHECK(r.mesh.submeshes[0].firstIndex == 0);
+    CHECK(r.mesh.submeshes[0].indexCount == r.mesh.indices.size());
+
+    bool anyUv = false;
+    for (const auto& v : r.mesh.vertices) {
+        CHECK(v.uv[0] >= -0.001f);
+        CHECK(v.uv[0] <= 1.001f);
+        CHECK(v.uv[1] >= -0.001f);
+        CHECK(v.uv[1] <= 1.001f);
+        anyUv = anyUv || v.uv[0] != 0 || v.uv[1] != 0;
+    }
+    CHECK(anyUv);
+
+    // Полный путь варки: текстура → мипы → KTX2 → чтение.
+    render::TextureData texture = render::makeTexture(tex.width, tex.height, tex.rgba, true);
+    render::generateMips(texture);
+    CHECK(texture.mips.size() == 7);
+    const auto bytes = render::serializeKtx2(texture);
+    render::TextureData back;
+    REQUIRE(render::deserializeKtx2(bytes.data(), bytes.size(), back, err));
+    CHECK(back.mips == texture.mips);
+}
+#endif  // HAN_WITH_STB
+
+TEST_CASE("glTF: ошибки отдаются, а не падают") {
+    tools::ImportResult r;
+    std::string err;
+    CHECK_FALSE(tools::importGltf("нет-такого-файла.glb", r, err));
     CHECK_FALSE(err.empty());
-    CHECK_FALSE(importFromBytes({'g', 'l', 'T', 'F', 0, 0}, mesh, err));
+    CHECK_FALSE(importFromBytes({'g', 'l', 'T', 'F', 0, 0}, r, err));
 }
 #endif  // HAN_WITH_GLTF

@@ -15,6 +15,7 @@
 
 #include "han/core/asset_watcher.h"
 #include "han/core/console.h"
+#include "han/render/asset_loader.h"
 #include "han/render/mesh_io.h"
 #include "han/platform/window.h"
 #include "han/render/camera.h"
@@ -87,34 +88,39 @@ int main(int argc, char** argv) {
 
     using han::core::Mat4;
     using han::core::Vec3;
-    const auto ground = renderer->uploadMesh(han::render::makePlane(40.f, {0.35f, 0.4f, 0.35f}));
-    const auto cube = renderer->uploadMesh(han::render::makeBox({0.5f, 0.5f, 0.5f}, {0.85f, 0.4f, 0.3f}));
+    // Шахматная текстура с мипами для земли и кубов; колонна остаётся без текстуры (проверка белой текстуры по умолчанию).
+    auto checker = han::render::makeCheckerTexture(256, 32, 0xFFD0D0D0, 0xFF606060);
+    han::render::generateMips(checker);
+    const han::render::TextureId checkerId = renderer->uploadTexture(checker);
+    const std::vector<han::render::TextureId> checkerSlots{checkerId};
+    const auto textured = [](han::render::MeshData m) {
+        m.textures = {"checker"};
+        m.submeshes = {{0, static_cast<std::uint32_t>(m.indices.size()), 0}};
+        return m;
+    };
+    const auto ground = renderer->uploadMesh(textured(han::render::makePlane(40.f, {0.55f, 0.75f, 0.55f}, 20.f)), checkerSlots);
+    const auto cube = renderer->uploadMesh(textured(han::render::makeBox({0.5f, 0.5f, 0.5f}, {1.0f, 0.55f, 0.4f})), checkerSlots);
     const auto pillar = renderer->uploadMesh(han::render::makeBox({0.4f, 2.f, 0.4f}, {0.7f, 0.7f, 0.75f}));
-    if (!ground || !cube || !pillar) {
+    if (!checkerId || !ground || !cube || !pillar) {
         std::fprintf(stderr, "не удалось загрузить меши\n");
         return 1;
     }
 
     // Свой меш из .hmesh (варится han_cooker): стоит в центре сцены на земле, при изменении файла перезагружается.
-    han::render::MeshId custom = 0;
-    float customLift = 0;
+    han::render::LoadedMesh custom;
     han::core::AssetWatcher watcher;
-    const auto loadCustom = [&](bool firstTime) {
-        han::render::MeshData mesh;
-        std::string loadError;
-        if (!han::render::loadMeshFile(meshPath, mesh, loadError)) {
-            std::fprintf(stderr, "меш не загружен: %s\n", loadError.c_str());
-            return;
-        }
-        customLift = -han::render::computeBounds(mesh).min.y;
-        if (firstTime) custom = renderer->uploadMesh(mesh);
-        else if (!renderer->replaceMesh(custom, mesh)) return;
-        std::printf("%s меш: %s (%zu вершин, %zu треугольников)\n", firstTime ? "загружен" : "перезагружен", meshPath.string().c_str(),
-                    mesh.vertices.size(), mesh.indices.size() / 3);
+    const auto watchFiles = [&] {
+        for (const auto& file : custom.files) watcher.watch(file);
     };
     if (!meshPath.empty()) {
-        loadCustom(true);
-        watcher.watch(meshPath);
+        std::string loadError;
+        if (han::render::loadMeshAsset(*renderer, meshPath, custom, loadError)) {
+            std::printf("загружен меш: %s (текстур: %zu)\n", meshPath.string().c_str(), custom.textures.size());
+            watchFiles();
+        } else {
+            std::fprintf(stderr, "меш не загружен: %s\n", loadError.c_str());
+            watcher.watch(meshPath);
+        }
     }
     double nextPoll = 0;
 
@@ -216,12 +222,21 @@ int main(int argc, char** argv) {
 
         if (!meshPath.empty() && static_cast<double>(t) >= nextPoll) {
             nextPoll = static_cast<double>(t) + 0.25;
-            if (!watcher.poll().empty() && custom) loadCustom(false);
+            if (!watcher.poll().empty()) {
+                std::string loadError;
+                if (custom.id == 0) {
+                    if (han::render::loadMeshAsset(*renderer, meshPath, custom, loadError)) std::printf("загружен меш: %s\n", meshPath.string().c_str());
+                } else if (han::render::reloadMeshAsset(*renderer, custom, loadError)) {
+                    std::printf("перезагружен меш: %s (текстур: %zu)\n", meshPath.string().c_str(), custom.textures.size());
+                }
+                if (!loadError.empty()) std::fprintf(stderr, "перезагрузка не удалась: %s\n", loadError.c_str());
+                watchFiles();
+            }
         }
 
         std::vector<han::render::DrawItem> items;
         items.push_back({ground, Mat4::identity()});
-        if (custom) items.push_back({custom, Mat4::translation({0, customLift, 0})});
+        if (custom.id) items.push_back({custom.id, Mat4::translation({0, -custom.bounds.min.y, 0})});
         for (int x = -3; x <= 3; ++x)
             for (int z = -3; z <= 3; ++z) {
                 if (x == 0 && z == 0) continue;
