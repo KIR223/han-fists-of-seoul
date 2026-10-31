@@ -4,11 +4,15 @@
   "version": "0.0.1",
   "builtin-baseline": "9a5dfef5d1a0438a7d24856a85bd60f309d355e9",
   "description": "HAN Engine: все сторонние библиотеки проекта объявлены здесь. Версии фиксирует builtin-baseline.",
-  "default-features": ["tests"],
+  "default-features": ["tests", "window"],
   "features": {
     "tests": {
       "description": "Только тесты (быстрая сборка и CI)",
       "dependencies": ["doctest"]
+    },
+    "window": {
+      "description": "Окно и ввод (E1): SDL3",
+      "dependencies": ["sdl3"]
     },
     "engine": {
       "description": "Все библиотеки движка (включается по мере появления модулей): -DVCPKG_MANIFEST_FEATURES=tests;engine",
