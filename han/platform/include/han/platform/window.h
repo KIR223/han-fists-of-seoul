@@ -1,6 +1,8 @@
 #pragma once
 // Окно и события (E1) на SDL3. Заголовок не тянет SDL; реализация собирается, только если SDL3 найден (HAN_WITH_SDL).
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "han/platform/input_map.h"
 
@@ -23,6 +25,11 @@ public:
     // Забирает все события ОС, передаёт клавиши в карту действий. Вызывать один раз в начале кадра.
     FrameEvents pump(InputMap& input);
     void setCaptureMouse(bool capture);  // относительный режим мыши для камеры и боя
+
+    // Поддержка Vulkan: расширения инстанса, поверхность (VkSurfaceKHR как uint64, 0 — ошибка), размер в пикселях.
+    std::vector<const char*> vulkanInstanceExtensions() const;
+    std::uint64_t createVulkanSurface(void* vkInstance);
+    void pixelSize(int& width, int& height) const;
 
 private:
     Window();
