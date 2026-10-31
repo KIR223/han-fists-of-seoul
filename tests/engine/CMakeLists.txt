@@ -4,7 +4,7 @@ if(NOT doctest_FOUND)
     return()
 endif()
 
-add_executable(han_tests_engine src/modules_test.cpp src/core_test.cpp src/tools_test.cpp src/input_map_test.cpp)
+add_executable(han_tests_engine src/modules_test.cpp src/core_test.cpp src/tools_test.cpp src/input_map_test.cpp src/render_cpu_test.cpp)
 target_link_libraries(han_tests_engine PRIVATE doctest::doctest
     han_core han_platform han_render han_physics han_audio han_ui han_world han_ai han_editor han_tools
     han_police han_gangs han_vehicles)

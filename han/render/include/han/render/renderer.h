@@ -1,11 +1,14 @@
 #pragma once
-// Рендерер Vulkan 1.3 (E2): инстанс, устройство, swapchain, dynamic rendering, тестовый треугольник.
+// Рендерер Vulkan 1.3 (E2): инстанс, устройство, swapchain, глубина, меши, dynamic rendering.
 // Заголовок не тянет Vulkan и SDL: поверхность окна создаёт колбэк, который даёт платформенный слой.
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
+
+#include "han/render/mesh.h"
 
 namespace han::render {
 
@@ -17,6 +20,13 @@ struct RendererDesc {
     std::function<std::uint64_t(void* vkInstance)> createSurface;
 };
 
+using MeshId = std::uint32_t;  // 0 — «нет меша»
+
+struct DrawItem {
+    MeshId mesh = 0;
+    core::Mat4 model;
+};
+
 class Renderer {
 public:
     // nullptr при ошибке; причина пишется в error.
@@ -25,9 +35,12 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
+    // Загружает меш в память GPU. 0 — ошибка. Меши живут до уничтожения рендерера.
+    MeshId uploadMesh(const MeshData& mesh);
+
     // Рисует кадр. width/height — текущий размер окна в пикселях (для пересоздания swapchain).
-    // false — кадр пропущен (окно свёрнуто) или произошла ошибка устройства.
-    bool drawFrame(float timeSeconds, int width, int height);
+    // false — кадр пропущен (окно свёрнуто, пересоздание swapchain) или произошла ошибка устройства.
+    bool drawFrame(const core::Mat4& viewProjection, std::span<const DrawItem> items, int width, int height);
 
     const std::string& deviceName() const;
     bool validationEnabled() const;
@@ -42,4 +55,4 @@ private:
 };
 
 }  // namespace han::render
-// Пример: auto r = Renderer::create(desc, err); while (running) r->drawFrame(t, w, h);
+// Пример: auto cube = r->uploadMesh(makeBox({.5f, .5f, .5f}, {1, 0, 0})); r->drawFrame(cam.viewProjection(aspect), items, w, h);

@@ -5,20 +5,22 @@
 #include <cstdio>
 #include <cstring>
 
+#include "han/render/generated/mesh_frag.h"
+#include "han/render/generated/mesh_vert.h"
 #include "han/render/renderer.h"
-#include "han/render/generated/triangle_frag.h"
-#include "han/render/generated/triangle_vert.h"
 
 namespace han::render {
 namespace {
 
 constexpr int kFramesInFlight = 2;
 constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
+constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 
 struct PushConstants {
-    float time;
-    float aspect;
+    float viewProj[16];
+    float model[16];
 };
+static_assert(sizeof(PushConstants) == 128, "push constants: гарантированный минимум Vulkan — 128 байт");
 
 struct DebugCounters {
     std::uint32_t errors = 0, warnings = 0;
@@ -33,6 +35,17 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBits
     std::fprintf(stderr, "[vulkan] %s\n", data->pMessage);
     return VK_FALSE;
 }
+
+bool fail(std::string& err, const char* what, VkResult r) {
+    err = std::string(what) + " (VkResult " + std::to_string(static_cast<int>(r)) + ")";
+    return false;
+}
+
+struct GpuMesh {
+    VkBuffer vertexBuffer = VK_NULL_HANDLE, indexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertexMemory = VK_NULL_HANDLE, indexMemory = VK_NULL_HANDLE;
+    std::uint32_t indexCount = 0;
+};
 
 }  // namespace
 
@@ -55,6 +68,10 @@ struct Renderer::Impl {
     std::vector<VkImageView> views;
     std::vector<VkSemaphore> renderFinished;  // по одному на изображение swapchain
 
+    VkImage depthImage = VK_NULL_HANDLE;
+    VkDeviceMemory depthMemory = VK_NULL_HANDLE;
+    VkImageView depthView = VK_NULL_HANDLE;
+
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
 
@@ -64,27 +81,29 @@ struct Renderer::Impl {
     std::array<VkFence, kFramesInFlight> inFlight{};
     int frame = 0;
 
+    std::vector<GpuMesh> meshes;  // MeshId = индекс + 1
+
     bool createInstance(const RendererDesc& desc, std::string& err);
     bool pickDevice(std::string& err);
     bool createSwapchain(int width, int height, std::string& err);
+    bool createDepth(std::string& err);
     void destroySwapchain();
     bool createPipeline(std::string& err);
     bool createFrameObjects(std::string& err);
+    bool createBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory,
+                      std::string& err);
+    bool findMemoryType(std::uint32_t typeBits, VkMemoryPropertyFlags flags, std::uint32_t& index) const;
     void destroyAll();
 };
-
-static bool fail(std::string& err, const char* what, VkResult r) {
-    err = std::string(what) + " (VkResult " + std::to_string(static_cast<int>(r)) + ")";
-    return false;
-}
 
 bool Renderer::Impl::createInstance(const RendererDesc& desc, std::string& err) {
     std::uint32_t layerCount = 0;
     vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
     std::vector<VkLayerProperties> layers(layerCount);
     vkEnumerateInstanceLayerProperties(&layerCount, layers.data());
-    validation = desc.validation &&
-                 std::any_of(layers.begin(), layers.end(), [](const VkLayerProperties& l) { return !std::strcmp(l.layerName, kValidationLayer); });
+    validation = desc.validation && std::any_of(layers.begin(), layers.end(), [](const VkLayerProperties& l) {
+                     return !std::strcmp(l.layerName, kValidationLayer);
+                 });
 
     std::vector<const char*> extensions = desc.instanceExtensions;
     if (validation) extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -101,21 +120,18 @@ bool Renderer::Impl::createInstance(const RendererDesc& desc, std::string& err) 
     dbg.pfnUserCallback = debugCallback;
     dbg.pUserData = &counters;
 
+    const char* layer = kValidationLayer;
     VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ci.pApplicationInfo = &app;
     ci.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
     ci.ppEnabledExtensionNames = extensions.data();
     if (validation) {
         ci.enabledLayerCount = 1;
-        const char* layer = kValidationLayer;
         ci.ppEnabledLayerNames = &layer;
         ci.pNext = &dbg;  // ловит и ошибки создания инстанса
-        const VkResult r = vkCreateInstance(&ci, nullptr, &instance);
-        if (r != VK_SUCCESS) return fail(err, "vkCreateInstance", r);
-    } else {
-        const VkResult r = vkCreateInstance(&ci, nullptr, &instance);
-        if (r != VK_SUCCESS) return fail(err, "vkCreateInstance", r);
     }
+    const VkResult r = vkCreateInstance(&ci, nullptr, &instance);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateInstance", r);
     if (validation) {
         auto create = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
         if (create) create(instance, &dbg, nullptr, &messenger);
@@ -194,7 +210,90 @@ bool Renderer::Impl::pickDevice(std::string& err) {
     return true;
 }
 
+bool Renderer::Impl::findMemoryType(std::uint32_t typeBits, VkMemoryPropertyFlags flags, std::uint32_t& index) const {
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(physical, &mp);
+    for (std::uint32_t i = 0; i < mp.memoryTypeCount; ++i) {
+        if ((typeBits & (1u << i)) && (mp.memoryTypes[i].propertyFlags & flags) == flags) {
+            index = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Renderer::Impl::createBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& buffer,
+                                  VkDeviceMemory& memory, std::string& err) {
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = size;
+    bi.usage = usage;
+    bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkResult r = vkCreateBuffer(device, &bi, nullptr, &buffer);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateBuffer", r);
+
+    VkMemoryRequirements req;
+    vkGetBufferMemoryRequirements(device, buffer, &req);
+    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    ai.allocationSize = req.size;
+    if (!findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, ai.memoryTypeIndex)) {
+        err = "нет подходящей памяти для буфера";
+        return false;
+    }
+    r = vkAllocateMemory(device, &ai, nullptr, &memory);
+    if (r != VK_SUCCESS) return fail(err, "vkAllocateMemory", r);
+    vkBindBufferMemory(device, buffer, memory, 0);
+
+    void* mapped = nullptr;
+    r = vkMapMemory(device, memory, 0, size, 0, &mapped);
+    if (r != VK_SUCCESS) return fail(err, "vkMapMemory", r);
+    std::memcpy(mapped, data, static_cast<std::size_t>(size));
+    vkUnmapMemory(device, memory);
+    return true;
+}
+
+bool Renderer::Impl::createDepth(std::string& err) {
+    VkImageCreateInfo ii{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ii.imageType = VK_IMAGE_TYPE_2D;
+    ii.format = kDepthFormat;
+    ii.extent = {extent.width, extent.height, 1};
+    ii.mipLevels = 1;
+    ii.arrayLayers = 1;
+    ii.samples = VK_SAMPLE_COUNT_1_BIT;
+    ii.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ii.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    ii.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkResult r = vkCreateImage(device, &ii, nullptr, &depthImage);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateImage (глубина)", r);
+
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(device, depthImage, &req);
+    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    ai.allocationSize = req.size;
+    if (!findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ai.memoryTypeIndex)) {
+        err = "нет памяти GPU для буфера глубины";
+        return false;
+    }
+    r = vkAllocateMemory(device, &ai, nullptr, &depthMemory);
+    if (r != VK_SUCCESS) return fail(err, "vkAllocateMemory (глубина)", r);
+    vkBindImageMemory(device, depthImage, depthMemory, 0);
+
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = depthImage;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = kDepthFormat;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    r = vkCreateImageView(device, &vi, nullptr, &depthView);
+    return r == VK_SUCCESS ? true : fail(err, "vkCreateImageView (глубина)", r);
+}
+
 void Renderer::Impl::destroySwapchain() {
+    if (depthView) vkDestroyImageView(device, depthView, nullptr);
+    if (depthImage) vkDestroyImage(device, depthImage, nullptr);
+    if (depthMemory) vkFreeMemory(device, depthMemory, nullptr);
+    depthView = VK_NULL_HANDLE;
+    depthImage = VK_NULL_HANDLE;
+    depthMemory = VK_NULL_HANDLE;
     for (const VkSemaphore s : renderFinished) vkDestroySemaphore(device, s, nullptr);
     renderFinished.clear();
     for (const VkImageView v : views) vkDestroyImageView(device, v, nullptr);
@@ -264,7 +363,7 @@ bool Renderer::Impl::createSwapchain(int width, int height, std::string& err) {
         if (r != VK_SUCCESS) return fail(err, "vkCreateSemaphore", r);
         renderFinished.push_back(sem);
     }
-    return true;
+    return createDepth(err);
 }
 
 bool Renderer::Impl::createPipeline(std::string& err) {
@@ -275,8 +374,8 @@ bool Renderer::Impl::createPipeline(std::string& err) {
         return vkCreateShaderModule(device, &ci, nullptr, &out);
     };
     VkShaderModule vert = VK_NULL_HANDLE, frag = VK_NULL_HANDLE;
-    VkResult r = makeModule(shaders::k_triangle_vert, sizeof(shaders::k_triangle_vert), vert);
-    if (r == VK_SUCCESS) r = makeModule(shaders::k_triangle_frag, sizeof(shaders::k_triangle_frag), frag);
+    VkResult r = makeModule(shaders::k_mesh_vert, sizeof(shaders::k_mesh_vert), vert);
+    if (r == VK_SUCCESS) r = makeModule(shaders::k_mesh_frag, sizeof(shaders::k_mesh_frag), frag);
     if (r != VK_SUCCESS) {
         if (vert) vkDestroyShaderModule(device, vert, nullptr);
         return fail(err, "vkCreateShaderModule", r);
@@ -292,7 +391,18 @@ bool Renderer::Impl::createPipeline(std::string& err) {
     stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vert, "main", nullptr};
     stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag, "main", nullptr};
 
+    const VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
+    const std::array<VkVertexInputAttributeDescription, 3> attrs{{
+        {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
+        {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
+        {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)},
+    }};
     VkPipelineVertexInputStateCreateInfo vin{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vin.vertexBindingDescriptionCount = 1;
+    vin.pVertexBindingDescriptions = &binding;
+    vin.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
+    vin.pVertexAttributeDescriptions = attrs.data();
+
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
@@ -300,11 +410,16 @@ bool Renderer::Impl::createPipeline(std::string& err) {
     vp.scissorCount = 1;
     VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     rs.polygonMode = VK_POLYGON_MODE_FILL;
-    rs.cullMode = VK_CULL_MODE_NONE;
-    rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rs.cullMode = VK_CULL_MODE_BACK_BIT;
+    // Меши обходятся против часовой стрелки; перевёрнутая по Y проекция сохраняет видимую ориентацию (проверено на кадре).
+    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rs.lineWidth = 1.0f;
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo dss{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    dss.depthTestEnable = VK_TRUE;
+    dss.depthWriteEnable = VK_TRUE;
+    dss.depthCompareOp = VK_COMPARE_OP_LESS;
     VkPipelineColorBlendAttachmentState att{};
     att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
@@ -318,6 +433,7 @@ bool Renderer::Impl::createPipeline(std::string& err) {
     VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     rendering.colorAttachmentCount = 1;
     rendering.pColorAttachmentFormats = &format;
+    rendering.depthAttachmentFormat = kDepthFormat;
 
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     pci.pNext = &rendering;
@@ -328,6 +444,7 @@ bool Renderer::Impl::createPipeline(std::string& err) {
     pci.pViewportState = &vp;
     pci.pRasterizationState = &rs;
     pci.pMultisampleState = &ms;
+    pci.pDepthStencilState = &dss;
     pci.pColorBlendState = &cb;
     pci.pDynamicState = &ds;
     pci.layout = pipelineLayout;
@@ -365,6 +482,12 @@ bool Renderer::Impl::createFrameObjects(std::string& err) {
 void Renderer::Impl::destroyAll() {
     if (device) {
         vkDeviceWaitIdle(device);
+        for (const GpuMesh& m : meshes) {
+            if (m.vertexBuffer) vkDestroyBuffer(device, m.vertexBuffer, nullptr);
+            if (m.indexBuffer) vkDestroyBuffer(device, m.indexBuffer, nullptr);
+            if (m.vertexMemory) vkFreeMemory(device, m.vertexMemory, nullptr);
+            if (m.indexMemory) vkFreeMemory(device, m.indexMemory, nullptr);
+        }
         for (int i = 0; i < kFramesInFlight; ++i) {
             if (imageAvailable[i]) vkDestroySemaphore(device, imageAvailable[i], nullptr);
             if (inFlight[i]) vkDestroyFence(device, inFlight[i], nullptr);
@@ -401,7 +524,27 @@ std::unique_ptr<Renderer> Renderer::create(const RendererDesc& desc, std::string
     return r;
 }
 
-bool Renderer::drawFrame(float timeSeconds, int width, int height) {
+MeshId Renderer::uploadMesh(const MeshData& mesh) {
+    if (mesh.vertices.empty() || mesh.indices.empty()) return 0;
+    Impl& s = *impl_;
+    GpuMesh gpu;
+    gpu.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
+    std::string err;
+    const bool ok = s.createBuffer(mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                   gpu.vertexBuffer, gpu.vertexMemory, err) &&
+                    s.createBuffer(mesh.indices.data(), mesh.indices.size() * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                   gpu.indexBuffer, gpu.indexMemory, err);
+    // Частично созданные ресурсы попадают в список и освобождаются при уничтожении рендерера.
+    s.meshes.push_back(gpu);
+    if (!ok) {
+        std::fprintf(stderr, "uploadMesh: %s\n", err.c_str());
+        s.meshes.back().indexCount = 0;
+        return 0;
+    }
+    return static_cast<MeshId>(s.meshes.size());
+}
+
+bool Renderer::drawFrame(const core::Mat4& viewProjection, std::span<const DrawItem> items, int width, int height) {
     Impl& s = *impl_;
     if (width <= 0 || height <= 0) return false;  // окно свёрнуто
 
@@ -426,8 +569,8 @@ bool Renderer::drawFrame(float timeSeconds, int width, int height) {
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &bi);
 
-    auto barrier = [&](VkImageLayout from, VkImageLayout to, VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
-                       VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess) {
+    auto barrier = [&](VkImage image, VkImageAspectFlags aspect, VkImageLayout from, VkImageLayout to, VkPipelineStageFlags2 srcStage,
+                       VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess) {
         VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
         b.srcStageMask = srcStage;
         b.srcAccessMask = srcAccess;
@@ -436,28 +579,42 @@ bool Renderer::drawFrame(float timeSeconds, int width, int height) {
         b.oldLayout = from;
         b.newLayout = to;
         b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = s.images[index];
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        b.image = image;
+        b.subresourceRange = {aspect, 0, 1, 0, 1};
         VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         dep.imageMemoryBarrierCount = 1;
         dep.pImageMemoryBarriers = &b;
         vkCmdPipelineBarrier2(cmd, &dep);
     };
 
-    barrier(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+    barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+    // Глубина очищается каждый кадр, поэтому прежнее содержимое не нужно. Предыдущий кадр может ещё читать её на раннем/позднем
+    // тесте глубины — ждём обе стадии.
+    constexpr VkPipelineStageFlags2 kDepthStages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+    barrier(s.depthImage, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, kDepthStages,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, kDepthStages,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
     VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     color.imageView = s.views[index];
     color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color.clearValue.color = {{0.02f, 0.02f, 0.05f, 1.0f}};
+    color.clearValue.color = {{0.35f, 0.5f, 0.7f, 1.0f}};
+    VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    depth.imageView = s.depthView;
+    depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth.clearValue.depthStencil = {1.0f, 0};
     VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
     ri.renderArea = {{0, 0}, s.extent};
     ri.layerCount = 1;
     ri.colorAttachmentCount = 1;
     ri.pColorAttachments = &color;
+    ri.pDepthAttachment = &depth;
     vkCmdBeginRendering(cmd, &ri);
 
     const VkViewport viewport{0, 0, static_cast<float>(s.extent.width), static_cast<float>(s.extent.height), 0, 1};
@@ -465,13 +622,24 @@ bool Renderer::drawFrame(float timeSeconds, int width, int height) {
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipeline);
-    const PushConstants pc{timeSeconds, static_cast<float>(s.extent.width) / static_cast<float>(s.extent.height)};
-    vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
-    vkCmdDraw(cmd, 3, 1, 0, 0);
+
+    PushConstants pc{};
+    std::memcpy(pc.viewProj, viewProjection.m, sizeof(pc.viewProj));
+    for (const DrawItem& item : items) {
+        if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
+        const GpuMesh& mesh = s.meshes[item.mesh - 1];
+        if (mesh.indexCount == 0) continue;
+        std::memcpy(pc.model, item.model.m, sizeof(pc.model));
+        const VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
+        vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+        vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
+    }
     vkCmdEndRendering(cmd);
 
-    barrier(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, 0);
+    barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, 0);
     vkEndCommandBuffer(cmd);
 
     VkSemaphoreSubmitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
