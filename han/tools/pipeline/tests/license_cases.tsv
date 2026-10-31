@@ -1,0 +1,30 @@
+# Общие тест-векторы правил лицензий: «ожидание<TAB>текст лицензии». Читают Python (test_license.py) и C++ (tests/engine).
+# ожидание: allowed | needs-owner | forbidden
+allowed	CC0
+allowed	CC0 1.0
+allowed	Public Domain
+allowed	CC-BY 4.0
+allowed	CC BY 3.0
+allowed	CC BY 4.0 Licence
+allowed	CC0 (see description)
+allowed	CC Attribution
+allowed	MIT
+allowed	BSD-3-Clause
+allowed	Apache 2.0
+allowed	zlib
+allowed	SIL OFL 1.1
+allowed	KOGL type1
+needs-owner	CC-BY-SA 4.0
+needs-owner	CC Attribution-ShareAlike
+needs-owner	Royalty Free
+forbidden	CC-BY-NC 4.0
+forbidden	CC BY-ND
+forbidden	CC-BY-NC-SA
+forbidden	CC Attribution-NonCommercial
+forbidden	CC Attribution-NoDerivs
+forbidden	Editorial
+forbidden	Personal use
+forbidden	free download
+forbidden	KOGL type 3
+forbidden	Standard (нельзя)
+forbidden	unknown licence

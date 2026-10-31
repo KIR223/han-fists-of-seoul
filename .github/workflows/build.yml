@@ -19,6 +19,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
+      - name: Тесты конвейера ассетов (Python)
+        # Быстрые тесты без сети и без Blender (настоящий прогон Blender в них пропускается, если он не установлен).
+        shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+        run: python -m unittest discover -s han/tools/pipeline/tests
       - name: Кэш бинарников vcpkg
         uses: actions/cache@v4
         with:
