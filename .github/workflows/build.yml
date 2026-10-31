@@ -1,0 +1,37 @@
+name: build
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Кэш бинарников vcpkg
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+      - name: Каталог кэша
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+      - name: Конфигурация (Release)
+        # На раннере может не быть VS 2026 — берём 2022; локально пресет использует VS 2026.
+        run: cmake --preset windows-release -G "Visual Studio 17 2022"
+      - name: Сборка
+        run: cmake --build --preset windows-release --parallel
+      - name: Тесты
+        run: ctest --preset windows-release --no-tests=error
