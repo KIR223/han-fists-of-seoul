@@ -1,0 +1,11 @@
+find_package(doctest CONFIG QUIET)
+if(NOT doctest_FOUND)
+    message(WARNING "doctest не найден (нужен vcpkg-манифест, функция tests): тесты engine пропущены")
+    return()
+endif()
+
+add_executable(han_tests_engine src/modules_test.cpp)
+target_link_libraries(han_tests_engine PRIVATE doctest::doctest
+    han_core han_platform han_render han_physics han_audio han_ui han_world han_ai han_editor han_tools
+    han_police han_gangs han_vehicles)
+add_test(NAME engine COMMAND han_tests_engine)
