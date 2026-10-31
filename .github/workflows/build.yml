@@ -28,9 +28,13 @@ jobs:
       - name: Каталог кэша
         shell: pwsh
         run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+      - name: Обновить vcpkg до baseline
+        shell: pwsh
+        run: |
+          git -C $env:VCPKG_ROOT fetch --quiet origin master
+          git -C $env:VCPKG_ROOT cat-file -e 9a5dfef5d1a0438a7d24856a85bd60f309d355e9
       - name: Конфигурация (Release)
-        # На раннере может не быть VS 2026 — берём 2022; локально пресет использует VS 2026.
-        run: cmake --preset windows-release -G "Visual Studio 17 2022"
+        run: cmake --preset windows-release
       - name: Сборка
         run: cmake --build --preset windows-release --parallel
       - name: Тесты
