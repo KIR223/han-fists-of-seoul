@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "han/render/mesh.h"
+#include "han/render/overlay.h"
 
 namespace han::render {
 
@@ -34,6 +35,10 @@ public:
     ~Renderer();
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
+
+    // Подключает наложение (nullptr — отключить). Владение остаётся у вызывающего; наложение должно жить дольше рендерера
+    // или быть отключено до его уничтожения. onRendererReady вызывается сразу.
+    void setOverlay(IOverlay* overlay);
 
     // Загружает меш в память GPU. 0 — ошибка. Меши живут до уничтожения рендерера.
     MeshId uploadMesh(const MeshData& mesh);

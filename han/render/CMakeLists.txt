@@ -14,7 +14,7 @@ if(Vulkan_FOUND)
     find_package(SDL3 CONFIG QUIET)
     if(SDL3_FOUND)
         add_executable(han_scene_demo apps/scene_demo.cpp)
-        target_link_libraries(han_scene_demo PRIVATE han_render)
+        target_link_libraries(han_scene_demo PRIVATE han_render han_ui)  # han_ui даёт ImGui, если он найден
     endif()
 else()
     message(STATUS "Vulkan SDK не найден: рендерер не собирается")
