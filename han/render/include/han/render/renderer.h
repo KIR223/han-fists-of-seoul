@@ -43,6 +43,10 @@ public:
     // Загружает меш в память GPU. 0 — ошибка. Меши живут до уничтожения рендерера.
     MeshId uploadMesh(const MeshData& mesh);
 
+    // Заменяет данные существующего меша (горячая перезагрузка); MeshId остаётся прежним. Ждёт простоя GPU.
+    // false — id неверный или не хватило памяти; тогда прежний меш остаётся как был.
+    bool replaceMesh(MeshId id, const MeshData& mesh);
+
     // Рисует кадр. width/height — текущий размер окна в пикселях (для пересоздания swapchain).
     // false — кадр пропущен (окно свёрнуто, пересоздание swapchain) или произошла ошибка устройства.
     bool drawFrame(const core::Mat4& viewProjection, std::span<const DrawItem> items, int width, int height);

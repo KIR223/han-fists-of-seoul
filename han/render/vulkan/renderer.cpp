@@ -94,6 +94,8 @@ struct Renderer::Impl {
     bool createBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory,
                       std::string& err);
     bool findMemoryType(std::uint32_t typeBits, VkMemoryPropertyFlags flags, std::uint32_t& index) const;
+    bool createMesh(const MeshData& mesh, GpuMesh& out, std::string& err);
+    void destroyMesh(GpuMesh& m);
     void destroyAll();
 };
 
@@ -480,15 +482,28 @@ bool Renderer::Impl::createFrameObjects(std::string& err) {
     return true;
 }
 
+void Renderer::Impl::destroyMesh(GpuMesh& m) {
+    if (m.vertexBuffer) vkDestroyBuffer(device, m.vertexBuffer, nullptr);
+    if (m.indexBuffer) vkDestroyBuffer(device, m.indexBuffer, nullptr);
+    if (m.vertexMemory) vkFreeMemory(device, m.vertexMemory, nullptr);
+    if (m.indexMemory) vkFreeMemory(device, m.indexMemory, nullptr);
+    m = GpuMesh{};
+}
+
+bool Renderer::Impl::createMesh(const MeshData& mesh, GpuMesh& out, std::string& err) {
+    out.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
+    const bool ok = createBuffer(mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                 out.vertexBuffer, out.vertexMemory, err) &&
+                    createBuffer(mesh.indices.data(), mesh.indices.size() * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                 out.indexBuffer, out.indexMemory, err);
+    if (!ok) destroyMesh(out);
+    return ok;
+}
+
 void Renderer::Impl::destroyAll() {
     if (device) {
         vkDeviceWaitIdle(device);
-        for (const GpuMesh& m : meshes) {
-            if (m.vertexBuffer) vkDestroyBuffer(device, m.vertexBuffer, nullptr);
-            if (m.indexBuffer) vkDestroyBuffer(device, m.indexBuffer, nullptr);
-            if (m.vertexMemory) vkFreeMemory(device, m.vertexMemory, nullptr);
-            if (m.indexMemory) vkFreeMemory(device, m.indexMemory, nullptr);
-        }
+        for (GpuMesh& m : meshes) destroyMesh(m);
         for (int i = 0; i < kFramesInFlight; ++i) {
             if (imageAvailable[i]) vkDestroySemaphore(device, imageAvailable[i], nullptr);
             if (inFlight[i]) vkDestroyFence(device, inFlight[i], nullptr);
@@ -555,20 +570,28 @@ MeshId Renderer::uploadMesh(const MeshData& mesh) {
     if (mesh.vertices.empty() || mesh.indices.empty()) return 0;
     Impl& s = *impl_;
     GpuMesh gpu;
-    gpu.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
     std::string err;
-    const bool ok = s.createBuffer(mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                   gpu.vertexBuffer, gpu.vertexMemory, err) &&
-                    s.createBuffer(mesh.indices.data(), mesh.indices.size() * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                   gpu.indexBuffer, gpu.indexMemory, err);
-    // Частично созданные ресурсы попадают в список и освобождаются при уничтожении рендерера.
-    s.meshes.push_back(gpu);
-    if (!ok) {
+    if (!s.createMesh(mesh, gpu, err)) {
         std::fprintf(stderr, "uploadMesh: %s\n", err.c_str());
-        s.meshes.back().indexCount = 0;
         return 0;
     }
+    s.meshes.push_back(gpu);
     return static_cast<MeshId>(s.meshes.size());
+}
+
+bool Renderer::replaceMesh(MeshId id, const MeshData& mesh) {
+    Impl& s = *impl_;
+    if (id == 0 || id > s.meshes.size() || mesh.vertices.empty() || mesh.indices.empty()) return false;
+    GpuMesh fresh;
+    std::string err;
+    if (!s.createMesh(mesh, fresh, err)) {
+        std::fprintf(stderr, "replaceMesh: %s\n", err.c_str());
+        return false;
+    }
+    vkDeviceWaitIdle(s.device);  // старые буферы могут ещё использоваться предыдущими кадрами
+    s.destroyMesh(s.meshes[id - 1]);
+    s.meshes[id - 1] = fresh;
+    return true;
 }
 
 bool Renderer::drawFrame(const core::Mat4& viewProjection, std::span<const DrawItem> items, int width, int height) {

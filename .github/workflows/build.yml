@@ -28,11 +28,16 @@ jobs:
       - name: Каталог кэша
         shell: pwsh
         run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
-      - name: Обновить vcpkg до baseline
+      - name: Привести vcpkg к baseline
+        # Файлы версий встроенного реестра vcpkg читает из рабочей копии, поэтому её нужно перевести на baseline из vcpkg.json,
+        # а утилиту пересобрать под эту ревизию.
         shell: pwsh
         run: |
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
           git -C $env:VCPKG_ROOT fetch --quiet origin master
-          git -C $env:VCPKG_ROOT cat-file -e 9a5dfef5d1a0438a7d24856a85bd60f309d355e9
+          git -C $env:VCPKG_ROOT checkout --quiet $baseline
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg завершился с кодом $LASTEXITCODE" }
       - name: Конфигурация (Release)
         run: cmake --preset windows-release
       - name: Сборка
