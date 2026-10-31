@@ -1,17 +1,21 @@
 // Демо E2: сцена из земли и кубов, летающая камера, глубина, освещение, слой валидации, отладочный интерфейс ImGui.
 // Управление: мышь — взгляд, W/A/S/D — движение, Space/Ctrl — вверх/вниз, Shift — быстрее, Tab — захват мыши,
 // ` (тильда) — консоль, Esc — выход. Команды консоли: help, pos, tp x y z, fov градусы, speed число, echo текст, quit.
-// Запуск: han_scene_demo.exe [--frames N] [--no-capture] — с --frames выходит после N кадров; код 0 — ноль ошибок валидации.
+// Запуск: han_scene_demo.exe [--frames N] [--no-capture] [--mesh файл.hmesh]
+//   --frames: выйти после N кадров (код 0 — ноль ошибок валидации); --mesh: показать меш и перезагружать его при изменении файла.
 #include <SDL3/SDL_timer.h>
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
+#include "han/core/asset_watcher.h"
 #include "han/core/console.h"
+#include "han/render/mesh_io.h"
 #include "han/platform/window.h"
 #include "han/render/camera.h"
 #include "han/render/renderer.h"
@@ -40,8 +44,10 @@ std::string fmt(const char* format, double a = 0, double b = 0, double c = 0) {
 int main(int argc, char** argv) {
     long maxFrames = -1;
     bool captured = true, nullOverlay = false;
+    std::filesystem::path meshPath;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--null-overlay")) nullOverlay = true;
+        if (!std::strcmp(argv[i], "--mesh") && i + 1 < argc) meshPath = argv[i + 1];
         if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atol(argv[i + 1]);
         if (!std::strcmp(argv[i], "--no-capture")) captured = false;
     }
@@ -88,6 +94,29 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "не удалось загрузить меши\n");
         return 1;
     }
+
+    // Свой меш из .hmesh (варится han_cooker): стоит в центре сцены на земле, при изменении файла перезагружается.
+    han::render::MeshId custom = 0;
+    float customLift = 0;
+    han::core::AssetWatcher watcher;
+    const auto loadCustom = [&](bool firstTime) {
+        han::render::MeshData mesh;
+        std::string loadError;
+        if (!han::render::loadMeshFile(meshPath, mesh, loadError)) {
+            std::fprintf(stderr, "меш не загружен: %s\n", loadError.c_str());
+            return;
+        }
+        customLift = -han::render::computeBounds(mesh).min.y;
+        if (firstTime) custom = renderer->uploadMesh(mesh);
+        else if (!renderer->replaceMesh(custom, mesh)) return;
+        std::printf("%s меш: %s (%zu вершин, %zu треугольников)\n", firstTime ? "загружен" : "перезагружен", meshPath.string().c_str(),
+                    mesh.vertices.size(), mesh.indices.size() / 3);
+    };
+    if (!meshPath.empty()) {
+        loadCustom(true);
+        watcher.watch(meshPath);
+    }
+    double nextPoll = 0;
 
     han::platform::InputMap input;
     input.bind("forward", kW);
@@ -185,8 +214,14 @@ int main(int argc, char** argv) {
         ui.drawConsole(console, consoleOpen);
 #endif
 
+        if (!meshPath.empty() && static_cast<double>(t) >= nextPoll) {
+            nextPoll = static_cast<double>(t) + 0.25;
+            if (!watcher.poll().empty() && custom) loadCustom(false);
+        }
+
         std::vector<han::render::DrawItem> items;
         items.push_back({ground, Mat4::identity()});
+        if (custom) items.push_back({custom, Mat4::translation({0, customLift, 0})});
         for (int x = -3; x <= 3; ++x)
             for (int z = -3; z <= 3; ++z) {
                 if (x == 0 && z == 0) continue;
