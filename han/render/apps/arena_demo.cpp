@@ -380,6 +380,8 @@ int main(int argc, char** argv) {
             for (const cb::ComboEvent& c : comboTracker->update(sim->events())) {
                 const auto it = ruNames.find(c.combo->nameKey);
                 const std::string name = it != ruNames.end() ? it->second : c.combo->id;
+                const bool flowOpened = sim->awardRhythm(c.fighter, c.combo->flowHits);  // награда комбо — в ритм, может открыть «Поток»
+                if (flowOpened) log.push_back(std::string(c.fighter == 0 ? "ты" : "враг " + std::to_string(c.fighter)) + ": ПОТОК");
                 if (c.fighter == 0) {
                     comboBanner = "КОМБО: " + name;
                     comboBannerFrames = 150;
