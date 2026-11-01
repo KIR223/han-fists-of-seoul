@@ -7,6 +7,7 @@
 #include "han/render/camera.h"
 #include "han/render/lighting.h"
 #include "han/render/mesh.h"
+#include "han/render/png_io.h"
 #include "han/render/shadow.h"
 #include "han/render/taa.h"
 
@@ -406,4 +407,75 @@ TEST_CASE("TAA: матрица переотображения находит п�
     for (float& v : zero.m) v = 0;
     Mat4 out;
     CHECK_FALSE(reprojectionMatrix(zero, curVp, out));
+}
+
+namespace {
+std::uint32_t be32(const std::uint8_t* p) { return static_cast<std::uint32_t>(p[0]) << 24 | static_cast<std::uint32_t>(p[1]) << 16 | static_cast<std::uint32_t>(p[2]) << 8 | p[3]; }
+}  // namespace
+
+TEST_CASE("PNG: контрольные суммы на известных значениях") {
+    const std::uint8_t digits[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+    CHECK(crc32(digits, sizeof(digits)) == 0xCBF43926u);
+    CHECK(crc32(digits, 0) == 0u);
+    const std::uint8_t wiki[] = {'W', 'i', 'k', 'i', 'p', 'e', 'd', 'i', 'a'};
+    CHECK(adler32(wiki, sizeof(wiki)) == 0x11E60398u);
+    CHECK(adler32(wiki, 0) == 1u);
+}
+
+TEST_CASE("PNG: структура файла — сигнатура, IHDR, все CRC блоков, поток deflate") {
+    const std::vector<std::uint8_t> pixels = {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 10, 20, 30, 40};  // 2x2 RGBA
+    const auto png = encodePng(2, 2, 4, pixels.data());
+    REQUIRE(png.size() > 40);
+    const std::uint8_t signature[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    for (int i = 0; i < 8; ++i) CHECK(png[static_cast<std::size_t>(i)] == signature[i]);
+
+    std::size_t pos = 8;
+    std::vector<std::string> kinds;
+    std::vector<std::uint8_t> idat;
+    while (pos < png.size()) {
+        const std::uint32_t length = be32(&png[pos]);
+        REQUIRE(pos + 12 + length <= png.size());
+        const std::uint8_t* body = &png[pos + 4];  // тип и данные
+        CHECK(crc32(body, 4 + length) == be32(&png[pos + 8 + length]));
+        kinds.emplace_back(reinterpret_cast<const char*>(body), 4);
+        if (kinds.back() == "IHDR") {
+            CHECK(be32(body + 4) == 2);
+            CHECK(be32(body + 8) == 2);
+            CHECK(body[12] == 8);  // бит на канал
+            CHECK(body[13] == 6);  // RGBA
+        }
+        if (kinds.back() == "IDAT") idat.assign(body + 4, body + 4 + length);
+        pos += 12 + length;
+    }
+    CHECK(kinds == std::vector<std::string>{"IHDR", "IDAT", "IEND"});
+
+    // zlib: 78 01, один финальный несжатый блок на (1 + 8) * 2 = 18 байт, затем Adler-32 этих данных.
+    REQUIRE(idat.size() == 2 + 5 + 18 + 4);
+    CHECK(idat[0] == 0x78);
+    CHECK(idat[2] == 1);
+    CHECK((idat[3] | idat[4] << 8) == 18);
+    CHECK((idat[5] | idat[6] << 8) == (~18 & 0xFFFF));
+    CHECK(idat[7] == 0);  // строка начинается с байта фильтра 0
+    CHECK(idat[8] == 255);
+    CHECK(be32(&idat[idat.size() - 4]) == adler32(&idat[7], 18));
+}
+
+TEST_CASE("PNG: большое изображение режется на несколько блоков, неверные входы отклоняются") {
+    const std::vector<std::uint8_t> rgb(300 * 300 * 3, 77);
+    const auto png = encodePng(300, 300, 3, rgb.data());
+    // Данные: (1 + 900) * 300 = 270 300 байт → блоки по 65 535: четыре полных и остаток.
+    std::size_t pos = 8 + 12 + 13;  // после сигнатуры и IHDR
+    const std::uint32_t idatLength = be32(&png[pos]);
+    CHECK(idatLength == 2 + 5 * 5 + 270300 + 4);
+    const std::uint8_t* z = &png[pos + 8];
+    CHECK(z[2] == 0);  // первый блок не последний
+    CHECK(z[2 + 5 + 65535] == 0);
+    CHECK(z[2 + 5 * 5 + 4 * 65535 - 5] == 1);  // последний блок помечен
+
+    CHECK(encodePng(0, 4, 4, rgb.data()).empty());
+    CHECK(encodePng(4, 4, 2, rgb.data()).empty());
+    CHECK(encodePng(4, 4, 3, nullptr).empty());
+    std::string err;
+    CHECK_FALSE(writePng("Z:/нет/такой/папки/x.png", 4, 4, 3, rgb.data(), err));
+    CHECK_FALSE(err.empty());
 }

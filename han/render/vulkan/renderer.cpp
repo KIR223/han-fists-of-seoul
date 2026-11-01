@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 
 #include "han/render/generated/mesh_frag.h"
 #include "han/render/generated/mesh_vert.h"
@@ -11,6 +12,7 @@
 #include "han/render/generated/sky_frag.h"
 #include "han/render/generated/sky_vert.h"
 #include "han/render/renderer.h"
+#include "han/render/png_io.h"
 #include "han/render/taa.h"
 #include "post_process.h"
 #include "vk_util.h"
@@ -131,6 +133,11 @@ struct Renderer::Impl {
     core::Mat4 prevViewProjection;
     bool historyValid = false;
     bool prevTaa = false;
+
+    // Снимок экрана: путь ждёт следующего кадра; canCapture — swapchain создан с TRANSFER_SRC.
+    bool canCapture = false;
+    std::filesystem::path pendingShot;
+    std::string shotError;
 
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;  // меши и небо: set 0 — текстура, set 1 — данные кадра
     VkPipeline pipeline = VK_NULL_HANDLE;              // меши
@@ -352,6 +359,7 @@ bool Renderer::Impl::createBuffer(const void* data, VkDeviceSize size, VkBufferU
     if (r != VK_SUCCESS) return fail(err, "vkAllocateMemory", r);
     vkBindBufferMemory(device, buffer, memory, 0);
 
+    if (!data) return true;  // буфер под результат (например, чтение кадра): содержимое не нужно
     void* mapped = nullptr;
     r = vkMapMemory(device, memory, 0, size, 0, &mapped);
     if (r != VK_SUCCESS) return fail(err, "vkMapMemory", r);
@@ -501,7 +509,8 @@ bool Renderer::Impl::createSwapchain(int width, int height, std::string& err) {
     ci.imageColorSpace = chosen.colorSpace;
     ci.imageExtent = extent;
     ci.imageArrayLayers = 1;
-    ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    canCapture = (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+    ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (canCapture ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.preTransform = caps.currentTransform;
     ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -1434,8 +1443,33 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
         vkCmdEndRendering(cmd);
     }
 
-    barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, 0);
+    // Снимок: копируем готовое изображение в буфер, который прочитаем на CPU после завершения кадра.
+    VkBuffer shotBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory shotMemory = VK_NULL_HANDLE;
+    const bool capturing = !s.pendingShot.empty() && s.canCapture;
+    if (capturing) {
+        const VkDeviceSize shotBytes = static_cast<VkDeviceSize>(s.extent.width) * s.extent.height * 4;
+        if (!s.createBuffer(nullptr, shotBytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT, shotBuffer, shotMemory, s.shotError)) {
+            if (shotBuffer) vkDestroyBuffer(s.device, shotBuffer, nullptr);
+            if (shotMemory) vkFreeMemory(s.device, shotMemory, nullptr);
+            shotBuffer = VK_NULL_HANDLE;
+            shotMemory = VK_NULL_HANDLE;
+        }
+    }
+    if (shotBuffer) {
+        barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                VK_ACCESS_2_TRANSFER_READ_BIT);
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {s.extent.width, s.extent.height, 1};
+        vkCmdCopyImageToBuffer(cmd, s.images[index], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, shotBuffer, 1, &region);
+        barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_NONE, 0);
+    } else {
+        barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, 0);
+    }
     vkEndCommandBuffer(cmd);
 
     VkSemaphoreSubmitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
@@ -1462,6 +1496,36 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     pi.pSwapchains = &s.swapchain;
     pi.pImageIndices = &index;
     r = vkQueuePresentKHR(s.queue, &pi);
+    if (shotBuffer) {
+        // Ждём конца этого кадра (забор) и читаем снимок. Формат swapchain: B8G8R8A8 или R8G8B8A8; байты уже в sRGB, как на экране.
+        vkWaitForFences(s.device, 1, &s.inFlight[f], VK_TRUE, UINT64_MAX);
+        void* mapped = nullptr;
+        if (vkMapMemory(s.device, shotMemory, 0, VK_WHOLE_SIZE, 0, &mapped) == VK_SUCCESS) {
+            const auto* src = static_cast<const std::uint8_t*>(mapped);
+            const bool bgra = s.format == VK_FORMAT_B8G8R8A8_SRGB || s.format == VK_FORMAT_B8G8R8A8_UNORM;
+            const bool rgba = s.format == VK_FORMAT_R8G8B8A8_SRGB || s.format == VK_FORMAT_R8G8B8A8_UNORM;
+            if (bgra || rgba) {
+                std::vector<std::uint8_t> rgb(static_cast<std::size_t>(s.extent.width) * s.extent.height * 3);
+                for (std::size_t i = 0, n = static_cast<std::size_t>(s.extent.width) * s.extent.height; i < n; ++i) {
+                    rgb[i * 3 + 0] = src[i * 4 + (bgra ? 2 : 0)];
+                    rgb[i * 3 + 1] = src[i * 4 + 1];
+                    rgb[i * 3 + 2] = src[i * 4 + (bgra ? 0 : 2)];
+                }
+                s.shotError.clear();
+                writePng(s.pendingShot, s.extent.width, s.extent.height, 3, rgb.data(), s.shotError);
+            } else {
+                s.shotError = "формат swapchain не поддерживается для снимка";
+            }
+            vkUnmapMemory(s.device, shotMemory);
+        } else {
+            s.shotError = "не удалось прочитать снимок из памяти GPU";
+        }
+        vkDestroyBuffer(s.device, shotBuffer, nullptr);
+        vkFreeMemory(s.device, shotMemory, nullptr);
+        s.pendingShot.clear();
+    } else if (capturing) {
+        s.pendingShot.clear();  // не удалось подготовить буфер: ошибка уже записана в shotError
+    }
     s.frame = (f + 1) % kFramesInFlight;
     if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
         vkDeviceWaitIdle(s.device);
@@ -1470,6 +1534,16 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     }
     return true;
 }
+
+bool Renderer::requestScreenshot(const std::filesystem::path& path) {
+    Impl& s = *impl_;
+    if (!s.canCapture || !s.pendingShot.empty() || path.empty()) return false;
+    s.shotError.clear();
+    s.pendingShot = path;
+    return true;
+}
+bool Renderer::screenshotPending() const { return !impl_->pendingShot.empty(); }
+const std::string& Renderer::screenshotError() const { return impl_->shotError; }
 
 const std::string& Renderer::deviceName() const { return impl_->deviceName; }
 bool Renderer::validationEnabled() const { return impl_->validation; }

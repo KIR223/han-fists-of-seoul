@@ -49,7 +49,9 @@ int main(int argc, char** argv) {
     bool captured = true, nullOverlay = false;
     float sunArgs[3] = {38.0f, 125.0f, 5200.0f};  // высота, азимут, кельвины; по умолчанию дневное солнце из таблицы 34.1 (10:00)
     float exposureArg = 1.0f;
-    bool shadowsArg = true, cascadesArg = false, taaArg = true;
+    bool shadowsArg = true, cascadesArg = false, taaArg = true, noUi = false, deterministic = false;
+    int windowSize[2] = {1280, 720};
+    std::filesystem::path screenshotPath;
     float bloomArg = 0.08f;
     float cameraArgs[5] = {0.0f, 2.6f, 9.5f, 0.0f, -8.0f};  // x y z, рыскание и тангаж в градусах
     std::filesystem::path meshPath;
@@ -58,6 +60,13 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--no-shadows")) shadowsArg = false;
         if (!std::strcmp(argv[i], "--cascades")) cascadesArg = true;
         if (!std::strcmp(argv[i], "--no-taa")) taaArg = false;
+        if (!std::strcmp(argv[i], "--no-ui")) noUi = true;                  // без ImGui: чистый кадр для снимков
+        if (!std::strcmp(argv[i], "--deterministic")) deterministic = true;  // фиксированный шаг 1/60 с вместо часов: кадры воспроизводимы
+        if (!std::strcmp(argv[i], "--size") && i + 2 < argc) {               // --size ширина высота
+            windowSize[0] = std::max(64, std::atoi(argv[i + 1]));
+            windowSize[1] = std::max(64, std::atoi(argv[i + 2]));
+        }
+        if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) screenshotPath = argv[i + 1];  // снимок последнего кадра (нужен --frames)
         if (!std::strcmp(argv[i], "--bloom") && i + 1 < argc) bloomArg = static_cast<float>(std::atof(argv[i + 1]));
         if (!std::strcmp(argv[i], "--camera") && i + 5 < argc)  // --camera x y z рыскание тангаж
             for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
@@ -69,7 +78,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--no-capture")) captured = false;
     }
 
-    auto window = han::platform::Window::create("HAN: Fists of Seoul — демо E2", 1280, 720);
+    auto window = han::platform::Window::create("HAN: Fists of Seoul — демо E2", windowSize[0], windowSize[1]);
     if (!window) {
         std::fprintf(stderr, "не удалось создать окно\n");
         return 1;
@@ -77,7 +86,7 @@ int main(int argc, char** argv) {
 
 #ifdef HAN_WITH_IMGUI
     han::ui::ImGuiLayer ui;  // объявлен раньше рендерера: переживает его
-    if (!ui.init(*window)) {
+    if (!noUi && !ui.init(*window)) {
         std::fprintf(stderr, "не удалось запустить ImGui\n");
         return 1;
     }
@@ -96,7 +105,7 @@ int main(int argc, char** argv) {
     }
     NullOverlay empty;
 #ifdef HAN_WITH_IMGUI
-    renderer->setOverlay(&ui);
+    if (!noUi) renderer->setOverlay(&ui);
 #else
     if (nullOverlay) renderer->setOverlay(&empty);
 #endif
@@ -238,11 +247,13 @@ int main(int argc, char** argv) {
 
     window->setCaptureMouse(captured);
     double fps = 0;
+    bool screenshotFailed = false;
     const Uint64 start = SDL_GetTicksNS();
     Uint64 last = start;
     for (long frame = 0; (maxFrames < 0 || frame < maxFrames) && !quit; ++frame) {
-        const Uint64 now = SDL_GetTicksNS();
-        const float dt = static_cast<float>(static_cast<double>(now - last) * 1e-9);
+        // В детерминированном режиме время идёт по номеру кадра, а не по часам.
+        const Uint64 now = deterministic ? start + static_cast<Uint64>(frame) * 16666667ull : SDL_GetTicksNS();
+        const float dt = deterministic ? 1.0f / 60.0f : static_cast<float>(static_cast<double>(now - last) * 1e-9);
         const float t = static_cast<float>(static_cast<double>(now - start) * 1e-9);
         last = now;
         if (dt > 0) fps = fps * 0.95 + (1.0 / dt) * 0.05;
@@ -251,9 +262,9 @@ int main(int argc, char** argv) {
         const auto ev = window->pump(input);
         if (ev.quitRequested) break;
 #ifdef HAN_WITH_IMGUI
-        ui.beginFrame();
-        const bool uiKeys = ui.wantsKeyboard();
-        const bool uiMouse = ui.wantsMouse();
+        if (!noUi) ui.beginFrame();
+        const bool uiKeys = !noUi && ui.wantsKeyboard();
+        const bool uiMouse = !noUi && ui.wantsMouse();
 #else
         const bool uiKeys = false, uiMouse = false;
 #endif
@@ -272,12 +283,12 @@ int main(int argc, char** argv) {
         camera.move(axis("forward", "back"), axis("right", "left"), axis("up", "down"), input.held("fast") && !uiKeys ? speed * 3.f : speed, dt);
 
 #ifdef HAN_WITH_IMGUI
-        ui.drawStats({fmt("FPS: %.0f", fps), "GPU: " + renderer->deviceName(),
+        if (!noUi) ui.drawStats({fmt("FPS: %.0f", fps), "GPU: " + renderer->deviceName(),
                       fmt("ошибок валидации: %.0f", renderer->validationErrors()),
                       fmt("камера: %.1f %.1f %.1f", camera.position.x, camera.position.y, camera.position.z),
                       std::string(shadowsEnabled ? "тени: вкл" : "тени: выкл") + (taaEnabled ? ", TAA: вкл" : ", TAA: выкл"),
                       consoleOpen ? "` — закрыть консоль" : "` — консоль"});
-        ui.drawConsole(console, consoleOpen);
+        if (!noUi) ui.drawConsole(console, consoleOpen);
 #endif
 
         if (!meshPath.empty() && static_cast<double>(t) >= nextPoll) {
@@ -324,9 +335,23 @@ int main(int argc, char** argv) {
         params.debugCascades = debugCascades;
         params.taa = taaEnabled;
         params.bloomIntensity = bloomIntensity;
+        const bool shootNow = !screenshotPath.empty() && maxFrames > 0 && frame == maxFrames - 1;
+        if (shootNow && !renderer->requestScreenshot(screenshotPath)) {
+            std::fprintf(stderr, "снимок экрана невозможен (swapchain без TRANSFER_SRC)\n");
+            screenshotFailed = true;
+        }
         renderer->drawFrame(params, items, w, h);
+        if (shootNow && !screenshotFailed) {
+            if (renderer->screenshotPending() || !renderer->screenshotError().empty()) {
+                std::fprintf(stderr, "снимок экрана не сохранён: %s\n", renderer->screenshotError().c_str());
+                screenshotFailed = true;
+            } else {
+                std::printf("снимок: %s\n", screenshotPath.string().c_str());
+            }
+        }
     }
     const auto errors = renderer->validationErrors();
     std::printf("ошибок валидации: %u, предупреждений: %u\n", errors, renderer->validationWarnings());
+    if (screenshotFailed) return 2;
     return errors == 0 ? 0 : 1;
 }
