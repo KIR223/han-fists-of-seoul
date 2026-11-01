@@ -593,6 +593,36 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             }
         }
     }
+    // Парки и леса: деревья на редкой сетке с разбросом (шаг 12 м), только внутри контура.
+    if (settings.streetProps) {
+        for (const OsmWay& way : data.ways) {
+            const bool park = way.tag("leisure") == "park" || way.tag("leisure") == "garden" || way.tag("landuse") == "forest" || way.tag("natural") == "wood" ||
+                              way.tag("landuse") == "grass";
+            if (!park || !way.closed()) continue;
+            const auto pts = project(way);
+            if (pts.size() < 4) continue;
+            float minX = 1e9f, maxX = -1e9f, minZ = 1e9f, maxZ = -1e9f;
+            for (const Vec2& p : pts) {
+                minX = std::min(minX, p.x);
+                maxX = std::max(maxX, p.x);
+                minZ = std::min(minZ, p.y);
+                maxZ = std::max(maxZ, p.y);
+            }
+            if ((maxX - minX) * (maxZ - minZ) > 4.0e6f) continue;  // огромные лесные массивы — не в городском слое
+            const bool wood = way.tag("natural") == "wood" || way.tag("landuse") == "forest";
+            const float step = wood ? 9.f : 13.f;
+            int placed = 0;
+            for (float x = minX; x < maxX && placed < 400; x += step)
+                for (float z = minZ; z < maxZ && placed < 400; z += step) {
+                    const auto h = static_cast<std::uint32_t>(std::fabs(x * 12.9898f + z * 78.233f) * 1000.f);
+                    const float jx = x + (static_cast<float>(h % 100) / 100.f - 0.5f) * step * 0.7f;
+                    const float jz = z + (static_cast<float>((h / 100) % 100) / 100.f - 0.5f) * step * 0.7f;
+                    if (!insidePolygon(pts, jx, jz) || insideAnyBuilding(jx, jz)) continue;
+                    addTree(chunkAt({jx, jz}).buildings, jx, jz, h);
+                    ++placed;
+                }
+        }
+    }
     for (auto& [cell, chunk] : chunks) {
         chunk.ground.groupByMaterial();
         chunk.buildings.groupByMaterial();
