@@ -56,7 +56,7 @@ void planarUv(GeoMesh& m, std::size_t from, float tile) {
 }
 
 // Размер плитки текстуры в метрах (одна плитка Poly Haven 1k ≈ 2–4 м в жизни; берём крупнее для города).
-constexpr float kRoadTile = 6.f, kParkTile = 8.f, kWallTile = 5.f, kRoofTile = 5.f;
+constexpr float kRoadTile = 6.f, kParkTile = 8.f, kWallTile = 6.4f, kRoofTile = 5.f;
 
 void pushVertex(GeoMesh& m, float x, float y, float z, float nx, float ny, float nz, Color c, float u = 0.f, float v = 0.f) {
     GeoVertex g{{x, y, z}, {nx, ny, nz}, {c.r, c.g, c.b}};

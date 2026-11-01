@@ -1,7 +1,9 @@
 #pragma once
 // Общее для демо города (city_demo, crowd_demo): текстуры материалов из assets_bin/cooked (han_fetch) и перевод GeoMesh в MeshData.
 // Нет текстур (ассеты не скачаны) — город рисуется плоскими цветами материалов, как раньше.
+#include <algorithm>
 #include <array>
+#include "han/render/texture.h"
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -32,14 +34,51 @@ inline const std::array<Slot, 6>& slots() {
     return s;
 }
 
+// Окна на фасаде: плитка стены 6,4 м = два этажа по 3,2 м и две секции в ширину. Окно 1,6 x 1,3 м с рамой и стеклом, рисуется поверх
+// альбедо стены (процедурно, наша собственная работа). Мипы пересчитываются после рисования.
+inline void addWindows(TextureData& t) {
+    const std::uint32_t cell = t.width / 2;  // секция 3,2 м
+    const auto blend = [&](std::uint32_t x, std::uint32_t y, float r, float g, float b, float a) {
+        std::uint8_t* p = &t.mips[0][(static_cast<std::size_t>(y) * t.width + x) * 4];
+        p[0] = static_cast<std::uint8_t>(p[0] * (1.f - a) + r * a);
+        p[1] = static_cast<std::uint8_t>(p[1] * (1.f - a) + g * a);
+        p[2] = static_cast<std::uint8_t>(p[2] * (1.f - a) + b * a);
+    };
+    for (std::uint32_t cy = 0; cy < 2; ++cy)
+        for (std::uint32_t cx = 0; cx < 2; ++cx) {
+            const std::uint32_t x0 = cx * cell + cell / 4, x1 = cx * cell + cell * 3 / 4;                 // 1,6 м по центру секции
+            const std::uint32_t y0 = cy * cell + cell * 15 / 100, y1 = cy * cell + cell * 56 / 100;       // 1,3 м, выше середины этажа
+            const std::uint32_t frame = std::max<std::uint32_t>(3, cell / 64);
+            for (std::uint32_t y = y0 - frame; y < y1 + frame; ++y)
+                for (std::uint32_t x = x0 - frame; x < x1 + frame; ++x) {
+                    const bool inside = x >= x0 && x < x1 && y >= y0 && y < y1;
+                    if (!inside) {
+                        blend(x, y, 215.f, 212.f, 205.f, 0.9f);  // светлая рама
+                        continue;
+                    }
+                    const float k = static_cast<float>(y - y0) / static_cast<float>(y1 - y0);  // стекло темнее внизу
+                    const bool mullion = x == (x0 + x1) / 2 || (x + 1) == (x0 + x1) / 2;       // средний импост
+                    if (mullion) blend(x, y, 215.f, 212.f, 205.f, 0.9f);
+                    else blend(x, y, 52.f - 20.f * k, 74.f - 24.f * k, 96.f - 26.f * k, 0.95f);
+                }
+            // Подоконник: тёмная полоска тени под окном
+            for (std::uint32_t y = y1 + frame; y < y1 + frame + frame; ++y)
+                for (std::uint32_t x = x0 - frame; x < x1 + frame; ++x) blend(x, y, 60.f, 55.f, 50.f, 0.5f);
+        }
+    t.mips.resize(1);
+    generateMips(t);
+}
+
 // Загружает альбедо материалов в GPU. Возвращает id текстур по номерам slots() (0 — нет файла).
-inline std::vector<TextureId> load(Renderer& renderer, const std::filesystem::path& cooked = "assets_bin/cooked") {
+inline std::vector<TextureId> load(Renderer& renderer, bool windows = true, const std::filesystem::path& cooked = "assets_bin/cooked") {
     std::vector<TextureId> ids(slots().size(), 0);
     int loaded = 0;
     for (std::size_t i = 0; i < slots().size(); ++i) {
         TextureData texture;
         std::string error;
         if (!loadKtx2File(cooked / slots()[i].folder / "diff.ktx2", texture, error)) continue;
+        const world::GeoMaterial m = slots()[i].material;
+        if (windows && texture.width >= 256 && (m == world::GeoMaterial::WallPlaster || m == world::GeoMaterial::WallBrick || m == world::GeoMaterial::WallConcrete)) addWindows(texture);
         ids[i] = renderer.uploadTexture(texture);
         loaded += ids[i] ? 1 : 0;
     }

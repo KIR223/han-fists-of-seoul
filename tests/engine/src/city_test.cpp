@@ -430,7 +430,7 @@ TEST_CASE("city: стены размечены UV в плитках (метры 
         for (const GeoVertex& v : chunk.buildings.vertices) {
             if (std::fabs(v.normal[1]) < 0.5f) {  // стена: v по высоте в плитках по 5 м, 0 вверху
                 CHECK(v.uv[1] >= -1e-4f);
-                CHECK(v.uv[1] <= 300.f / 5.f + 1e-3f);
+                CHECK(v.uv[1] <= 300.f / 6.4f + 1e-3f);
             }
         }
     }
