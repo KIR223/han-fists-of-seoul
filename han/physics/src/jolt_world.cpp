@@ -17,6 +17,7 @@
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
@@ -128,6 +129,7 @@ struct PhysicsWorld::Impl {
         bool sphere = false, isStatic = false;
         Vec3 half;         // для коробки: половины размеров
         float radius = 0;  // для шара
+        bool hidden = false;  // не рисовать в отладке (рельеф)
     };
     struct Character {
         JPH::Ref<JPH::CharacterVirtual> body;
@@ -244,6 +246,15 @@ EntityId PhysicsWorld::addStaticBox(Vec3 center, Vec3 halfExtents, contracts::Su
     return impl_->addBody(shape, center, rotation, JPH::EMotionType::Static, 0.f, material, {false, true, halfExtents, 0.f});
 }
 
+EntityId PhysicsWorld::addStaticHeightfield(float minX, float minZ, float cell, int sampleCount, const std::vector<float>& heights, contracts::SurfaceMaterial material) {
+    if (sampleCount < 4 || sampleCount > 256 || sampleCount % 2 != 0 || heights.size() != static_cast<std::size_t>(sampleCount) * static_cast<std::size_t>(sampleCount) || cell <= 0.f)
+        return contracts::kNoEntity;
+    JPH::HeightFieldShapeSettings settings(heights.data(), JPH::Vec3(minX, 0.f, minZ), JPH::Vec3(cell, 1.f, cell), static_cast<JPH::uint32>(sampleCount));
+    JPH::ShapeSettings::ShapeResult result = settings.Create();
+    if (result.HasError()) return contracts::kNoEntity;
+    return impl_->addBody(result.Get(), {0.f, 0.f, 0.f}, {}, JPH::EMotionType::Static, 0.f, material, {false, true, {}, 0.f, true});
+}
+
 EntityId PhysicsWorld::addDynamicSphere(Vec3 center, float radius, float mass, contracts::SurfaceMaterial material) {
     JPH::Ref<JPH::Shape> shape = new JPH::SphereShape(radius);
     return impl_->addBody(shape, center, {}, JPH::EMotionType::Dynamic, mass, material, {true, false, {}, radius});
@@ -349,6 +360,18 @@ void PhysicsWorld::destroyVehicle(EntityId id) {
     bi.RemoveBody(body);
     bi.DestroyBody(body);
     im.bodies.erase(id);
+    im.materials.erase(id);
+    im.shapes.erase(id);
+}
+
+void PhysicsWorld::destroyBody(EntityId id) {
+    Impl& im = *impl_;
+    const auto it = im.bodies.find(id);
+    if (it == im.bodies.end() || im.vehicles.count(id)) return;
+    JPH::BodyInterface& bi = im.system.GetBodyInterface();
+    bi.RemoveBody(it->second);
+    bi.DestroyBody(it->second);
+    im.bodies.erase(it);
     im.materials.erase(id);
     im.shapes.erase(id);
 }
@@ -514,6 +537,7 @@ void PhysicsWorld::debugLines(std::vector<DebugLine>& out) const {
         }
     };
     for (const auto& [id, info] : impl_->shapes) {
+        if (info.hidden) continue;
         const Vec3 center = positionOf(id);
         const std::uint32_t color = info.isStatic ? kColorStatic : (isAwake(id) ? kColorAwake : kColorAsleep);
         if (info.sphere) {

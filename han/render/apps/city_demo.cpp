@@ -1,7 +1,7 @@
 // Демо E10: город из данных OpenStreetMap (по умолчанию Мапо: Хондэ), ячейки подгружаются по мере полёта (E9).
 // Управление: мышь — взгляд, W/A/S/D — полёт, Space/Ctrl — вверх/вниз, Shift — быстрее, Tab — захват мыши, ` — консоль, Esc — выход.
 // Запуск: han_city_demo.exe [--osm файл.osm] [--origin широта долгота] [--frames N] [--no-capture] [--no-ui] [--deterministic]
-//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины] [--wet 0..1] [--traffic число машин, 0 — выключить]
+//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины] [--wet 0..1] [--traffic число машин, 0 — выключить] [--walk] [--cooked папка]
 // Данные OSM (ODbL) не лежат в Git: python han/tools/pipeline/han_osm_fetch.py (карта © участники OpenStreetMap).
 #include <SDL3/SDL_timer.h>
 
@@ -17,6 +17,7 @@
 
 #include "city_common.h"
 #include "han/ai/district_catalog.h"
+#include "han/ai/metro.h"
 #include "han/ai/traffic.h"
 #include "han/core/repo_root.h"
 #include "han/core/console.h"
@@ -25,7 +26,12 @@
 #include "han/render/lighting.h"
 #include "han/render/mesh.h"
 #include "han/render/renderer.h"
+#include "han/physics/physics_world.h"
+#include "han/player/camera_rig.h"
+#include "han/player/player_controller.h"
+#include "han/world/cell_io.h"
 #include "han/world/city_builder.h"
+#include "han/world/terrain_physics.h"
 #include "han/world/streaming.h"
 #ifdef HAN_WITH_IMGUI
 #include "han/ui/imgui_layer.h"
@@ -49,20 +55,43 @@ struct CityLoader final : world::ICellLoader {
     std::vector<han::render::TextureId> textureIds;  // альбедо материалов города (0 — нет файла)
     world::StreamingManager* manager = nullptr;
     const std::map<world::CellCoord, world::CityChunk>* chunks = nullptr;
+    std::string cookedDir;  // не пусто — ячейки читаются из .hcell
     struct Gpu {
         han::render::MeshId ground = 0, buildings = 0;
         std::size_t triangles = 0;
+        std::vector<han::contracts::EntityId> walls;  // тела стен зданий в физике (режим --walk)
     };
+    han::physics::PhysicsWorld* physics = nullptr;
     std::map<world::CellCoord, Gpu> gpu;
     std::size_t uploadedTriangles = 0;
 
     void beginLoad(world::CellCoord cell) override {
         Gpu g;
-        const auto it = chunks->find(cell);
-        if (it != chunks->end()) {
-            if (!it->second.ground.empty()) g.ground = renderer->uploadMesh(han::render::citytex::toMesh(it->second.ground, textureIds, 0.9f), textureIds);
-            if (!it->second.buildings.empty()) g.buildings = renderer->uploadMesh(han::render::citytex::toMesh(it->second.buildings, textureIds, 0.8f), textureIds);
-            g.triangles = (it->second.ground.indices.size() + it->second.buildings.indices.size()) / 3;
+        world::CityChunk fromDisk;
+        const world::CityChunk* found = nullptr;
+        if (!cookedDir.empty()) {
+            const std::string file = (std::filesystem::path(cookedDir) / world::cellFileName(cell)).string();
+            world::CellCoord c;
+            float size = 0.f;
+            std::string error;
+            if (std::filesystem::exists(file)) {
+                if (world::loadCell(file, c, size, fromDisk, error)) found = &fromDisk;
+                else std::fprintf(stderr, "ячейка: %s\n", error.c_str());
+            }
+        } else {
+            const auto it0 = chunks->find(cell);
+            if (it0 != chunks->end()) found = &it0->second;
+        }
+        if (found) {
+            if (!found->ground.empty()) g.ground = renderer->uploadMesh(han::render::citytex::toMesh(found->ground, textureIds, 0.9f), textureIds);
+            if (!found->buildings.empty()) g.buildings = renderer->uploadMesh(han::render::citytex::toMesh(found->buildings, textureIds, 0.8f), textureIds);
+            g.triangles = (found->ground.indices.size() + found->buildings.indices.size()) / 3;
+            if (physics)
+                for (const world::WallCollider& w : found->walls) {
+                    const float h = w.yaw * 0.5f;
+                    g.walls.push_back(physics->addStaticBox({w.center.x, w.center.y, w.center.z}, {w.half.x, w.half.y, w.half.z}, han::contracts::SurfaceMaterial::Concrete,
+                                                            {0.f, std::sin(h), 0.f, std::cos(h)}));
+                }
         }
         uploadedTriangles += g.triangles;
         gpu[cell] = g;
@@ -73,6 +102,8 @@ struct CityLoader final : world::ICellLoader {
         if (it == gpu.end()) return;
         renderer->releaseMesh(it->second.ground);
         renderer->releaseMesh(it->second.buildings);
+        if (physics)
+            for (const auto id : it->second.walls) physics->destroyBody(id);
         uploadedTriangles -= it->second.triangles;
         gpu.erase(it);
     }
@@ -80,6 +111,8 @@ struct CityLoader final : world::ICellLoader {
 }  // namespace
 
 int main(int argc, char** argv) {
+    std::string cookedDir;  // папка запечённых ячеек (han_citycook): город грузится с диска без разбора OSM
+    bool walk = false;  // режим прогулки: физика, коллайдеры домов, рельеф и игрок вместо летающей камеры
     float wetness = 0.f;
     int trafficCars = 120;
     han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
@@ -110,6 +143,8 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--camera") && i + 5 < argc)
             for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
         if (!std::strcmp(argv[i], "--traffic") && i + 1 < argc) trafficCars = std::clamp(std::atoi(argv[i + 1]), 0, 400);
+        if (!std::strcmp(argv[i], "--walk")) walk = true;
+        if (!std::strcmp(argv[i], "--cooked") && i + 1 < argc) cookedDir = argv[i + 1];
         if (!std::strcmp(argv[i], "--wet") && i + 1 < argc) wetness = std::clamp(static_cast<float>(std::atof(argv[i + 1])), 0.f, 1.f);
         if (!std::strcmp(argv[i], "--sun") && i + 3 < argc)
             for (int k = 0; k < 3; ++k) sunArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
@@ -118,16 +153,28 @@ int main(int argc, char** argv) {
     // --- Данные города ---
     world::OsmData osm;
     std::string error;
-    if (!world::loadOsmFile(osmPath.string(), osm, error)) {
+    const bool haveOsm = world::loadOsmFile(osmPath.string(), osm, error);
+    if (!haveOsm && cookedDir.empty()) {
         std::fprintf(stderr, "%s\nСкачайте данные: python han/tools/pipeline/han_osm_fetch.py\n", error.c_str());
         return 1;
     }
+    if (!haveOsm) trafficCars = 0;  // без OSM нет графа дорог для трафика (запечённые ячейки дорог не хранят)
     world::CityStats cityStats;
+    // Рельеф (E17): assets_bin/terrain/seoul.hht (python han/tools/pipeline/han_terrain_fetch.py); нет файла — плоская земля.
+    world::Heightmap terrain;
+    {
+        std::string terrainError;
+        if (!terrain.load("assets_bin/terrain/seoul.hht", terrainError)) std::fprintf(stderr, "рельеф: %s\n", terrainError.c_str());
+    }
+    const bool haveTerrain = terrain.valid();
     world::CityBuildSettings citySettings;
+    citySettings.terrain = haveTerrain ? &terrain : nullptr;
     citySettings.shopTileMeters = han::render::citytex::shopTileMeters();
-    const auto chunks = world::buildCity(osm, world::GeoProjection(origin[0], origin[1]), citySettings, &cityStats);
+    std::map<world::CellCoord, world::CityChunk> chunks;
+    if (cookedDir.empty()) chunks = world::buildCity(osm, world::GeoProjection(origin[0], origin[1]), citySettings, &cityStats);
+    else std::printf("город с диска: %s\n", cookedDir.c_str());
     // Трафик (G7): граф дорог из тех же данных; машины едут вокруг камеры (появляются в радиусе 350 м, уходят за 550 м).
-    const han::ai::RoadGraph roads = han::ai::RoadGraph::build(osm, world::GeoProjection(origin[0], origin[1]));
+    const han::ai::RoadGraph roads = haveOsm ? han::ai::RoadGraph::build(osm, world::GeoProjection(origin[0], origin[1])) : han::ai::RoadGraph();
     han::ai::TrafficSettings trafficSettings;
     trafficSettings.maxCars = trafficCars;
     trafficSettings.spawnRadius = 350.f;
@@ -140,6 +187,14 @@ int main(int argc, char** argv) {
         if (!districts.loadDirectory("data/world/districts", districtError)) std::fprintf(stderr, "районы: %s\n", districtError.c_str());
     }
     han::ai::Ambience mood;
+    // Метро (G17): входы станций линии 2 рядом с камерой рисуются зелёными павильонами; в панели — ближайшая станция и время до поезда.
+    han::ai::MetroLine metro;
+    bool haveMetro = false;
+    {
+        std::string metroError;
+        haveMetro = metro.load("data/world/metro/line2.json", metroError);
+        if (!haveMetro) std::fprintf(stderr, "метро: %s\n", metroError.c_str());
+    }
     std::printf("город: домов %d, дорог %d, парков %d, воды %d, пропущено %d, ячеек %zu, размер %.0f x %.0f м\n", cityStats.buildings, cityStats.roads,
                 cityStats.parks, cityStats.waters, cityStats.skipped, chunks.size(), cityStats.maxX - cityStats.minX, cityStats.maxZ - cityStats.minZ);
 
@@ -172,6 +227,12 @@ int main(int argc, char** argv) {
     // Земля вокруг: большая плоскость под городом (дороги и дома лежат выше неё).
     const auto ground = han::render::citytex::uploadGround(*renderer);
     // Машины трафика: кузов-коробка 1,8 x 1,4 x 4,4 м, шесть цветов (выдуманная «марка»: без реальных машин и логотипов).
+    auto entranceData = han::render::makeBox({1.6f, 1.75f, 1.6f}, {0.0f, 0.66f, 0.30f});  // цвет линии 2 (#00A84D)
+    entranceData.submeshes = {{0, static_cast<std::uint32_t>(entranceData.indices.size()), -1, 0.1f, 0.5f}};
+    const auto metroEntrance = renderer->uploadMesh(entranceData);
+    auto heroData = han::render::makeBox({0.28f, 0.9f, 0.2f}, {0.95f, 0.8f, 0.2f});
+    heroData.submeshes = {{0, static_cast<std::uint32_t>(heroData.indices.size()), -1, 0.0f, 0.6f}};
+    const auto heroMesh = renderer->uploadMesh(heroData);
     std::vector<han::render::MeshId> carMeshes;
     for (const han::core::Vec3 color : {han::core::Vec3{0.75f, 0.75f, 0.78f}, {0.12f, 0.12f, 0.14f}, {0.70f, 0.12f, 0.12f}, {0.15f, 0.30f, 0.62f}, {0.85f, 0.80f, 0.70f}, {0.20f, 0.45f, 0.30f}}) {
         auto body = han::render::makeBox({0.9f, 0.7f, 2.2f}, color);
@@ -195,9 +256,37 @@ int main(int argc, char** argv) {
     CityLoader loader;
     loader.renderer = renderer.get();
     loader.textureIds = han::render::citytex::load(*renderer);
+    han::render::MeshId farTerrain = 0;  // дальний план рельефа (вся карта грубой сеткой)
+    if (haveTerrain) farTerrain = renderer->uploadMesh(han::render::citytex::toMesh(world::buildFarTerrain(terrain), loader.textureIds, 0.95f), loader.textureIds);
     loader.chunks = &chunks;
+    loader.cookedDir = cookedDir;
     world::StreamingManager streaming(ss, loader);
     loader.manager = &streaming;
+    // Режим прогулки (--walk): физика мира, коллайдеры стен (по ячейкам вместе с загрузкой), плитки рельефа и игрок с камерой за спиной.
+    std::unique_ptr<han::physics::PhysicsWorld> physics;
+    std::unique_ptr<world::TerrainPhysics> terrainPhysics;
+    std::unique_ptr<han::player::PlayerController> hero;
+    han::player::CameraRig rig;
+    han::contracts::EntityId heroId = 0;
+    if (walk) {
+        physics = han::physics::PhysicsWorld::create();
+        if (!physics) {
+            std::fprintf(stderr, "физика недоступна: режим --walk выключен\n");
+            walk = false;
+        } else {
+            loader.physics = physics.get();
+            if (haveTerrain) terrainPhysics = std::make_unique<world::TerrainPhysics>(*physics, terrain);
+            else physics->addStaticBox({0.f, -0.5f, 0.f}, {6000.f, 0.5f, 6000.f}, han::contracts::SurfaceMaterial::Asphalt);
+            const float sx = cameraArgs[0], sz = cameraArgs[2];
+            if (terrainPhysics) terrainPhysics->update(sx, sz);
+            streaming.update(sx, sz, 0.f, -1.f);  // загрузить ячейки (и коллайдеры) вокруг старта до появления героя
+            const float y = (haveTerrain ? terrain.heightAt(sx, sz) : 0.f) + 1.0f;
+            heroId = physics->create({}, {sx, y, sz});
+            hero = std::make_unique<han::player::PlayerController>(heroId, *physics, *physics);
+            rig.snapTo({sx, y, sz}, physics.get());
+            for (int i = 0; i < 30; ++i) physics->step(1.f / 60.f);  // персонаж садится на землю
+        }
+    }
 
     han::platform::InputMap input;
     input.bind("forward", kW);
@@ -212,7 +301,7 @@ int main(int argc, char** argv) {
     input.bind("console", kGrave);
 
     han::render::Camera camera;
-    camera.position = {cameraArgs[0], cameraArgs[1], cameraArgs[2]};
+    camera.position = {cameraArgs[0], cameraArgs[1] + (haveTerrain ? terrain.heightAt(cameraArgs[0], cameraArgs[2]) : 0.f), cameraArgs[2]};  // высота — над землёй
     camera.yaw = cameraArgs[3] * 0.01745329f;
     camera.pitch = cameraArgs[4] * 0.01745329f;
     camera.farZ = 4000.f;
@@ -277,9 +366,28 @@ int main(int argc, char** argv) {
             if (input.pressed("quit")) break;
             if (input.pressed("capture") && !consoleOpen) window->setCaptureMouse(captured = !captured);
         }
-        if (captured && !consoleOpen && !uiMouse) camera.look(ev.mouseDx, ev.mouseDy);
         const auto axis = [&](const char* pos, const char* neg) { return uiKeys ? 0.f : (input.held(pos) ? 1.f : 0.f) - (input.held(neg) ? 1.f : 0.f); };
-        camera.move(axis("forward", "back"), axis("right", "left"), axis("up", "down"), input.held("fast") && !uiKeys ? speed * 4.f : speed, dt);
+        if (walk) {
+            if (captured && !consoleOpen && !uiMouse) rig.look(ev.mouseDx, ev.mouseDy);
+            han::player::PlayerInput pi;
+            pi.moveX = axis("right", "left");
+            pi.moveZ = axis("forward", "back");
+            pi.sprint = input.held("fast") && !uiKeys;
+            pi.jumpPressed = !uiKeys && input.pressed("up");
+            pi.jumpHeld = !uiKeys && input.held("up");
+            hero->update(dt, pi, rig.yaw());
+            physics->step(std::min(dt, 1.f / 30.f));
+            const auto feet = hero->state().position;
+            if (terrainPhysics) terrainPhysics->update(feet.x, feet.z);
+            rig.update(dt, feet, hero->speedFraction(), physics.get());
+            camera.position = {rig.position().x, rig.position().y, rig.position().z};
+            camera.yaw = rig.yaw();
+            camera.pitch = rig.pitch();
+            camera.fovY = rig.fov();
+        } else {
+            if (captured && !consoleOpen && !uiMouse) camera.look(ev.mouseDx, ev.mouseDy);
+            camera.move(axis("forward", "back"), axis("right", "left"), axis("up", "down"), input.held("fast") && !uiKeys ? speed * 4.f : speed, dt);
+        }
 
         const auto fwd = camera.forward();
         stats = streaming.update(camera.position.x, camera.position.z, fwd.x, fwd.z);
@@ -293,6 +401,14 @@ int main(int argc, char** argv) {
         if (!noUi) {
             ui.drawStats({fmt("FPS: %.0f", fps), "GPU: " + renderer->deviceName(), fmt("ошибок валидации: %.0f", renderer->validationErrors()),
                           fmt("камера: %.0f %.0f %.0f", camera.position.x, camera.position.y, camera.position.z),
+                          [&]() -> std::string {
+                              if (!haveMetro) return "метро: нет данных";
+                              float d = 0.f;
+                              const int st = metro.nearestStation({camera.position.x, camera.position.z}, &d);
+                              const double now = 8.0 * 3600.0 + static_cast<double>(frame) / 60.0;  // демо: утренний час пик
+                              const auto next = metro.nextArrival(st, now);
+                              return "метро: " + metro.stations()[static_cast<std::size_t>(st)].id + fmt(" %.0f м, поезд через %.0f с", d, next ? *next - now : -1.0);
+                          }(),
                           std::string("район: ") + (districts.infoAt({camera.position.x, camera.position.z}) ? districts.infoAt({camera.position.x, camera.position.z})->id : "—") + " (" + mood.lut + ")",
                           fmt("ячеек загружено: %.0f, треугольников: %.0f", stats.loaded, static_cast<double>(loader.uploadedTriangles)),
                           "© участники OpenStreetMap (ODbL)"});
@@ -305,11 +421,22 @@ int main(int argc, char** argv) {
             traffic.update(std::min(dt, 0.1f));
         }
         std::vector<han::render::DrawItem> items;
+        if (walk) {
+            const auto feet = hero->state().position;
+            items.push_back({heroMesh, Mat4::translation({feet.x, feet.y + 0.9f, feet.z}) * Mat4::rotationY(hero->facingYaw())});
+        }
         for (const han::ai::Car& car : traffic.cars()) {
             const std::size_t color = car.id % carMeshes.size();
-            items.push_back({carMeshes[color], Mat4::translation({car.pos.x, 0.85f, car.pos.z}) * Mat4::rotationY(car.heading)});
+            items.push_back({carMeshes[color], Mat4::translation({car.pos.x, 0.85f + (haveTerrain ? terrain.heightAt(car.pos.x, car.pos.z) : 0.f), car.pos.z}) * Mat4::rotationY(car.heading)});
         }
-        items.push_back({ground, Mat4::translation({0.f, -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
+        if (haveMetro) {
+            for (const auto& st : metro.stations()) {
+                const float dx = st.pos.x - camera.position.x, dz = st.pos.z - camera.position.z;
+                if (dx * dx + dz * dz < 600.f * 600.f) items.push_back({metroEntrance, Mat4::translation({st.pos.x, 1.75f + (haveTerrain ? terrain.heightAt(st.pos.x, st.pos.z) : 0.f), st.pos.z})});
+            }
+        }
+        if (farTerrain) items.push_back({farTerrain, Mat4::identity()});
+        items.push_back({ground, Mat4::translation({0.f, haveTerrain ? terrain.minHeight() - 2.f : -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
         for (const auto& [cell, g] : loader.gpu) {
             if (g.ground) items.push_back({g.ground, Mat4::identity()});
             if (g.buildings) items.push_back({g.buildings, Mat4::identity()});
@@ -362,6 +489,10 @@ int main(int argc, char** argv) {
         }
     }
     std::printf("ячеек загружено: %d, треугольников: %zu\n", stats.loaded, loader.uploadedTriangles);
+    if (walk) {
+        const auto feet = hero->state().position;
+        std::printf("игрок: %.1f %.1f %.1f (земля там %.1f), на земле: %s\n", feet.x, feet.y, feet.z, haveTerrain ? terrain.heightAt(feet.x, feet.z) : 0.f, hero->state().grounded ? "да" : "нет");
+    }
     const auto errors = renderer->validationErrors();
     std::printf("ошибок валидации: %u, предупреждений: %u\n", errors, renderer->validationWarnings());
     if (screenshotFailed) return 2;

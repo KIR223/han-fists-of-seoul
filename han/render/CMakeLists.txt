@@ -32,7 +32,7 @@ if(Vulkan_FOUND)
 
         # Демо города E10: данные OpenStreetMap, ячейки подгружаются стримингом (han_world).
         add_executable(han_city_demo apps/city_demo.cpp)
-        target_link_libraries(han_city_demo PRIVATE han_render han_ui han_world han_ai)
+        target_link_libraries(han_city_demo PRIVATE han_render han_ui han_world han_ai han_physics han_player)
         if(MSVC)
             target_compile_options(han_city_demo PRIVATE /W4 /permissive- /utf-8)
         endif()

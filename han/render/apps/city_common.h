@@ -204,6 +204,7 @@ inline MeshId uploadGround(Renderer& renderer, float halfSize = 4000.f, const st
 }
 
 inline int slotOf(world::GeoMaterial m) {
+    if (m == world::GeoMaterial::Terrain) m = world::GeoMaterial::Sidewalk;  // земля — мощёная плитка, как раньше плоскость
     for (std::size_t i = 0; i < slots().size(); ++i)
         if (slots()[i].material == m) return static_cast<int>(i);
     return -1;
@@ -233,6 +234,7 @@ inline MeshData toMesh(const world::GeoMesh& g, const std::vector<TextureId>& te
         const int slot = slotOf(r.material);
         std::int32_t texture = -1, normal = -1, rough = -1;
         float roughness = defaultRoughness;
+        if (r.material == world::GeoMaterial::Water) roughness = 0.06f;  // вода: почти зеркало неба
         if (slot >= 0) {
             roughness = slots()[static_cast<std::size_t>(slot)].roughness;
             if (static_cast<std::size_t>(slot) < textureIds.size() && textureIds[static_cast<std::size_t>(slot)] != 0) {

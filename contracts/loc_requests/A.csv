@@ -58,3 +58,45 @@ city.brand.haneul_lager,Ханыль Лагер,하늘 라거,Haneul Lager,на�
 city.brand.banana_moo,Банана Му,바나나 무,Banana Moo,название вымышленного бренда (вывески)
 city.brand.volt_tiger,Вольт Тайгер,볼트 타이거,Volt Tiger,название вымышленного бренда (вывески)
 city.brand.kumbit_shop,Кымбит Электроникс,금빛 전자,Kumbit Electronics,название вымышленного бренда (вывески)
+world.metro.line2,"Линия 2 (зелёная, кольцевая)",2호선,"Line 2 (Green, circular)",метро: линия
+world.metro.station.city_hall,Сичхон (Ратуша),시청,City Hall,метро: станция
+world.metro.station.euljiro_1ga,Ыльчжиро-ибку,을지로입구,Euljiro 1-ga,метро: станция
+world.metro.station.euljiro_3ga,Ыльчжиро-самга,을지로3가,Euljiro 3-ga,метро: станция
+world.metro.station.euljiro_4ga,Ыльчжиро-сага,을지로4가,Euljiro 4-ga,метро: станция
+world.metro.station.dongdaemun_dhcp,Тондэмун Ёксамунхвагонвон,동대문역사문화공원,Dongdaemun History & Culture Park,метро: станция
+world.metro.station.sindang,Синдан,신당,Sindang,метро: станция
+world.metro.station.sangwangsimni,Санван-симни,상왕십리,Sangwangsimni,метро: станция
+world.metro.station.wangsimni,Ванъсимни,왕십리,Wangsimni,метро: станция
+world.metro.station.hanyang_univ,Ханян-тэ,한양대,Hanyang Univ.,метро: станция
+world.metro.station.ttukseom,Ттуксом,뚝섬,Ttukseom,метро: станция
+world.metro.station.seongsu,Сонсу,성수,Seongsu,метро: станция
+world.metro.station.konkuk_univ,Конгук-тэибку,건대입구,Konkuk Univ.,метро: станция
+world.metro.station.gangbyeon,Кангбён,강변,Gangbyeon,метро: станция
+world.metro.station.jamsilnaru,Чамсиллару,잠실나루,Jamsilnaru,метро: станция
+world.metro.station.jamsil,Чамсиль,잠실,Jamsil,метро: станция
+world.metro.station.sports_complex,Чонхап-ундонджан,종합운동장,Sports Complex,метро: станция
+world.metro.station.samseong,Самсон,삼성,Samseong,метро: станция
+world.metro.station.seolleung,Соллын,선릉,Seolleung,метро: станция
+world.metro.station.yeoksam,Ёксам,역삼,Yeoksam,метро: станция
+world.metro.station.gangnam,Каннам,강남,Gangnam,метро: станция
+world.metro.station.gyodae,Кёдэ,교대,Seoul Nat'l Univ. of Education,метро: станция
+world.metro.station.seocho,Сочхо,서초,Seocho,метро: станция
+world.metro.station.bangbae,Пангбэ,방배,Bangbae,метро: станция
+world.metro.station.sadang,Садан,사당,Sadang,метро: станция
+world.metro.station.nakseongdae,Наксондэ,낙성대,Nakseongdae,метро: станция
+world.metro.station.snu,Соултэибку,서울대입구,Seoul Nat'l Univ.,метро: станция
+world.metro.station.bongcheon,Пончхон,봉천,Bongcheon,метро: станция
+world.metro.station.sillim,Синним,신림,Sillim,метро: станция
+world.metro.station.sindaebang,Синтэбан,신대방,Sindaebang,метро: станция
+world.metro.station.guro_digital,Куро Диджитал Тандзи,구로디지털단지,Guro Digital Complex,метро: станция
+world.metro.station.daerim,Тэрим,대림,Daerim,метро: станция
+world.metro.station.sindorim,Синдорим,신도림,Sindorim,метро: станция
+world.metro.station.mullae,Муллэ,문래,Mullae,метро: станция
+world.metro.station.yeongdeungpo_gu_office,Ёндынпхо-куччхон,영등포구청,Yeongdeungpo-gu Office,метро: станция
+world.metro.station.dangsan,Тансан,당산,Dangsan,метро: станция
+world.metro.station.hapjeong,Хапчон,합정,Hapjeong,метро: станция
+world.metro.station.hongik_univ,Хондэибку,홍대입구,Hongik Univ.,метро: станция
+world.metro.station.sinchon,Синчхон,신촌,Sinchon,метро: станция
+world.metro.station.ewha_univ,Идэ,이대,Ewha Womans Univ.,метро: станция
+world.metro.station.ahyeon,Ахён,아현,Ahyeon,метро: станция
+world.metro.station.chungjeongno,Чхунджонно,충정로,Chungjeongno,метро: станция
