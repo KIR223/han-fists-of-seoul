@@ -17,11 +17,14 @@ TITLES = {
     "B": "разработчик B: бой, анимация, персонаж, ИИ бойцов, обучение и стили + сюжет, миссии, катсцены, озвучка, интерфейс, экономика, телефон, стрим, локализация",
     "OWNER": "владелец проекта: дизайн-документ, правила, юридическая проверка",
     "A+OWNER": "разработчик A и владелец проекта: движок, мир, город и область, транспорт, сборка + дизайн-документ, правила, юридическая проверка",
+    "SOLO": "владелец проекта в соло-режиме (временно, пока нет второго разработчика): зоны A и B и владельца",
 }
 
 
 def deny_rules(role):
     roles = set(role.split("+"))
+    if "SOLO" in {r.upper() for r in roles}:
+        roles = {"A", "B", "OWNER"}
     with open(os.path.join(ROOT, "tools", "zones.json"), encoding="utf-8") as f:
         zones = json.load(f)["zones"]
     rules = []
@@ -49,7 +52,13 @@ def main():
 
     lines = [f"РОЛЬ: {role}", f"Я — {TITLES[role]}."]
     main = role.split("+")[0]
-    if main != "OWNER":
+    if main == "SOLO":
+        lines += [
+            "Соло-режим владельца (временно): зоны A и B открыты, потому что второго разработчика ещё нет.",
+            "@docs/team/ROLE_A.md", "@docs/team/ROLE_B.md",
+            "Когда B подключится: python tools/make_personal.py --role A+OWNER (и B получит свой файл у себя).",
+        ]
+    elif main != "OWNER":
         lines += [
             f"@docs/team/ROLE_{main}.md",
             f"@docs/progress/{main}.md",
