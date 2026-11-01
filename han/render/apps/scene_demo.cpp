@@ -5,7 +5,9 @@
 //   --frames: выйти после N кадров (код 0 — ноль ошибок валидации); --mesh: показать меш и перезагружать его при изменении файла.
 #include <SDL3/SDL_timer.h>
 
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -45,9 +47,14 @@ std::string fmt(const char* format, double a = 0, double b = 0, double c = 0) {
 int main(int argc, char** argv) {
     long maxFrames = -1;
     bool captured = true, nullOverlay = false;
+    float sunArgs[3] = {35.0f, 160.0f, 5200.0f};  // высота, азимут, кельвины; по умолчанию дневное солнце из таблицы 34.1 (10:00)
+    float exposureArg = 1.0f;
     std::filesystem::path meshPath;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--null-overlay")) nullOverlay = true;
+        if (!std::strcmp(argv[i], "--sun") && i + 3 < argc)  // --sun высота азимут кельвины
+            for (int k = 0; k < 3; ++k) sunArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
+        if (!std::strcmp(argv[i], "--exposure") && i + 1 < argc) exposureArg = static_cast<float>(std::atof(argv[i + 1]));
         if (!std::strcmp(argv[i], "--mesh") && i + 1 < argc) meshPath = argv[i + 1];
         if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atol(argv[i + 1]);
         if (!std::strcmp(argv[i], "--no-capture")) captured = false;
@@ -93,15 +100,26 @@ int main(int argc, char** argv) {
     han::render::generateMips(checker);
     const han::render::TextureId checkerId = renderer->uploadTexture(checker);
     const std::vector<han::render::TextureId> checkerSlots{checkerId};
-    const auto textured = [](han::render::MeshData m) {
+    const auto textured = [](han::render::MeshData m, float roughness) {
         m.textures = {"checker"};
-        m.submeshes = {{0, static_cast<std::uint32_t>(m.indices.size()), 0}};
+        m.submeshes = {{0, static_cast<std::uint32_t>(m.indices.size()), 0, 0.0f, roughness}};
         return m;
     };
-    const auto ground = renderer->uploadMesh(textured(han::render::makePlane(40.f, {0.55f, 0.75f, 0.55f}, 20.f)), checkerSlots);
-    const auto cube = renderer->uploadMesh(textured(han::render::makeBox({0.5f, 0.5f, 0.5f}, {1.0f, 0.55f, 0.4f})), checkerSlots);
-    const auto pillar = renderer->uploadMesh(han::render::makeBox({0.4f, 2.f, 0.4f}, {0.7f, 0.7f, 0.75f}));
-    if (!checkerId || !ground || !cube || !pillar) {
+    const auto material = [](han::render::MeshData m, float metallic, float roughness) {
+        m.submeshes = {{0, static_cast<std::uint32_t>(m.indices.size()), -1, metallic, roughness}};
+        return m;
+    };
+    const auto ground = renderer->uploadMesh(textured(han::render::makePlane(60.f, {0.55f, 0.75f, 0.55f}, 30.f), 0.9f), checkerSlots);
+    const auto cube = renderer->uploadMesh(textured(han::render::makeBox({0.5f, 0.5f, 0.5f}, {1.0f, 0.55f, 0.4f}), 0.7f), checkerSlots);
+    const auto pillar = renderer->uploadMesh(material(han::render::makeBox({0.4f, 2.f, 0.4f}, {0.7f, 0.7f, 0.75f}), 0.0f, 0.6f));
+    // Ряд сфер: шероховатость от 0,05 до 1 — слева диэлектрик (красный пластик), справа металл (золото).
+    const float roughnessRow[] = {0.05f, 0.2f, 0.4f, 0.6f, 0.8f, 1.0f};
+    std::vector<han::render::MeshId> plastic, gold;
+    for (const float roughness : roughnessRow) {
+        plastic.push_back(renderer->uploadMesh(material(han::render::makeSphere(0.8f, 64, 32, {0.8f, 0.12f, 0.08f}), 0.0f, roughness)));
+        gold.push_back(renderer->uploadMesh(material(han::render::makeSphere(0.8f, 64, 32, {1.0f, 0.78f, 0.34f}), 1.0f, roughness)));
+    }
+    if (!checkerId || !ground || !cube || !pillar || plastic.back() == 0 || gold.back() == 0) {
         std::fprintf(stderr, "не удалось загрузить меши\n");
         return 1;
     }
@@ -137,11 +155,14 @@ int main(int argc, char** argv) {
     input.bind("console", kGrave);
 
     han::render::Camera camera;
-    camera.position = {0, 3, 10};
-    camera.pitch = -0.2f;
+    camera.position = {0, 2.6f, 9.5f};
+    camera.pitch = -0.14f;
     float speed = 6.f;
     bool quit = false;
     bool consoleOpen = false;
+
+    // Свет: высота и азимут солнца в градусах, цветовая температура, экспозиция. Меняется командами sun и exposure.
+    float sunElevation = sunArgs[0], sunAzimuth = sunArgs[1], sunKelvin = sunArgs[2], exposure = exposureArg;
 
     han::core::Console console;
     console.registerCommand("quit", "закрыть демо", [&](const std::vector<std::string>&) {
@@ -169,6 +190,18 @@ int main(int argc, char** argv) {
         const double v = std::atof(a[0].c_str());
         if (v <= 0 || v > 500) return std::string("допустимо 0..500");
         speed = static_cast<float>(v);
+        return std::string("готово");
+    });
+    console.registerCommand("sun", "sun высота азимут [кельвины] — солнце (градусы от горизонта и от севера)", [&](const std::vector<std::string>& a) {
+        if (a.size() < 2 || a.size() > 3) return fmt("солнце: высота %.1f, азимут %.1f, %.0f K", sunElevation, sunAzimuth, sunKelvin);
+        sunElevation = std::clamp(static_cast<float>(std::atof(a[0].c_str())), -90.f, 90.f);
+        sunAzimuth = static_cast<float>(std::atof(a[1].c_str()));
+        if (a.size() == 3) sunKelvin = std::clamp(static_cast<float>(std::atof(a[2].c_str())), 1000.f, 40000.f);
+        return std::string("готово");
+    });
+    console.registerCommand("exposure", "exposure число — множитель яркости перед тонмаппингом", [&](const std::vector<std::string>& a) {
+        if (a.size() != 1) return fmt("экспозиция: %.2f", exposure);
+        exposure = std::clamp(static_cast<float>(std::atof(a[0].c_str())), 0.01f, 100.f);
         return std::string("готово");
     });
     console.registerCommand("echo", "echo текст", [](const std::vector<std::string>& a) {
@@ -236,19 +269,29 @@ int main(int argc, char** argv) {
 
         std::vector<han::render::DrawItem> items;
         items.push_back({ground, Mat4::identity()});
-        if (custom.id) items.push_back({custom.id, Mat4::translation({0, -custom.bounds.min.y, 0})});
+        if (custom.id) items.push_back({custom.id, Mat4::translation({-8.f, -custom.bounds.min.y, -3.f})});
+        for (std::size_t i = 0; i < std::size(roughnessRow); ++i) {
+            const float x = (static_cast<float>(i) - 2.5f) * 2.0f;
+            items.push_back({plastic[i], Mat4::translation({x, 0.8f, 0.0f})});
+            items.push_back({gold[i], Mat4::translation({x, 0.8f, -2.4f})});
+        }
         for (int x = -3; x <= 3; ++x)
-            for (int z = -3; z <= 3; ++z) {
-                if (x == 0 && z == 0) continue;
+            for (int z = 0; z < 3; ++z) {
                 const float spin = (x + z) % 2 == 0 ? t : 0.f;
-                items.push_back({cube, Mat4::translation({x * 4.f, 0.5f, z * 4.f - 6.f}) * Mat4::rotationY(spin)});
+                items.push_back({cube, Mat4::translation({x * 4.f, 0.5f, -8.f - z * 4.f}) * Mat4::rotationY(spin)});
             }
-        items.push_back({pillar, Mat4::translation({0, 2.f, -6.f})});
+        items.push_back({pillar, Mat4::translation({7.f, 2.f, -3.f})});
 
         int w = 0, h = 0;
         window->pixelSize(w, h);
         const float aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 1.f;
-        renderer->drawFrame(camera.viewProjection(aspect), items, w, h);
+        han::render::FrameParams params;
+        params.viewProjection = camera.viewProjection(aspect);
+        params.cameraPosition = camera.position;
+        params.sun = han::render::makeSun(sunElevation, sunAzimuth, sunKelvin);
+        params.sky = han::render::skyFromSun(params.sun);
+        params.exposure = exposure;
+        renderer->drawFrame(params, items, w, h);
     }
     const auto errors = renderer->validationErrors();
     std::printf("ошибок валидации: %u, предупреждений: %u\n", errors, renderer->validationWarnings());

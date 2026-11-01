@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "han/render/lighting.h"
 #include "han/render/mesh.h"
 #include "han/render/overlay.h"
 #include "han/render/texture.h"
@@ -28,6 +29,17 @@ using TextureId = std::uint32_t;  // 0 — «нет текстуры» (рису
 struct DrawItem {
     MeshId mesh = 0;
     core::Mat4 model;
+};
+
+// Всё, что меняется от кадра к кадру и не относится к конкретному мешу.
+struct FrameParams {
+    core::Mat4 viewProjection;
+    core::Vec3 cameraPosition;
+    SunLight sun;
+    SkyColors sky;
+    float exposure = 1.0f;    // множитель яркости перед тонмаппингом
+    float contrast = 1.2f;    // кривая AgX: степень контраста (1 — нейтрально)
+    float saturation = 1.2f;  // насыщенность после AgX, который сам по себе заметно обесцвечивает яркие цвета (1 — нейтрально)
 };
 
 class Renderer {
@@ -54,9 +66,10 @@ public:
     // false — id неверный или не хватило памяти; тогда прежний меш остаётся как был.
     bool replaceMesh(MeshId id, const MeshData& mesh, std::span<const TextureId> textures = {});
 
-    // Рисует кадр. width/height — текущий размер окна в пикселях (для пересоздания swapchain).
+    // Рисует кадр: меши с PBR при свете frame.sun и окружении frame.sky, затем небо, тонмаппинг AgX и наложение.
+    // width/height — текущий размер окна в пикселях (для пересоздания swapchain).
     // false — кадр пропущен (окно свёрнуто, пересоздание swapchain) или произошла ошибка устройства.
-    bool drawFrame(const core::Mat4& viewProjection, std::span<const DrawItem> items, int width, int height);
+    bool drawFrame(const FrameParams& frame, std::span<const DrawItem> items, int width, int height);
 
     const std::string& deviceName() const;
     bool validationEnabled() const;

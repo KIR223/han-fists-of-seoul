@@ -35,6 +35,12 @@ public:
         return static_cast<std::uint32_t>(p[0]) | static_cast<std::uint32_t>(p[1]) << 8 | static_cast<std::uint32_t>(p[2]) << 16 |
                static_cast<std::uint32_t>(p[3]) << 24;
     }
+    float f32() {
+        const std::uint32_t bits = u32();
+        float f;
+        std::memcpy(&f, &bits, 4);
+        return f;
+    }
     std::uint32_t u16() {
         if (!take(2)) return 0;
         const std::uint8_t* p = data_ + pos_ - 2;
@@ -91,6 +97,8 @@ std::vector<std::uint8_t> serializeMesh(const MeshData& mesh) {
         put32(out, s.firstIndex);
         put32(out, s.indexCount);
         put32(out, static_cast<std::uint32_t>(s.texture));
+        putFloat(out, s.metallic);
+        putFloat(out, s.roughness);
     }
     put32(out, static_cast<std::uint32_t>(mesh.textures.size()));
     for (const std::string& name : mesh.textures) {
@@ -148,7 +156,7 @@ bool deserializeMesh(const std::uint8_t* data, std::size_t size, MeshData& out, 
     }
 
     const std::uint32_t submeshCount = r.u32();
-    if (!r.ok() || submeshCount > kMaxSubmeshes || static_cast<std::uint64_t>(submeshCount) * 12 > r.remaining()) {
+    if (!r.ok() || submeshCount > kMaxSubmeshes || static_cast<std::uint64_t>(submeshCount) * 20 > r.remaining()) {
         error = "повреждён список частей меша";
         return false;
     }
@@ -157,6 +165,8 @@ bool deserializeMesh(const std::uint8_t* data, std::size_t size, MeshData& out, 
         s.firstIndex = r.u32();
         s.indexCount = r.u32();
         s.texture = static_cast<std::int32_t>(r.u32());
+        s.metallic = r.f32();
+        s.roughness = r.f32();
     }
     const std::uint32_t textureCount = r.u32();
     if (!r.ok() || textureCount > kMaxTextures) {
@@ -185,6 +195,10 @@ bool deserializeMesh(const std::uint8_t* data, std::size_t size, MeshData& out, 
         }
         if (s.texture < -1 || s.texture >= static_cast<std::int32_t>(textureCount)) {
             error = "часть меша ссылается на несуществующую текстуру";
+            return false;
+        }
+        if (!(s.metallic >= 0.0f && s.metallic <= 1.0f && s.roughness >= 0.0f && s.roughness <= 1.0f)) {  // заодно отсекает NaN
+            error = "металличность и шероховатость должны быть числами от 0 до 1";
             return false;
         }
         covered += s.indexCount;

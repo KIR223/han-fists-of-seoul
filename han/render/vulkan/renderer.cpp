@@ -7,6 +7,10 @@
 
 #include "han/render/generated/mesh_frag.h"
 #include "han/render/generated/mesh_vert.h"
+#include "han/render/generated/post_vert.h"
+#include "han/render/generated/sky_frag.h"
+#include "han/render/generated/sky_vert.h"
+#include "han/render/generated/tonemap_frag.h"
 #include "han/render/renderer.h"
 
 namespace han::render {
@@ -15,12 +19,35 @@ namespace {
 constexpr int kFramesInFlight = 2;
 constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
+constexpr VkFormat kHdrFormat = VK_FORMAT_R16G16B16A16_SFLOAT;  // сцена рисуется в линейном HDR, затем тонмаппинг в экран
 
-struct PushConstants {
-    float viewProj[16];
+// Push constants мешей: матрица модели (vertex, 0..64) и материал (fragment, 64..80): x — металличность, y — шероховатость.
+struct VertexPush {
     float model[16];
 };
-static_assert(sizeof(PushConstants) == 128, "push constants: гарантированный минимум Vulkan — 128 байт");
+struct FragmentPush {
+    float material[4];
+};
+constexpr std::uint32_t kFragmentPushOffset = sizeof(VertexPush);
+
+// Push constants тонмаппинга (fragment): экспозиция, контраст, насыщенность.
+struct TonemapPush {
+    float exposure, contrast, saturation;
+};
+
+// Данные кадра для шейдеров (std140). Зеркалит блок Frame в shaders/common.glsl; менять только вместе.
+struct FrameUbo {
+    float viewProj[16];
+    float invViewProj[16];
+    float cameraPos[4];
+    float sunDir[4];
+    float sunColor[4];   // rgb — цвет, a — освещённость
+    float skyZenith[4];
+    float skyHorizon[4];
+    float skyGround[4];
+    float params[4];     // x — экспозиция
+};
+static_assert(sizeof(FrameUbo) == 240, "FrameUbo должен совпадать с std140-блоком Frame");
 
 struct DebugCounters {
     std::uint32_t errors = 0, warnings = 0;
@@ -44,7 +71,109 @@ bool fail(std::string& err, const char* what, VkResult r) {
 struct GpuSubmesh {
     std::uint32_t firstIndex = 0, indexCount = 0;
     TextureId texture = 0;  // 0 — белая текстура
+    float metallic = 0.0f, roughness = 0.5f;
 };
+
+// Описание графического конвейера: всё, чем конвейеры сцены, неба и тонмаппинга отличаются друг от друга.
+struct PipelineDesc {
+    const std::uint32_t* vert = nullptr;
+    std::size_t vertBytes = 0;
+    const std::uint32_t* frag = nullptr;
+    std::size_t fragBytes = 0;
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    bool vertexInput = false;  // вершины из буфера (Vertex) или генерируются в шейдере
+    VkFormat colorFormat = VK_FORMAT_UNDEFINED;
+    VkFormat depthFormat = VK_FORMAT_UNDEFINED;  // UNDEFINED — без глубины
+    bool depthTest = false, depthWrite = false;
+    VkCompareOp depthOp = VK_COMPARE_OP_LESS;
+    VkCullModeFlags cull = VK_CULL_MODE_NONE;
+};
+
+VkResult buildPipeline(VkDevice device, const PipelineDesc& d, VkPipeline& out) {
+    auto makeModule = [&](const std::uint32_t* code, std::size_t bytes, VkShaderModule& module) {
+        VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        ci.codeSize = bytes;
+        ci.pCode = code;
+        return vkCreateShaderModule(device, &ci, nullptr, &module);
+    };
+    VkShaderModule vert = VK_NULL_HANDLE, frag = VK_NULL_HANDLE;
+    VkResult r = makeModule(d.vert, d.vertBytes, vert);
+    if (r == VK_SUCCESS) r = makeModule(d.frag, d.fragBytes, frag);
+    if (r != VK_SUCCESS) {
+        if (vert) vkDestroyShaderModule(device, vert, nullptr);
+        return r;
+    }
+
+    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+    stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vert, "main", nullptr};
+    stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag, "main", nullptr};
+
+    const VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
+    const std::array<VkVertexInputAttributeDescription, 4> attrs{{
+        {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
+        {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
+        {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)},
+        {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)},
+    }};
+    VkPipelineVertexInputStateCreateInfo vin{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    if (d.vertexInput) {
+        vin.vertexBindingDescriptionCount = 1;
+        vin.pVertexBindingDescriptions = &binding;
+        vin.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
+        vin.pVertexAttributeDescriptions = attrs.data();
+    }
+
+    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    vp.viewportCount = 1;
+    vp.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rs.polygonMode = VK_POLYGON_MODE_FILL;
+    rs.cullMode = d.cull;
+    // Меши обходятся против часовой стрелки; перевёрнутая по Y проекция сохраняет видимую ориентацию (проверено на кадре).
+    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rs.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo dss{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    dss.depthTestEnable = d.depthTest ? VK_TRUE : VK_FALSE;
+    dss.depthWriteEnable = d.depthWrite ? VK_TRUE : VK_FALSE;
+    dss.depthCompareOp = d.depthOp;
+    VkPipelineColorBlendAttachmentState att{};
+    att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    cb.attachmentCount = 1;
+    cb.pAttachments = &att;
+    const std::array<VkDynamicState, 2> dyn{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    ds.dynamicStateCount = static_cast<std::uint32_t>(dyn.size());
+    ds.pDynamicStates = dyn.data();
+
+    VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rendering.colorAttachmentCount = 1;
+    rendering.pColorAttachmentFormats = &d.colorFormat;
+    rendering.depthAttachmentFormat = d.depthFormat;
+
+    VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pci.pNext = &rendering;
+    pci.stageCount = 2;
+    pci.pStages = stages.data();
+    pci.pVertexInputState = &vin;
+    pci.pInputAssemblyState = &ia;
+    pci.pViewportState = &vp;
+    pci.pRasterizationState = &rs;
+    pci.pMultisampleState = &ms;
+    pci.pDepthStencilState = &dss;
+    pci.pColorBlendState = &cb;
+    pci.pDynamicState = &ds;
+    pci.layout = d.layout;
+    r = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pci, nullptr, &out);
+
+    vkDestroyShaderModule(device, vert, nullptr);
+    vkDestroyShaderModule(device, frag, nullptr);
+    return r;
+}
 
 struct GpuMesh {
     VkBuffer vertexBuffer = VK_NULL_HANDLE, indexBuffer = VK_NULL_HANDLE;
@@ -85,8 +214,25 @@ struct Renderer::Impl {
     VkDeviceMemory depthMemory = VK_NULL_HANDLE;
     VkImageView depthView = VK_NULL_HANDLE;
 
-    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    VkPipeline pipeline = VK_NULL_HANDLE;
+    // HDR-цель сцены (размер окна, пересоздаётся вместе с swapchain) и набор дескрипторов для её чтения тонмаппингом.
+    VkImage hdrImage = VK_NULL_HANDLE;
+    VkDeviceMemory hdrMemory = VK_NULL_HANDLE;
+    VkImageView hdrView = VK_NULL_HANDLE;
+    VkDescriptorSet hdrSet = VK_NULL_HANDLE;
+
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;  // меши и небо: set 0 — текстура, set 1 — данные кадра
+    VkPipelineLayout postLayout = VK_NULL_HANDLE;      // тонмаппинг: set 0 — HDR-картинка, push — экспозиция
+    VkPipeline pipeline = VK_NULL_HANDLE;              // меши
+    VkPipeline skyPipeline = VK_NULL_HANDLE;
+    VkPipeline tonemapPipeline = VK_NULL_HANDLE;
+
+    // Данные кадра: по одному постоянно отображённому буферу на кадр в полёте.
+    VkDescriptorSetLayout frameLayout = VK_NULL_HANDLE;
+    std::array<VkBuffer, kFramesInFlight> frameBuffers{};
+    std::array<VkDeviceMemory, kFramesInFlight> frameMemory{};
+    std::array<void*, kFramesInFlight> frameMapped{};
+    std::array<VkDescriptorSet, kFramesInFlight> frameSets{};
+    VkSampler clampSampler = VK_NULL_HANDLE;  // для чтения HDR: линейная фильтрация без повтора
 
     VkCommandPool pool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, kFramesInFlight> cmds{};
@@ -110,8 +256,10 @@ struct Renderer::Impl {
     bool pickDevice(std::string& err);
     bool createSwapchain(int width, int height, std::string& err);
     bool createDepth(std::string& err);
+    bool createHdr(std::string& err);
     void destroySwapchain();
     bool createPipeline(std::string& err);
+    bool createFrameData(std::string& err);
     bool createFrameObjects(std::string& err);
     bool createBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory,
                       std::string& err);
@@ -327,7 +475,70 @@ bool Renderer::Impl::createDepth(std::string& err) {
     return r == VK_SUCCESS ? true : fail(err, "vkCreateImageView (глубина)", r);
 }
 
+bool Renderer::Impl::createHdr(std::string& err) {
+    VkImageCreateInfo ii{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ii.imageType = VK_IMAGE_TYPE_2D;
+    ii.format = kHdrFormat;
+    ii.extent = {extent.width, extent.height, 1};
+    ii.mipLevels = 1;
+    ii.arrayLayers = 1;
+    ii.samples = VK_SAMPLE_COUNT_1_BIT;
+    ii.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ii.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ii.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkResult r = vkCreateImage(device, &ii, nullptr, &hdrImage);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateImage (HDR)", r);
+
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(device, hdrImage, &req);
+    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    ai.allocationSize = req.size;
+    if (!findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ai.memoryTypeIndex)) {
+        err = "нет памяти GPU для HDR-цели";
+        return false;
+    }
+    r = vkAllocateMemory(device, &ai, nullptr, &hdrMemory);
+    if (r != VK_SUCCESS) return fail(err, "vkAllocateMemory (HDR)", r);
+    vkBindImageMemory(device, hdrImage, hdrMemory, 0);
+
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = hdrImage;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = kHdrFormat;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    r = vkCreateImageView(device, &vi, nullptr, &hdrView);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateImageView (HDR)", r);
+
+    // Набор дескрипторов появляется после createTextureObjects; при пересоздании swapchain он уже есть.
+    if (setLayout && descriptorPool) {
+        VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        dai.descriptorPool = descriptorPool;
+        dai.descriptorSetCount = 1;
+        dai.pSetLayouts = &setLayout;
+        r = vkAllocateDescriptorSets(device, &dai, &hdrSet);
+        if (r != VK_SUCCESS) return fail(err, "vkAllocateDescriptorSets (HDR)", r);
+        VkDescriptorImageInfo imageInfo{clampSampler, hdrView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = hdrSet;
+        write.dstBinding = 0;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &imageInfo;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    }
+    return true;
+}
+
 void Renderer::Impl::destroySwapchain() {
+    if (hdrSet) vkFreeDescriptorSets(device, descriptorPool, 1, &hdrSet);
+    if (hdrView) vkDestroyImageView(device, hdrView, nullptr);
+    if (hdrImage) vkDestroyImage(device, hdrImage, nullptr);
+    if (hdrMemory) vkFreeMemory(device, hdrMemory, nullptr);
+    hdrSet = VK_NULL_HANDLE;
+    hdrView = VK_NULL_HANDLE;
+    hdrImage = VK_NULL_HANDLE;
+    hdrMemory = VK_NULL_HANDLE;
     if (depthView) vkDestroyImageView(device, depthView, nullptr);
     if (depthImage) vkDestroyImage(device, depthImage, nullptr);
     if (depthMemory) vkFreeMemory(device, depthMemory, nullptr);
@@ -403,99 +614,113 @@ bool Renderer::Impl::createSwapchain(int width, int height, std::string& err) {
         if (r != VK_SUCCESS) return fail(err, "vkCreateSemaphore", r);
         renderFinished.push_back(sem);
     }
-    return createDepth(err);
+    return createDepth(err) && createHdr(err);
 }
 
 bool Renderer::Impl::createPipeline(std::string& err) {
-    auto makeModule = [&](const std::uint32_t* code, std::size_t bytes, VkShaderModule& out) {
-        VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-        ci.codeSize = bytes;
-        ci.pCode = code;
-        return vkCreateShaderModule(device, &ci, nullptr, &out);
-    };
-    VkShaderModule vert = VK_NULL_HANDLE, frag = VK_NULL_HANDLE;
-    VkResult r = makeModule(shaders::k_mesh_vert, sizeof(shaders::k_mesh_vert), vert);
-    if (r == VK_SUCCESS) r = makeModule(shaders::k_mesh_frag, sizeof(shaders::k_mesh_frag), frag);
-    if (r != VK_SUCCESS) {
-        if (vert) vkDestroyShaderModule(device, vert, nullptr);
-        return fail(err, "vkCreateShaderModule", r);
-    }
-
-    VkPushConstantRange pcr{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants)};
-    VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    lci.setLayoutCount = 1;
-    lci.pSetLayouts = &setLayout;
-    lci.pushConstantRangeCount = 1;
-    lci.pPushConstantRanges = &pcr;
-    r = vkCreatePipelineLayout(device, &lci, nullptr, &pipelineLayout);
-
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
-    stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vert, "main", nullptr};
-    stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag, "main", nullptr};
-
-    const VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    const std::array<VkVertexInputAttributeDescription, 4> attrs{{
-        {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
-        {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
-        {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)},
-        {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)},
+    // Меши и небо: set 0 — текстура материала, set 1 — данные кадра; push constants — матрица модели и материал.
+    const std::array<VkDescriptorSetLayout, 2> sceneSets{setLayout, frameLayout};
+    const std::array<VkPushConstantRange, 2> scenePush{{
+        {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VertexPush)},
+        {VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(FragmentPush)},
     }};
-    VkPipelineVertexInputStateCreateInfo vin{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vin.vertexBindingDescriptionCount = 1;
-    vin.pVertexBindingDescriptions = &binding;
-    vin.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
-    vin.pVertexAttributeDescriptions = attrs.data();
+    VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    lci.setLayoutCount = static_cast<std::uint32_t>(sceneSets.size());
+    lci.pSetLayouts = sceneSets.data();
+    lci.pushConstantRangeCount = static_cast<std::uint32_t>(scenePush.size());
+    lci.pPushConstantRanges = scenePush.data();
+    VkResult r = vkCreatePipelineLayout(device, &lci, nullptr, &pipelineLayout);
+    if (r != VK_SUCCESS) return fail(err, "vkCreatePipelineLayout (сцена)", r);
 
-    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-    vp.viewportCount = 1;
-    vp.scissorCount = 1;
-    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-    rs.polygonMode = VK_POLYGON_MODE_FILL;
-    rs.cullMode = VK_CULL_MODE_BACK_BIT;
-    // Меши обходятся против часовой стрелки; перевёрнутая по Y проекция сохраняет видимую ориентацию (проверено на кадре).
-    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rs.lineWidth = 1.0f;
-    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    VkPipelineDepthStencilStateCreateInfo dss{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    dss.depthTestEnable = VK_TRUE;
-    dss.depthWriteEnable = VK_TRUE;
-    dss.depthCompareOp = VK_COMPARE_OP_LESS;
-    VkPipelineColorBlendAttachmentState att{};
-    att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = 1;
-    cb.pAttachments = &att;
-    const std::array<VkDynamicState, 2> dyn{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    ds.dynamicStateCount = static_cast<std::uint32_t>(dyn.size());
-    ds.pDynamicStates = dyn.data();
+    // Тонмаппинг: set 0 — HDR-картинка, push constants — экспозиция, контраст и насыщенность.
+    const VkPushConstantRange postPush{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(TonemapPush)};
+    VkPipelineLayoutCreateInfo pci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pci.setLayoutCount = 1;
+    pci.pSetLayouts = &setLayout;
+    pci.pushConstantRangeCount = 1;
+    pci.pPushConstantRanges = &postPush;
+    r = vkCreatePipelineLayout(device, &pci, nullptr, &postLayout);
+    if (r != VK_SUCCESS) return fail(err, "vkCreatePipelineLayout (тонмаппинг)", r);
 
-    VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rendering.colorAttachmentCount = 1;
-    rendering.pColorAttachmentFormats = &format;
-    rendering.depthAttachmentFormat = kDepthFormat;
+    PipelineDesc mesh;
+    mesh.vert = shaders::k_mesh_vert;
+    mesh.vertBytes = sizeof(shaders::k_mesh_vert);
+    mesh.frag = shaders::k_mesh_frag;
+    mesh.fragBytes = sizeof(shaders::k_mesh_frag);
+    mesh.layout = pipelineLayout;
+    mesh.vertexInput = true;
+    mesh.colorFormat = kHdrFormat;
+    mesh.depthFormat = kDepthFormat;
+    mesh.depthTest = mesh.depthWrite = true;
+    mesh.depthOp = VK_COMPARE_OP_LESS;
+    mesh.cull = VK_CULL_MODE_BACK_BIT;
+    r = buildPipeline(device, mesh, pipeline);
+    if (r != VK_SUCCESS) return fail(err, "конвейер мешей", r);
 
-    VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    pci.pNext = &rendering;
-    pci.stageCount = 2;
-    pci.pStages = stages.data();
-    pci.pVertexInputState = &vin;
-    pci.pInputAssemblyState = &ia;
-    pci.pViewportState = &vp;
-    pci.pRasterizationState = &rs;
-    pci.pMultisampleState = &ms;
-    pci.pDepthStencilState = &dss;
-    pci.pColorBlendState = &cb;
-    pci.pDynamicState = &ds;
-    pci.layout = pipelineLayout;
-    if (r == VK_SUCCESS) r = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pci, nullptr, &pipeline);
+    PipelineDesc sky;  // небо — на дальней плоскости, поэтому «меньше или равно» и без записи глубины
+    sky.vert = shaders::k_sky_vert;
+    sky.vertBytes = sizeof(shaders::k_sky_vert);
+    sky.frag = shaders::k_sky_frag;
+    sky.fragBytes = sizeof(shaders::k_sky_frag);
+    sky.layout = pipelineLayout;
+    sky.colorFormat = kHdrFormat;
+    sky.depthFormat = kDepthFormat;
+    sky.depthTest = true;
+    sky.depthWrite = false;
+    sky.depthOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    r = buildPipeline(device, sky, skyPipeline);
+    if (r != VK_SUCCESS) return fail(err, "конвейер неба", r);
 
-    vkDestroyShaderModule(device, vert, nullptr);
-    vkDestroyShaderModule(device, frag, nullptr);
-    return r == VK_SUCCESS ? true : fail(err, "создание конвейера", r);
+    PipelineDesc tonemap;
+    tonemap.vert = shaders::k_post_vert;
+    tonemap.vertBytes = sizeof(shaders::k_post_vert);
+    tonemap.frag = shaders::k_tonemap_frag;
+    tonemap.fragBytes = sizeof(shaders::k_tonemap_frag);
+    tonemap.layout = postLayout;
+    tonemap.colorFormat = format;
+    r = buildPipeline(device, tonemap, tonemapPipeline);
+    return r == VK_SUCCESS ? true : fail(err, "конвейер тонмаппинга", r);
+}
+
+// Буферы и наборы дескрипторов данных кадра (UBO, постоянно отображённый, по одному на кадр в полёте).
+bool Renderer::Impl::createFrameData(std::string& err) {
+    for (int i = 0; i < kFramesInFlight; ++i) {
+        VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bi.size = sizeof(FrameUbo);
+        bi.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VkResult r = vkCreateBuffer(device, &bi, nullptr, &frameBuffers[i]);
+        if (r != VK_SUCCESS) return fail(err, "vkCreateBuffer (данные кадра)", r);
+        VkMemoryRequirements req;
+        vkGetBufferMemoryRequirements(device, frameBuffers[i], &req);
+        VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        ai.allocationSize = req.size;
+        if (!findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, ai.memoryTypeIndex)) {
+            err = "нет памяти для данных кадра";
+            return false;
+        }
+        r = vkAllocateMemory(device, &ai, nullptr, &frameMemory[i]);
+        if (r != VK_SUCCESS) return fail(err, "vkAllocateMemory (данные кадра)", r);
+        vkBindBufferMemory(device, frameBuffers[i], frameMemory[i], 0);
+        r = vkMapMemory(device, frameMemory[i], 0, sizeof(FrameUbo), 0, &frameMapped[i]);
+        if (r != VK_SUCCESS) return fail(err, "vkMapMemory (данные кадра)", r);
+
+        VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        dai.descriptorPool = descriptorPool;
+        dai.descriptorSetCount = 1;
+        dai.pSetLayouts = &frameLayout;
+        r = vkAllocateDescriptorSets(device, &dai, &frameSets[i]);
+        if (r != VK_SUCCESS) return fail(err, "vkAllocateDescriptorSets (данные кадра)", r);
+        VkDescriptorBufferInfo info{frameBuffers[i], 0, sizeof(FrameUbo)};
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = frameSets[i];
+        write.dstBinding = 0;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write.pBufferInfo = &info;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    }
+    return true;
 }
 
 bool Renderer::Impl::createFrameObjects(std::string& err) {
@@ -547,13 +772,27 @@ bool Renderer::Impl::createTextureObjects(std::string& err) {
     VkResult r = vkCreateDescriptorSetLayout(device, &lci, nullptr, &setLayout);
     if (r != VK_SUCCESS) return fail(err, "vkCreateDescriptorSetLayout", r);
 
-    constexpr std::uint32_t kMaxTextures = 1024;
-    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxTextures};
+    // Данные кадра (set 1): один буфер uniform, виден вершинному и фрагментному шейдерам.
+    VkDescriptorSetLayoutBinding frameBinding{};
+    frameBinding.binding = 0;
+    frameBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    frameBinding.descriptorCount = 1;
+    frameBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo fli{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    fli.bindingCount = 1;
+    fli.pBindings = &frameBinding;
+    r = vkCreateDescriptorSetLayout(device, &fli, nullptr, &frameLayout);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateDescriptorSetLayout (данные кадра)", r);
+
+    // 1024 текстуры, плюс запас на HDR-цель; отдельные места под данные кадра.
+    constexpr std::uint32_t kMaxTextures = 1024 + 16;
+    const std::array<VkDescriptorPoolSize, 2> sizes{{{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxTextures},
+                                                     {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kFramesInFlight}}};
     VkDescriptorPoolCreateInfo pci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pci.maxSets = kMaxTextures;
-    pci.poolSizeCount = 1;
-    pci.pPoolSizes = &size;
+    pci.maxSets = kMaxTextures + kFramesInFlight;
+    pci.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
+    pci.pPoolSizes = sizes.data();
     r = vkCreateDescriptorPool(device, &pci, nullptr, &descriptorPool);
     if (r != VK_SUCCESS) return fail(err, "vkCreateDescriptorPool", r);
 
@@ -567,7 +806,16 @@ bool Renderer::Impl::createTextureObjects(std::string& err) {
     sci.minLod = 0.0f;
     sci.maxLod = VK_LOD_CLAMP_NONE;
     r = vkCreateSampler(device, &sci, nullptr, &sampler);
-    return r == VK_SUCCESS ? true : fail(err, "vkCreateSampler", r);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateSampler", r);
+
+    VkSamplerCreateInfo csi{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};  // для HDR-цели: без повтора и без мипов
+    csi.magFilter = VK_FILTER_LINEAR;
+    csi.minFilter = VK_FILTER_LINEAR;
+    csi.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    csi.addressModeU = csi.addressModeV = csi.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    r = vkCreateSampler(device, &csi, nullptr, &clampSampler);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateSampler (HDR)", r);
+    return createFrameData(err);
 }
 
 bool Renderer::Impl::submitOneTime(const std::function<void(VkCommandBuffer)>& record, std::string& err) {
@@ -742,7 +990,7 @@ bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId>
     for (const Submesh& s : effectiveSubmeshes(mesh)) {
         TextureId tex = 0;
         if (s.texture >= 0 && static_cast<std::size_t>(s.texture) < textureIds.size()) tex = textureIds[static_cast<std::size_t>(s.texture)];
-        out.submeshes.push_back({s.firstIndex, s.indexCount, tex});
+        out.submeshes.push_back({s.firstIndex, s.indexCount, tex, s.metallic, s.roughness});
     }
     const bool ok = createBuffer(mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                  out.vertexBuffer, out.vertexMemory, err) &&
@@ -760,14 +1008,24 @@ void Renderer::Impl::destroyAll() {
             if (imageAvailable[i]) vkDestroySemaphore(device, imageAvailable[i], nullptr);
             if (inFlight[i]) vkDestroyFence(device, inFlight[i], nullptr);
         }
+        destroySwapchain();  // освобождает набор дескрипторов HDR из пула, поэтому раньше пула
         for (GpuTexture& t : textures) destroyTexture(t);
         if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+        for (int i = 0; i < kFramesInFlight; ++i) {
+            if (frameMapped[i]) vkUnmapMemory(device, frameMemory[i]);
+            if (frameBuffers[i]) vkDestroyBuffer(device, frameBuffers[i], nullptr);
+            if (frameMemory[i]) vkFreeMemory(device, frameMemory[i], nullptr);
+        }
+        if (frameLayout) vkDestroyDescriptorSetLayout(device, frameLayout, nullptr);
         if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
         if (sampler) vkDestroySampler(device, sampler, nullptr);
+        if (clampSampler) vkDestroySampler(device, clampSampler, nullptr);
         if (pool) vkDestroyCommandPool(device, pool, nullptr);
         if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
+        if (skyPipeline) vkDestroyPipeline(device, skyPipeline, nullptr);
+        if (tonemapPipeline) vkDestroyPipeline(device, tonemapPipeline, nullptr);
         if (pipelineLayout) vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-        destroySwapchain();
+        if (postLayout) vkDestroyPipelineLayout(device, postLayout, nullptr);
         vkDestroyDevice(device, nullptr);
     }
     if (surface) vkDestroySurfaceKHR(instance, surface, nullptr);
@@ -816,7 +1074,7 @@ std::unique_ptr<Renderer> Renderer::create(const RendererDesc& desc, std::string
         error = "не удалось создать поверхность окна";
         return nullptr;
     }
-    if (!s.pickDevice(error) || !s.createSwapchain(desc.width, desc.height, error) || !s.createTextureObjects(error) ||
+    if (!s.pickDevice(error) || !s.createTextureObjects(error) || !s.createSwapchain(desc.width, desc.height, error) ||
         !s.createPipeline(error) || !s.createFrameObjects(error))
         return nullptr;
 
@@ -884,7 +1142,7 @@ bool Renderer::replaceMesh(MeshId id, const MeshData& mesh, std::span<const Text
     return true;
 }
 
-bool Renderer::drawFrame(const core::Mat4& viewProjection, std::span<const DrawItem> items, int width, int height) {
+bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> items, int width, int height) {
     Impl& s = *impl_;
     if (width <= 0 || height <= 0) return false;  // окно свёрнуто
 
@@ -902,6 +1160,27 @@ bool Renderer::drawFrame(const core::Mat4& viewProjection, std::span<const DrawI
     }
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) return false;
     vkResetFences(s.device, 1, &s.inFlight[f]);
+
+    // Данные кадра для шейдеров. Буфер этого кадра в полёте свободен: мы дождались его забора выше.
+    FrameUbo ubo{};
+    std::memcpy(ubo.viewProj, frame.viewProjection.m, sizeof(ubo.viewProj));
+    core::Mat4 inverse;
+    if (!core::invert(frame.viewProjection, inverse)) inverse = core::Mat4::identity();
+    std::memcpy(ubo.invViewProj, inverse.m, sizeof(ubo.invViewProj));
+    const auto put3 = [](float* dst, core::Vec3 v, float w = 0.0f) {
+        dst[0] = v.x;
+        dst[1] = v.y;
+        dst[2] = v.z;
+        dst[3] = w;
+    };
+    put3(ubo.cameraPos, frame.cameraPosition);
+    put3(ubo.sunDir, core::normalize(frame.sun.direction));
+    put3(ubo.sunColor, frame.sun.color, frame.sun.illuminance);
+    put3(ubo.skyZenith, frame.sky.zenith);
+    put3(ubo.skyHorizon, frame.sky.horizon);
+    put3(ubo.skyGround, frame.sky.ground);
+    ubo.params[0] = frame.exposure;
+    std::memcpy(s.frameMapped[f], &ubo, sizeof(ubo));
 
     const VkCommandBuffer cmd = s.cmds[f];
     vkResetCommandBuffer(cmd, 0);
@@ -927,54 +1206,55 @@ bool Renderer::drawFrame(const core::Mat4& viewProjection, std::span<const DrawI
         vkCmdPipelineBarrier2(cmd, &dep);
     };
 
-    barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+    // --- Проход 1: сцена в линейный HDR (меши, затем небо на дальней плоскости).
+    // Предыдущий кадр в полёте мог ещё читать HDR в тонмаппинге и писать глубину — ждём обе стадии (содержимое не нужно).
+    barrier(s.hdrImage, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-    // Глубина очищается каждый кадр, поэтому прежнее содержимое не нужно. Предыдущий кадр может ещё читать её на раннем/позднем
-    // тесте глубины — ждём обе стадии.
     constexpr VkPipelineStageFlags2 kDepthStages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
     barrier(s.depthImage, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, kDepthStages,
             VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, kDepthStages,
             VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
-    VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    color.imageView = s.views[index];
-    color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color.clearValue.color = {{0.35f, 0.5f, 0.7f, 1.0f}};
+    VkRenderingAttachmentInfo hdr{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    hdr.imageView = s.hdrView;
+    hdr.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    hdr.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    hdr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    hdr.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depth.imageView = s.depthView;
     depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depth.clearValue.depthStencil = {1.0f, 0};
-    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-    ri.renderArea = {{0, 0}, s.extent};
-    ri.layerCount = 1;
-    ri.colorAttachmentCount = 1;
-    ri.pColorAttachments = &color;
-    ri.pDepthAttachment = &depth;
-    vkCmdBeginRendering(cmd, &ri);
+    VkRenderingInfo sceneInfo{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    sceneInfo.renderArea = {{0, 0}, s.extent};
+    sceneInfo.layerCount = 1;
+    sceneInfo.colorAttachmentCount = 1;
+    sceneInfo.pColorAttachments = &hdr;
+    sceneInfo.pDepthAttachment = &depth;
+    vkCmdBeginRendering(cmd, &sceneInfo);
 
     const VkViewport viewport{0, 0, static_cast<float>(s.extent.width), static_cast<float>(s.extent.height), 0, 1};
     const VkRect2D scissor{{0, 0}, s.extent};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipeline);
 
-    PushConstants pc{};
-    std::memcpy(pc.viewProj, viewProjection.m, sizeof(pc.viewProj));
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 1, 1, &s.frameSets[f], 0, nullptr);
+
+    VertexPush vertexPush{};
     VkDescriptorSet boundSet = VK_NULL_HANDLE;
     for (const DrawItem& item : items) {
         if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
         const GpuMesh& mesh = s.meshes[item.mesh - 1];
         if (mesh.indexCount == 0) continue;
-        std::memcpy(pc.model, item.model.m, sizeof(pc.model));
+        std::memcpy(vertexPush.model, item.model.m, sizeof(vertexPush.model));
         const VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
         vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+        vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vertexPush), &vertexPush);
         for (const GpuSubmesh& part : mesh.submeshes) {
             if (part.indexCount == 0) continue;
             const VkDescriptorSet set = s.descriptorFor(part.texture);
@@ -982,13 +1262,46 @@ bool Renderer::drawFrame(const core::Mat4& viewProjection, std::span<const DrawI
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 0, 1, &set, 0, nullptr);
                 boundSet = set;
             }
+            const FragmentPush material{{part.metallic, part.roughness, 0.0f, 0.0f}};
+            vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(material), &material);
             vkCmdDrawIndexed(cmd, part.indexCount, 1, part.firstIndex, 0, 0);
         }
     }
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.skyPipeline);  // небо поверх незакрытых пикселей
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRendering(cmd);
+
+    // --- Проход 2: тонмаппинг HDR → изображение swapchain.
+    barrier(s.hdrImage, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+    VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    color.imageView = s.views[index];
+    color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;  // тонмаппинг перезаписывает каждый пиксель
+    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkRenderingInfo toneInfo{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    toneInfo.renderArea = {{0, 0}, s.extent};
+    toneInfo.layerCount = 1;
+    toneInfo.colorAttachmentCount = 1;
+    toneInfo.pColorAttachments = &color;
+    vkCmdBeginRendering(cmd, &toneInfo);
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.tonemapPipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.postLayout, 0, 1, &s.hdrSet, 0, nullptr);
+    const TonemapPush tonemapPush{frame.exposure, frame.contrast, frame.saturation};
+    vkCmdPushConstants(cmd, s.postLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(tonemapPush), &tonemapPush);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRendering(cmd);
 
     if (s.overlay) {
-        // Второй проход поверх сцены без глубины: сначала дожидаемся записи цвета первым проходом.
+        // Третий проход поверх экрана без глубины: сначала дожидаемся записи цвета тонмаппингом.
         VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
         mb.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         mb.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;

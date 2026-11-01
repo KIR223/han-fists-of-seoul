@@ -15,11 +15,14 @@ struct Vertex {
     float uv[2];     // координаты текстуры, начало в левом верхнем углу изображения (как в glTF)
 };
 
-// Часть меша с одним материалом: подряд идущие индексы и номер текстуры в MeshData::textures (-1 — без текстуры).
+// Часть меша с одним материалом: подряд идущие индексы, номер текстуры в MeshData::textures (-1 — без текстуры) и
+// параметры PBR (металличность и шероховатость, 0..1). Цвет — из вершин (множитель) и текстуры.
 struct Submesh {
     std::uint32_t firstIndex = 0;
     std::uint32_t indexCount = 0;
     std::int32_t texture = -1;
+    float metallic = 0.0f;
+    float roughness = 0.5f;
 };
 
 struct MeshData {
@@ -39,6 +42,8 @@ std::vector<Submesh> effectiveSubmeshes(const MeshData& mesh);
 MeshData makeBox(core::Vec3 halfExtents, core::Vec3 color);
 // Горизонтальная плоскость y = 0 со стороной 2·halfSize, нормаль вверх. UV повторяются uvRepeat раз по каждой стороне.
 MeshData makePlane(float halfSize, core::Vec3 color, float uvRepeat = 1.0f);
+// Сфера с центром в нуле (UV-сфера: segments по долготе, rings по широте), нормали наружу; u по долготе, v сверху вниз.
+MeshData makeSphere(float radius, int segments, int rings, core::Vec3 color);
 
 }  // namespace han::render
 // Пример: MeshData cube = makeBox({0.5f, 0.5f, 0.5f}, {0.8f, 0.3f, 0.2f}); auto id = renderer->uploadMesh(cube);

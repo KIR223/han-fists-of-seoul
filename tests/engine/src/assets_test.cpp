@@ -31,7 +31,8 @@ bool sameMesh(const render::MeshData& a, const render::MeshData& b) {
         return false;
     for (std::size_t i = 0; i < a.submeshes.size(); ++i) {
         if (a.submeshes[i].firstIndex != b.submeshes[i].firstIndex || a.submeshes[i].indexCount != b.submeshes[i].indexCount ||
-            a.submeshes[i].texture != b.submeshes[i].texture)
+            a.submeshes[i].texture != b.submeshes[i].texture || a.submeshes[i].metallic != b.submeshes[i].metallic ||
+            a.submeshes[i].roughness != b.submeshes[i].roughness)
             return false;
     }
     return std::memcmp(a.vertices.data(), b.vertices.data(), a.vertices.size() * sizeof(render::Vertex)) == 0;
@@ -69,7 +70,7 @@ TEST_CASE("mesh_io: UV сохраняются") {
 TEST_CASE("mesh_io: части меша и имена текстур") {
     render::MeshData m = render::makeBox({1, 1, 1}, {1, 1, 1});
     m.textures = {"lamp.tex0.ktx2", "корея.tex1.ktx2"};
-    m.submeshes = {{0, 12, 0}, {12, 12, -1}, {24, 12, 1}};
+    m.submeshes = {{0, 12, 0, 0.0f, 0.9f}, {12, 12, -1, 1.0f, 0.25f}, {24, 12, 1}};
     const auto bytes = render::serializeMesh(m);
     render::MeshData back;
     std::string err;
@@ -94,6 +95,13 @@ TEST_CASE("mesh_io: некорректные части меша отклоня�
     CHECK_FALSE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
 
     m.submeshes = {{0, 12, 0}, {18, 18, 0}};  // между частями дыра (индексы 12..17 никому не принадлежат)
+    bytes = render::serializeMesh(m);
+    CHECK_FALSE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
+
+    m.submeshes = {{0, 36, 0, 1.5f, 0.5f}};  // металличность вне 0..1
+    bytes = render::serializeMesh(m);
+    CHECK_FALSE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
+    m.submeshes = {{0, 36, 0, 0.0f, std::nanf("")}};  // NaN в шероховатости
     bytes = render::serializeMesh(m);
     CHECK_FALSE(render::deserializeMesh(bytes.data(), bytes.size(), back, err));
 
@@ -131,7 +139,7 @@ TEST_CASE("mesh_io: повреждённые данные отклоняются
     CHECK_FALSE(render::deserializeMesh(badMagic.data(), badMagic.size(), out, err));
 
     auto oldVersion = good;
-    oldVersion[4] = 1;  // формат v1 больше не читается
+    oldVersion[4] = 2;  // формат v2 (без параметров материала) больше не читается
     CHECK_FALSE(render::deserializeMesh(oldVersion.data(), oldVersion.size(), out, err));
     CHECK(err.find("сварите") != std::string::npos);
 

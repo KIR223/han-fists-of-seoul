@@ -4,6 +4,7 @@
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <map>
@@ -126,6 +127,7 @@ struct Importer {
         }
 
         float color[3] = {0.8f, 0.8f, 0.8f};
+        float metallic = 0.0f, roughness = 0.5f;
         int slot = -1;
         std::size_t texCoord = 0;
         if (prim.materialIndex.has_value() && prim.materialIndex.value() < gltf.materials.size()) {
@@ -134,6 +136,8 @@ struct Importer {
             color[0] = f[0];
             color[1] = f[1];
             color[2] = f[2];
+            metallic = std::clamp(material.pbrData.metallicFactor, 0.0f, 1.0f);
+            roughness = std::clamp(material.pbrData.roughnessFactor, 0.0f, 1.0f);
             slot = baseColorSlot(material, texCoord);
         }
 
@@ -210,10 +214,11 @@ struct Importer {
         }
 
         const auto count = static_cast<std::uint32_t>(out.indices.size() - firstIndex);
-        if (!out.submeshes.empty() && out.submeshes.back().texture == slot)
+        if (!out.submeshes.empty() && out.submeshes.back().texture == slot && out.submeshes.back().metallic == metallic &&
+            out.submeshes.back().roughness == roughness)
             out.submeshes.back().indexCount += count;  // соседний примитив с тем же материалом — одна часть
         else
-            out.submeshes.push_back({static_cast<std::uint32_t>(firstIndex), count, slot});
+            out.submeshes.push_back({static_cast<std::uint32_t>(firstIndex), count, slot, metallic, roughness});
         return true;
     }
 };
@@ -264,10 +269,11 @@ bool importGltf(const std::filesystem::path& path, ImportResult& out, std::strin
         return false;
     }
     if (needNormals) computeSmoothNormals(result.mesh);  // v1: пересчёт для всего меша, если хотя бы у одного примитива нет нормалей
-    // Если ни одна часть не использует текстуру, список частей не нужен: весь меш — одна часть без текстуры.
-    bool anyTexture = false;
-    for (const render::Submesh& s : result.mesh.submeshes) anyTexture = anyTexture || s.texture >= 0;
-    if (!anyTexture) result.mesh.submeshes.clear();
+    // Если все части с материалом по умолчанию и без текстуры, список частей не нужен: весь меш — одна часть.
+    bool anyCustom = false;
+    for (const render::Submesh& s : result.mesh.submeshes)
+        anyCustom = anyCustom || s.texture >= 0 || s.metallic != 0.0f || s.roughness != 0.5f;
+    if (!anyCustom) result.mesh.submeshes.clear();
     out = std::move(result);
     return true;
 }
