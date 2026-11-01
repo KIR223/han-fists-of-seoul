@@ -9,6 +9,7 @@
 
 #include "han/ai/navgrid.h"
 #include "han/ai/traffic.h"
+#include "han/ai/world_services.h"
 
 namespace han::police {
 using ai::Vec2;
@@ -138,6 +139,20 @@ private:
     float searchRadius_ = 0.f, unseen_ = 0.f, sinceEscape_ = 1e9f;
     std::uint32_t nextId_ = 1;
     float dispatchTimer_ = 0.f;
+};
+
+// Подключение к контракту IWorldServices: WorldServices.setWantedBackend(&backend). Свидетели из толпы приходят отдельно (setWitnessed).
+class PoliceBackend final : public ai::WantedBackend {
+public:
+    explicit PoliceBackend(PoliceSystem& system) : system_(system) {}
+    int wantedLevel() const override { return system_.level(); }
+    bool crime(std::uint32_t type, Vec2 where) override { return system_.addCrime(static_cast<Crime>(type), where, witnessed_); }
+    // Игровой слой говорит, видела ли преступление толпа (по данным E11) перед вызовом addCrime.
+    void setWitnessed(bool w) { witnessed_ = w; }
+
+private:
+    PoliceSystem& system_;
+    bool witnessed_ = false;
 };
 
 }  // namespace han::police

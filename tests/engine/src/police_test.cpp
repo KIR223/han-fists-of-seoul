@@ -230,3 +230,68 @@ TEST_CASE("police: кратчайший путь по дорожному гра�
     CHECK(g.shortestPath(a, -1).empty());
 }
 
+
+#include "han/ai/world_services.h"
+
+TEST_CASE("services: контракт IWorldServices — время и сезоны, район, святые места, спавн, путь, розыск") {
+    using namespace han;
+    NavGrid nav = cityWithWall();
+    PoliceSystem police(&nav, nullptr);
+    PoliceBackend backend(police);
+    ai::WorldServices services;
+    services.setNavGrid(&nav);
+    services.setWantedBackend(&backend);
+    contracts::IWorldServices& w = services;  // как видит игровой слой
+
+    // Время: 12:00 первого дня; ход времени и смена суток, сезоны по календарю
+    services.setTime(23.5f, 100);
+    CHECK(w.time().season == contracts::Season::Spring);
+    services.advance(60.f, 60.f);  // минута реального времени = час игры
+    CHECK(w.time().hour == doctest::Approx(0.5f).epsilon(0.01));
+    CHECK(w.time().dayOfYear == 101);
+    services.setTime(12.f, 200);
+    CHECK(w.time().season == contracts::Season::Summer);
+    services.setTime(12.f, 350);
+    CHECK(w.time().season == contracts::Season::Winter);
+    services.setWeather(contracts::Weather::Rain);
+    CHECK(w.weather() == contracts::Weather::Rain);
+
+    // Районы и святыни
+    services.addDistrict({7, {{-100, -100}, {0, -100}, {0, 100}, {-100, 100}}});
+    CHECK(w.districtAt({-50, 0, 0}) == 7);
+    CHECK(w.districtAt({50, 0, 0}) == 0);
+    services.addSacred({{200, 200}, 30.f});
+    CHECK(w.isSacred({210, 0, 210}));
+    CHECK_FALSE(w.isSacred({260, 0, 260}));
+
+    // Спавн: сущности получают номера, заявки забирает игровой слой
+    const auto npc = w.spawnNpc(3, {1, 0, 2});
+    const auto car = w.spawnVehicle(5, {});
+    CHECK(npc != contracts::kNoEntity);
+    CHECK(car != npc);
+    const auto requests = services.takeSpawnRequests();
+    REQUIRE(requests.size() == 2);
+    CHECK(requests[0].kind == ai::SpawnRequest::Kind::Npc);
+    CHECK(requests[0].model == 3);
+    CHECK(requests[1].kind == ai::SpawnRequest::Kind::Vehicle);
+    CHECK(services.takeSpawnRequests().empty());
+
+    // Путь вокруг стены; урезается по maxPoints, последняя точка — цель
+    contracts::Vec3 pts[64];
+    const auto n = w.findPath({-100, 0, 0}, {100, 0, 0}, pts, 64);
+    CHECK(n >= 2);
+    CHECK(pts[n - 1].x == doctest::Approx(100.f).epsilon(0.05));
+    CHECK(w.findPath({-100, 0, 0}, {100, 0, 0}, pts, 2) == 2);
+    CHECK(w.findPath({-100, 0, 0}, {100, 0, 0}, nullptr, 2) == 0);
+
+    // Розыск: преступление без свидетелей не засчитывается, со свидетелем — да; в святом месте — нарушение святыни
+    CHECK(w.wantedLevel() == 0);
+    w.addCrime(1, {0, 0, 0}, 1);
+    CHECK(w.wantedLevel() == 0);
+    backend.setWitnessed(true);
+    w.addCrime(1, {0, 0, 0}, 1);
+    CHECK(w.wantedLevel() == 1);
+    CHECK(services.crimesReported() == 1);
+    w.addCrime(1, {200, 0, 200}, 1);  // в святыне: Trespass (15 жара) вместо драки (12)
+    CHECK(police.heat() == doctest::Approx(12.f + 15.f));
+}
