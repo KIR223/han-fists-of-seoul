@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "han/core/repo_root.h"
 #include "han/core/asset_watcher.h"
 #include "han/core/console.h"
 #include "han/render/asset_loader.h"
@@ -45,6 +46,7 @@ std::string fmt(const char* format, double a = 0, double b = 0, double c = 0) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
     long maxFrames = -1;
     bool captured = true, nullOverlay = false;
     float sunArgs[3] = {38.0f, 125.0f, 5200.0f};  // высота, азимут, кельвины; по умолчанию дневное солнце из таблицы 34.1 (10:00)

@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "han/core/repo_root.h"
 #include "han/core/console.h"
 #include "han/physics/physics_world.h"
 #ifdef HAN_HAS_MINIAUDIO
@@ -97,6 +98,7 @@ contracts::Quat aroundZ(float degrees) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
     long maxFrames = -1;
     bool captured = true, noUi = false, deterministic = false, debugDraw = true, autoWalk = false, carMode = false;
     int windowSize[2] = {1280, 720};

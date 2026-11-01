@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "han/core/repo_root.h"
 #include "han/ai/archetype.h"
 #include "han/ai/crowd.h"
 #include "han/ai/navgrid.h"
@@ -97,6 +98,7 @@ han::core::Vec3 archetypeColor(std::uint32_t numericId) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
     long maxFrames = -1;
     bool captured = true, noUi = false, deterministic = false;
     int windowSize[2] = {1280, 720};
