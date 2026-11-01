@@ -1,7 +1,7 @@
 // Демо E10: город из данных OpenStreetMap (по умолчанию Мапо: Хондэ), ячейки подгружаются по мере полёта (E9).
 // Управление: мышь — взгляд, W/A/S/D — полёт, Space/Ctrl — вверх/вниз, Shift — быстрее, Tab — захват мыши, ` — консоль, Esc — выход.
 // Запуск: han_city_demo.exe [--osm файл.osm] [--origin широта долгота] [--frames N] [--no-capture] [--no-ui] [--deterministic]
-//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины] [--wet 0..1]
+//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины] [--wet 0..1] [--traffic число машин, 0 — выключить]
 // Данные OSM (ODbL) не лежат в Git: python han/tools/pipeline/han_osm_fetch.py (карта © участники OpenStreetMap).
 #include <SDL3/SDL_timer.h>
 
@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "city_common.h"
+#include "han/ai/traffic.h"
 #include "han/core/repo_root.h"
 #include "han/core/console.h"
 #include "han/platform/window.h"
@@ -79,6 +80,7 @@ struct CityLoader final : world::ICellLoader {
 
 int main(int argc, char** argv) {
     float wetness = 0.f;
+    int trafficCars = 120;
     han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
     long maxFrames = -1;
     bool captured = true, noUi = false, deterministic = false;
@@ -106,6 +108,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--exposure") && i + 1 < argc) exposureArg = static_cast<float>(std::atof(argv[i + 1]));
         if (!std::strcmp(argv[i], "--camera") && i + 5 < argc)
             for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
+        if (!std::strcmp(argv[i], "--traffic") && i + 1 < argc) trafficCars = std::clamp(std::atoi(argv[i + 1]), 0, 400);
         if (!std::strcmp(argv[i], "--wet") && i + 1 < argc) wetness = std::clamp(static_cast<float>(std::atof(argv[i + 1])), 0.f, 1.f);
         if (!std::strcmp(argv[i], "--sun") && i + 3 < argc)
             for (int k = 0; k < 3; ++k) sunArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
@@ -120,6 +123,13 @@ int main(int argc, char** argv) {
     }
     world::CityStats cityStats;
     const auto chunks = world::buildCity(osm, world::GeoProjection(origin[0], origin[1]), {}, &cityStats);
+    // Трафик (G7): граф дорог из тех же данных; машины едут вокруг камеры (появляются в радиусе 350 м, уходят за 550 м).
+    const han::ai::RoadGraph roads = han::ai::RoadGraph::build(osm, world::GeoProjection(origin[0], origin[1]));
+    han::ai::TrafficSettings trafficSettings;
+    trafficSettings.maxCars = trafficCars;
+    trafficSettings.spawnRadius = 350.f;
+    trafficSettings.despawnRadius = 550.f;
+    han::ai::TrafficSim traffic(roads, trafficSettings);
     std::printf("город: домов %d, дорог %d, парков %d, воды %d, пропущено %d, ячеек %zu, размер %.0f x %.0f м\n", cityStats.buildings, cityStats.roads,
                 cityStats.parks, cityStats.waters, cityStats.skipped, chunks.size(), cityStats.maxX - cityStats.minX, cityStats.maxZ - cityStats.minZ);
 
@@ -151,6 +161,13 @@ int main(int argc, char** argv) {
 
     // Земля вокруг: большая плоскость под городом (дороги и дома лежат выше неё).
     const auto ground = han::render::citytex::uploadGround(*renderer);
+    // Машины трафика: кузов-коробка 1,8 x 1,4 x 4,4 м, шесть цветов (выдуманная «марка»: без реальных машин и логотипов).
+    std::vector<han::render::MeshId> carMeshes;
+    for (const han::core::Vec3 color : {han::core::Vec3{0.75f, 0.75f, 0.78f}, {0.12f, 0.12f, 0.14f}, {0.70f, 0.12f, 0.12f}, {0.15f, 0.30f, 0.62f}, {0.85f, 0.80f, 0.70f}, {0.20f, 0.45f, 0.30f}}) {
+        auto body = han::render::makeBox({0.9f, 0.7f, 2.2f}, color);
+        body.submeshes = {{0, static_cast<std::uint32_t>(body.indices.size()), -1, 0.3f, 0.35f}};
+        carMeshes.push_back(renderer->uploadMesh(body));
+    }
     if (!ground) {
         std::fprintf(stderr, "не удалось загрузить землю\n");
         return 1;
@@ -272,7 +289,15 @@ int main(int argc, char** argv) {
         }
 #endif
 
+        if (trafficCars > 0) {
+            traffic.setFocus({camera.position.x, camera.position.z});
+            traffic.update(std::min(dt, 0.1f));
+        }
         std::vector<han::render::DrawItem> items;
+        for (const han::ai::Car& car : traffic.cars()) {
+            const std::size_t color = car.id % carMeshes.size();
+            items.push_back({carMeshes[color], Mat4::translation({car.pos.x, 0.85f, car.pos.z}) * Mat4::rotationY(car.heading)});
+        }
         items.push_back({ground, Mat4::translation({0.f, -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
         for (const auto& [cell, g] : loader.gpu) {
             if (g.ground) items.push_back({g.ground, Mat4::identity()});
