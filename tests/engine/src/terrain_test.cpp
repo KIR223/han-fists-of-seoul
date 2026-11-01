@@ -263,3 +263,47 @@ TEST_CASE("terrain: водоём на склоне — плоская вода �
     CHECK(waterMax - waterMin < 1e-3f);   // вода плоская
     CHECK(parkMax - parkMin > 1.f);       // парк повторяет склон
 }
+
+TEST_CASE("city colliders: у дома четыре тонкие стены; в физике луч вдоль земли упирается в стену на расстоянии стены, внутри дома пусто для крыши") {
+    OsmData d;
+    std::string error;
+    REQUIRE(parseOsmXml(R"(<osm><node id="1" lat="37.5000" lon="127.0000"/><node id="2" lat="37.5000" lon="127.0004"/>
+        <node id="3" lat="37.5002" lon="127.0004"/><node id="4" lat="37.5002" lon="127.0000"/>
+        <way id="7"><nd ref="1"/><nd ref="2"/><nd ref="3"/><nd ref="4"/><nd ref="1"/><tag k="building" v="yes"/><tag k="height" v="9"/></way></osm>)", d, error));
+    const GeoProjection proj(37.5001, 127.0002);  // дом вокруг начала координат
+    CityBuildSettings s;
+    s.buildingDetail = false;
+    s.streetProps = false;
+    const auto chunks = buildCity(d, proj, s);
+    std::vector<WallCollider> walls;
+    for (const auto& [cell, c] : chunks) walls.insert(walls.end(), c.walls.begin(), c.walls.end());
+    REQUIRE(walls.size() == 4);
+    for (const WallCollider& w : walls) {
+        CHECK(w.half.z == doctest::Approx(0.2f));
+        CHECK(w.center.y + w.half.y == doctest::Approx(9.f));        // верх стены — крыша
+        CHECK(w.center.y - w.half.y < 0.f);                          // низ уходит под землю
+    }
+    CityBuildSettings off = s;
+    off.colliders = false;
+    for (const auto& [cell, c] : buildCity(d, proj, off)) CHECK(c.walls.empty());
+
+    auto world = han::physics::PhysicsWorld::create();
+    if (!world) return;
+    world->addStaticBox({0.f, -0.5f, 0.f}, {200.f, 0.5f, 200.f});
+    for (const WallCollider& w : walls) {
+        const float h = w.yaw * 0.5f;
+        world->addStaticBox({w.center.x, w.center.y, w.center.z}, {w.half.x, w.half.y, w.half.z}, han::contracts::SurfaceMaterial::Concrete, {0.f, std::sin(h), 0.f, std::cos(h)});
+    }
+    // Дом 35 x 22 м вокруг (0,0): луч с запада на восток на высоте 1 м упирается в западную стену около x = -17,7
+    const auto hit = world->raycast({-60.f, 1.f, 0.f}, {0.f, 1.f, 0.f});
+    REQUIRE(hit.hit);
+    CHECK(hit.point.x == doctest::Approx(-17.7f).epsilon(0.03));
+    // С севера на юг — около z = -11 (северная стена)
+    const auto north = world->raycast({0.f, 1.f, -60.f}, {0.f, 1.f, 0.f});
+    REQUIRE(north.hit);
+    CHECK(north.point.z == doctest::Approx(-11.1f).epsilon(0.05));
+    // Сверху луч входит внутрь дома без крыши (коллайдеров крыши нет) и попадает в землю
+    const auto roof = world->raycast({0.f, 20.f, 0.f}, {0.f, -5.f, 0.f});
+    REQUIRE(roof.hit);
+    CHECK(roof.point.y == doctest::Approx(0.f).epsilon(0.05));
+}

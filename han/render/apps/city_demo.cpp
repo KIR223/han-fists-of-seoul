@@ -1,7 +1,7 @@
 // Демо E10: город из данных OpenStreetMap (по умолчанию Мапо: Хондэ), ячейки подгружаются по мере полёта (E9).
 // Управление: мышь — взгляд, W/A/S/D — полёт, Space/Ctrl — вверх/вниз, Shift — быстрее, Tab — захват мыши, ` — консоль, Esc — выход.
 // Запуск: han_city_demo.exe [--osm файл.osm] [--origin широта долгота] [--frames N] [--no-capture] [--no-ui] [--deterministic]
-//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины] [--wet 0..1] [--traffic число машин, 0 — выключить]
+//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины] [--wet 0..1] [--traffic число машин, 0 — выключить] [--walk]
 // Данные OSM (ODbL) не лежат в Git: python han/tools/pipeline/han_osm_fetch.py (карта © участники OpenStreetMap).
 #include <SDL3/SDL_timer.h>
 
@@ -26,7 +26,11 @@
 #include "han/render/lighting.h"
 #include "han/render/mesh.h"
 #include "han/render/renderer.h"
+#include "han/physics/physics_world.h"
+#include "han/player/camera_rig.h"
+#include "han/player/player_controller.h"
 #include "han/world/city_builder.h"
+#include "han/world/terrain_physics.h"
 #include "han/world/streaming.h"
 #ifdef HAN_WITH_IMGUI
 #include "han/ui/imgui_layer.h"
@@ -53,7 +57,9 @@ struct CityLoader final : world::ICellLoader {
     struct Gpu {
         han::render::MeshId ground = 0, buildings = 0;
         std::size_t triangles = 0;
+        std::vector<han::contracts::EntityId> walls;  // тела стен зданий в физике (режим --walk)
     };
+    han::physics::PhysicsWorld* physics = nullptr;
     std::map<world::CellCoord, Gpu> gpu;
     std::size_t uploadedTriangles = 0;
 
@@ -64,6 +70,12 @@ struct CityLoader final : world::ICellLoader {
             if (!it->second.ground.empty()) g.ground = renderer->uploadMesh(han::render::citytex::toMesh(it->second.ground, textureIds, 0.9f), textureIds);
             if (!it->second.buildings.empty()) g.buildings = renderer->uploadMesh(han::render::citytex::toMesh(it->second.buildings, textureIds, 0.8f), textureIds);
             g.triangles = (it->second.ground.indices.size() + it->second.buildings.indices.size()) / 3;
+            if (physics)
+                for (const world::WallCollider& w : it->second.walls) {
+                    const float h = w.yaw * 0.5f;
+                    g.walls.push_back(physics->addStaticBox({w.center.x, w.center.y, w.center.z}, {w.half.x, w.half.y, w.half.z}, han::contracts::SurfaceMaterial::Concrete,
+                                                            {0.f, std::sin(h), 0.f, std::cos(h)}));
+                }
         }
         uploadedTriangles += g.triangles;
         gpu[cell] = g;
@@ -74,6 +86,8 @@ struct CityLoader final : world::ICellLoader {
         if (it == gpu.end()) return;
         renderer->releaseMesh(it->second.ground);
         renderer->releaseMesh(it->second.buildings);
+        if (physics)
+            for (const auto id : it->second.walls) physics->destroyBody(id);
         uploadedTriangles -= it->second.triangles;
         gpu.erase(it);
     }
@@ -81,6 +95,7 @@ struct CityLoader final : world::ICellLoader {
 }  // namespace
 
 int main(int argc, char** argv) {
+    bool walk = false;  // режим прогулки: физика, коллайдеры домов, рельеф и игрок вместо летающей камеры
     float wetness = 0.f;
     int trafficCars = 120;
     han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
@@ -111,6 +126,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--camera") && i + 5 < argc)
             for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
         if (!std::strcmp(argv[i], "--traffic") && i + 1 < argc) trafficCars = std::clamp(std::atoi(argv[i + 1]), 0, 400);
+        if (!std::strcmp(argv[i], "--walk")) walk = true;
         if (!std::strcmp(argv[i], "--wet") && i + 1 < argc) wetness = std::clamp(static_cast<float>(std::atof(argv[i + 1])), 0.f, 1.f);
         if (!std::strcmp(argv[i], "--sun") && i + 3 < argc)
             for (int k = 0; k < 3; ++k) sunArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
@@ -192,6 +208,9 @@ int main(int argc, char** argv) {
     auto entranceData = han::render::makeBox({1.6f, 1.75f, 1.6f}, {0.0f, 0.66f, 0.30f});  // цвет линии 2 (#00A84D)
     entranceData.submeshes = {{0, static_cast<std::uint32_t>(entranceData.indices.size()), -1, 0.1f, 0.5f}};
     const auto metroEntrance = renderer->uploadMesh(entranceData);
+    auto heroData = han::render::makeBox({0.28f, 0.9f, 0.2f}, {0.95f, 0.8f, 0.2f});
+    heroData.submeshes = {{0, static_cast<std::uint32_t>(heroData.indices.size()), -1, 0.0f, 0.6f}};
+    const auto heroMesh = renderer->uploadMesh(heroData);
     std::vector<han::render::MeshId> carMeshes;
     for (const han::core::Vec3 color : {han::core::Vec3{0.75f, 0.75f, 0.78f}, {0.12f, 0.12f, 0.14f}, {0.70f, 0.12f, 0.12f}, {0.15f, 0.30f, 0.62f}, {0.85f, 0.80f, 0.70f}, {0.20f, 0.45f, 0.30f}}) {
         auto body = han::render::makeBox({0.9f, 0.7f, 2.2f}, color);
@@ -220,6 +239,31 @@ int main(int argc, char** argv) {
     loader.chunks = &chunks;
     world::StreamingManager streaming(ss, loader);
     loader.manager = &streaming;
+    // Режим прогулки (--walk): физика мира, коллайдеры стен (по ячейкам вместе с загрузкой), плитки рельефа и игрок с камерой за спиной.
+    std::unique_ptr<han::physics::PhysicsWorld> physics;
+    std::unique_ptr<world::TerrainPhysics> terrainPhysics;
+    std::unique_ptr<han::player::PlayerController> hero;
+    han::player::CameraRig rig;
+    han::contracts::EntityId heroId = 0;
+    if (walk) {
+        physics = han::physics::PhysicsWorld::create();
+        if (!physics) {
+            std::fprintf(stderr, "физика недоступна: режим --walk выключен\n");
+            walk = false;
+        } else {
+            loader.physics = physics.get();
+            if (haveTerrain) terrainPhysics = std::make_unique<world::TerrainPhysics>(*physics, terrain);
+            else physics->addStaticBox({0.f, -0.5f, 0.f}, {6000.f, 0.5f, 6000.f}, han::contracts::SurfaceMaterial::Asphalt);
+            const float sx = cameraArgs[0], sz = cameraArgs[2];
+            if (terrainPhysics) terrainPhysics->update(sx, sz);
+            streaming.update(sx, sz, 0.f, -1.f);  // загрузить ячейки (и коллайдеры) вокруг старта до появления героя
+            const float y = (haveTerrain ? terrain.heightAt(sx, sz) : 0.f) + 1.0f;
+            heroId = physics->create({}, {sx, y, sz});
+            hero = std::make_unique<han::player::PlayerController>(heroId, *physics, *physics);
+            rig.snapTo({sx, y, sz}, physics.get());
+            for (int i = 0; i < 30; ++i) physics->step(1.f / 60.f);  // персонаж садится на землю
+        }
+    }
 
     han::platform::InputMap input;
     input.bind("forward", kW);
@@ -299,9 +343,28 @@ int main(int argc, char** argv) {
             if (input.pressed("quit")) break;
             if (input.pressed("capture") && !consoleOpen) window->setCaptureMouse(captured = !captured);
         }
-        if (captured && !consoleOpen && !uiMouse) camera.look(ev.mouseDx, ev.mouseDy);
         const auto axis = [&](const char* pos, const char* neg) { return uiKeys ? 0.f : (input.held(pos) ? 1.f : 0.f) - (input.held(neg) ? 1.f : 0.f); };
-        camera.move(axis("forward", "back"), axis("right", "left"), axis("up", "down"), input.held("fast") && !uiKeys ? speed * 4.f : speed, dt);
+        if (walk) {
+            if (captured && !consoleOpen && !uiMouse) rig.look(ev.mouseDx, ev.mouseDy);
+            han::player::PlayerInput pi;
+            pi.moveX = axis("right", "left");
+            pi.moveZ = axis("forward", "back");
+            pi.sprint = input.held("fast") && !uiKeys;
+            pi.jumpPressed = !uiKeys && input.pressed("up");
+            pi.jumpHeld = !uiKeys && input.held("up");
+            hero->update(dt, pi, rig.yaw());
+            physics->step(std::min(dt, 1.f / 30.f));
+            const auto feet = hero->state().position;
+            if (terrainPhysics) terrainPhysics->update(feet.x, feet.z);
+            rig.update(dt, feet, hero->speedFraction(), physics.get());
+            camera.position = {rig.position().x, rig.position().y, rig.position().z};
+            camera.yaw = rig.yaw();
+            camera.pitch = rig.pitch();
+            camera.fovY = rig.fov();
+        } else {
+            if (captured && !consoleOpen && !uiMouse) camera.look(ev.mouseDx, ev.mouseDy);
+            camera.move(axis("forward", "back"), axis("right", "left"), axis("up", "down"), input.held("fast") && !uiKeys ? speed * 4.f : speed, dt);
+        }
 
         const auto fwd = camera.forward();
         stats = streaming.update(camera.position.x, camera.position.z, fwd.x, fwd.z);
@@ -335,6 +398,10 @@ int main(int argc, char** argv) {
             traffic.update(std::min(dt, 0.1f));
         }
         std::vector<han::render::DrawItem> items;
+        if (walk) {
+            const auto feet = hero->state().position;
+            items.push_back({heroMesh, Mat4::translation({feet.x, feet.y + 0.9f, feet.z}) * Mat4::rotationY(hero->facingYaw())});
+        }
         for (const han::ai::Car& car : traffic.cars()) {
             const std::size_t color = car.id % carMeshes.size();
             items.push_back({carMeshes[color], Mat4::translation({car.pos.x, 0.85f + (haveTerrain ? terrain.heightAt(car.pos.x, car.pos.z) : 0.f), car.pos.z}) * Mat4::rotationY(car.heading)});
@@ -399,6 +466,10 @@ int main(int argc, char** argv) {
         }
     }
     std::printf("ячеек загружено: %d, треугольников: %zu\n", stats.loaded, loader.uploadedTriangles);
+    if (walk) {
+        const auto feet = hero->state().position;
+        std::printf("игрок: %.1f %.1f %.1f (земля там %.1f), на земле: %s\n", feet.x, feet.y, feet.z, haveTerrain ? terrain.heightAt(feet.x, feet.z) : 0.f, hero->state().grounded ? "да" : "нет");
+    }
     const auto errors = renderer->validationErrors();
     std::printf("ошибок валидации: %u, предупреждений: %u\n", errors, renderer->validationWarnings());
     if (screenshotFailed) return 2;

@@ -224,7 +224,7 @@ struct BuildingLook {
 };
 
 // Здание: стены (наружу) + плоская крыша, витрины на первом этаже, парапет и надстройка на крыше. Контур — любого направления обхода.
-bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color wall, Color roof, const BuildingLook& look) {
+bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color wall, Color roof, const BuildingLook& look, std::vector<WallCollider>* colliders = nullptr) {
     if (footprint.size() >= 2 && footprint.front().x == footprint.back().x && footprint.front().y == footprint.back().y) footprint.pop_back();
     if (footprint.size() < 3) return false;
     const auto roofTri = triangulate(footprint);
@@ -243,6 +243,22 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
         BaseScope(float base) { gHaveBase = gFixed = true; gFixedBase = base; }
         ~BaseScope() { gHaveBase = gFixed = false; gFixedBase = 0.f; }
     } baseScope(baseTop);
+    // Коллайдеры: по коробке на каждую стену от глубины под землёй до крыши (толщина 0,4 м, чуть длиннее стены, чтобы углы смыкались).
+    if (colliders) {
+        float groundLow = 1e9f;
+        for (const Vec2& v : footprint) groundLow = std::min(groundLow, groundAt(v.x, v.y));
+        const float bottom = gTerrain ? groundLow - 0.6f : -0.6f, top = baseTop + height;
+        for (std::size_t i = 0; i < n; ++i) {
+            const Vec2 a = footprint[i], b = footprint[(i + 1) % n];
+            const float dx = b.x - a.x, dz = b.y - a.y, len = std::sqrt(dx * dx + dz * dz);
+            if (len < 0.3f) continue;
+            WallCollider w;
+            w.center = {(a.x + b.x) * 0.5f, (bottom + top) * 0.5f, (a.y + b.y) * 0.5f};
+            w.half = {len * 0.5f + 0.2f, (top - bottom) * 0.5f, 0.2f};
+            w.yaw = std::atan2(-dz, dx);
+            colliders->push_back(w);
+        }
+    }
     constexpr float kShopHeight = 3.6f;  // высота витрины
     const float kShopBay = look.shopTile;  // ширина плитки вывесок (секции по 4,8 м)
     const bool shop = look.shop && height > kShopHeight + 2.f;
@@ -262,7 +278,7 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
             const auto shopFirst = static_cast<std::uint32_t>(mesh.indices.size());
             // Витрина: нейтральный цвет (оттенок дома не красит вывески), u — в плитках по 19,2 м; со сдвигом по дому, чтобы вывески различались.
             const float shift = std::fmod(std::fabs(a.x * 0.37f + a.y * 0.61f), 1.f);
-            addWallQuad(mesh, a, b, 0.f, kShopHeight, nx, nz, {1.f, 1.f, 1.f}, shift + along / kShopBay, shift + (along + len) / kShopBay, 0.f, 1.f, true);
+            addWallQuad(mesh, a, b, 0.f, kShopHeight, nx, nz, {1.f, 1.f, 1.f}, shift - along / kShopBay, shift - (along + len) / kShopBay, 0.f, 1.f, true);  // u убывает вдоль обхода: снаружи надписи читаются слева направо
             mesh.tag(GeoMaterial::Storefront, shopFirst);
         } else if (shop) {
             const auto shopFirst = static_cast<std::uint32_t>(mesh.indices.size());
@@ -503,7 +519,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             look.parapet = settings.buildingDetail && seed % 7 != 0;
             look.rooftop = settings.buildingDetail;
             look.shopTile = settings.shopTileMeters;
-            if (addBuilding(chunk.buildings, pts, height, wallTint(way.id), {1.f, 1.f, 1.f}, look)) {
+            if (addBuilding(chunk.buildings, pts, height, wallTint(way.id), {1.f, 1.f, 1.f}, look, settings.colliders ? &chunk.walls : nullptr)) {
                 if (settings.buildingDetail) addApron(chunk.ground, pts, 1.6f, 0.09f);
                 footprints.push_back(pts);
                 ++chunk.buildingCount;

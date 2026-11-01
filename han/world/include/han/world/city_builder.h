@@ -18,6 +18,7 @@ struct CityBuildSettings {
     float minBuildingArea = 6.f;         // меньше (м²) — не здание (сарай, ошибка данных)
     float roadLift = 0.05f;              // дорога чуть выше земли
     const Heightmap* terrain = nullptr;   // рельеф: дороги, дома, парки и уличные объекты идут по высоте; nullptr — плоская земля (y = 0)
+    bool colliders = true;                // строить коллайдеры стен зданий (CityChunk::walls)
     bool terrainMesh = true;              // добавлять сетку земли в ячейки (при заданном рельефе)
     float shopTileMeters = 19.2f;        // длина стены на одну плитку текстуры витрин (атлас брендов из 16 секций — 76,8)
     bool buildingDetail = true;          // витрины, парапеты, надстройки на крышах и тротуар вокруг домов
@@ -30,10 +31,18 @@ struct Vec3 {
 };
 
 // Содержимое одной ячейки города.
+// Тонкий коллайдер стены здания: коробка с центром, половинами размеров (x — вдоль стены) и поворотом вокруг Y (радианы, ось x коробки вдоль стены).
+struct WallCollider {
+    Vec3 center;
+    Vec3 half;
+    float yaw = 0.f;
+};
+
 struct CityChunk {
     GeoMesh ground;     // дороги, парки, вода
     GeoMesh buildings;  // стены и крыши
     std::vector<Vec3> lamps;  // головки фонарей (точки света ночью)
+    std::vector<WallCollider> walls;  // коллайдеры стен зданий (физика: игрок, машины, толчки)
     int roadSegments = 0, buildingCount = 0, areaCount = 0;
     bool empty() const { return ground.empty() && buildings.empty(); }
 };
