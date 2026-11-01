@@ -11,18 +11,33 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-windows-static-md" }
     },
-    { "name": "windows-debug", "inherits": "base", "displayName": "Windows Debug" },
-    { "name": "windows-release", "inherits": "base", "displayName": "Windows Release" },
-    { "name": "windows-relwithdebinfo", "inherits": "base", "displayName": "Windows RelWithDebInfo" }
+    {
+      "name": "base-vs2022",
+      "hidden": true,
+      "inherits": "base",
+      "generator": "Visual Studio 17 2022"
+    },
+    { "name": "windows-debug", "inherits": "base", "displayName": "Windows Debug (Visual Studio 2026)" },
+    { "name": "windows-release", "inherits": "base", "displayName": "Windows Release (Visual Studio 2026)" },
+    { "name": "windows-relwithdebinfo", "inherits": "base", "displayName": "Windows RelWithDebInfo (Visual Studio 2026)" },
+    { "name": "vs2022-debug", "inherits": "base-vs2022", "displayName": "Windows Debug (Visual Studio 2022)" },
+    { "name": "vs2022-release", "inherits": "base-vs2022", "displayName": "Windows Release (Visual Studio 2022)" },
+    { "name": "vs2022-relwithdebinfo", "inherits": "base-vs2022", "displayName": "Windows RelWithDebInfo (Visual Studio 2022)" }
   ],
   "buildPresets": [
     { "name": "windows-debug", "configurePreset": "windows-debug", "configuration": "Debug" },
     { "name": "windows-release", "configurePreset": "windows-release", "configuration": "Release" },
-    { "name": "windows-relwithdebinfo", "configurePreset": "windows-relwithdebinfo", "configuration": "RelWithDebInfo" }
+    { "name": "windows-relwithdebinfo", "configurePreset": "windows-relwithdebinfo", "configuration": "RelWithDebInfo" },
+    { "name": "vs2022-debug", "configurePreset": "vs2022-debug", "configuration": "Debug" },
+    { "name": "vs2022-release", "configurePreset": "vs2022-release", "configuration": "Release" },
+    { "name": "vs2022-relwithdebinfo", "configurePreset": "vs2022-relwithdebinfo", "configuration": "RelWithDebInfo" }
   ],
   "testPresets": [
     { "name": "windows-debug", "configurePreset": "windows-debug", "configuration": "Debug", "output": { "outputOnFailure": true } },
     { "name": "windows-release", "configurePreset": "windows-release", "configuration": "Release", "output": { "outputOnFailure": true } },
-    { "name": "windows-relwithdebinfo", "configurePreset": "windows-relwithdebinfo", "configuration": "RelWithDebInfo", "output": { "outputOnFailure": true } }
+    { "name": "windows-relwithdebinfo", "configurePreset": "windows-relwithdebinfo", "configuration": "RelWithDebInfo", "output": { "outputOnFailure": true } },
+    { "name": "vs2022-debug", "configurePreset": "vs2022-debug", "configuration": "Debug", "output": { "outputOnFailure": true } },
+    { "name": "vs2022-release", "configurePreset": "vs2022-release", "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "vs2022-relwithdebinfo", "configurePreset": "vs2022-relwithdebinfo", "configuration": "RelWithDebInfo", "output": { "outputOnFailure": true } }
   ]
 }
