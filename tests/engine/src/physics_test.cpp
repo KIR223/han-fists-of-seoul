@@ -1,7 +1,11 @@
 // Тесты физики (E5). Мир на Jolt проверяется только если модуль собран с Jolt (на CI — да, локально без vcpkg — нет).
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <string>
+#include <vector>
 
 #include "han/physics/physics_world.h"
 
@@ -18,7 +22,157 @@ TEST_CASE("physics: hasJolt согласован с макросом сборк�
 #endif
 }
 
+TEST_CASE("physics: таблица поверхностей читает data/materials/surfaces.tsv") {
+    physics::SurfaceTable t;
+    std::string error;
+    REQUIRE_MESSAGE(t.load(std::filesystem::path(HAN_REPO_DIR) / "data" / "materials" / "surfaces.tsv", error), error);
+    CHECK(t.get(SurfaceMaterial::Metal).restitution > t.get(SurfaceMaterial::Carpet).restitution);
+    CHECK(t.get(SurfaceMaterial::Asphalt).friction > t.get(SurfaceMaterial::Water).friction);
+    CHECK(t.get(SurfaceMaterial::Wood).impactSound == "phys.impact.wood");
+    for (int i = 0; i < physics::SurfaceTable::kCount; ++i) {  // каждый материал контракта есть в таблице
+        const auto m = static_cast<SurfaceMaterial>(i);
+        CHECK(t.get(m).impactSound != "");
+        SurfaceMaterial back;
+        REQUIRE(physics::SurfaceTable::materialFromName(physics::SurfaceTable::name(m), back));
+        CHECK(back == m);
+    }
+}
+
+TEST_CASE("physics: таблица поверхностей отклоняет ошибки с номером строки и не портит прежние значения") {
+    physics::SurfaceTable t;
+    std::string error;
+    CHECK_FALSE(t.parse("Wood\t0.5\t0.2\n", error));  // 3 колонки
+    CHECK(error.find("строка 1") != std::string::npos);
+    CHECK_FALSE(t.parse("# комментарий\nSteel\t0.5\t0.2\tx\n", error));
+    CHECK(error.find("строка 2") != std::string::npos);
+    CHECK_FALSE(t.parse("Wood\t9\t0.2\tx\n", error));
+    CHECK_FALSE(t.parse("Wood\t0.5\t1.5\tx\n", error));
+    CHECK_FALSE(t.parse("Wood\t0.5\t0.2\tx\nWood\t0.5\t0.2\ty\n", error));
+    CHECK_FALSE(t.parse("Wood\tабв\t0.2\tx\n", error));
+    CHECK(t.get(SurfaceMaterial::Wood).friction == doctest::Approx(0.5f));  // значения по умолчанию целы
+    REQUIRE(t.parse("Wood\t0.9\t0.3\tphys.x\r\n\r\n", error));
+    CHECK(t.get(SurfaceMaterial::Wood).friction == doctest::Approx(0.9f));
+    CHECK(t.get(SurfaceMaterial::Wood).impactSound == "phys.x");
+    CHECK_FALSE(t.load("нет_такого_файла.tsv", error));
+}
+
 #ifdef HAN_HAS_JOLT
+namespace {
+void run(physics::PhysicsWorld& w, int steps) {
+    for (int i = 0; i < steps; ++i) w.step(1.f / 60.f);
+}
+std::unique_ptr<physics::PhysicsWorld> makeWorldWithTable(const physics::WorldSettings& settings = {}) {
+    auto w = physics::PhysicsWorld::create(settings);
+    REQUIRE(w);
+    physics::SurfaceTable t;
+    std::string error;
+    REQUIRE_MESSAGE(t.load(std::filesystem::path(HAN_REPO_DIR) / "data" / "materials" / "surfaces.tsv", error), error);
+    w->setSurfaceTable(t);
+    return w;
+}
+}  // namespace
+
+TEST_CASE("physics P1: CCD — быстрый шар не пролетает сквозь тонкую стену") {
+    physics::WorldSettings s;
+    s.gravity = {0, 0, 0};
+    auto w = makeWorldWithTable(s);
+    w->addStaticBox({10, 0, 0}, {0.05f, 5, 5});  // стена толщиной 10 см
+    const EntityId ball = w->addDynamicSphere({0, 0, 0}, 0.1f, 1.f);
+    w->setVelocity(ball, {200, 0, 0});  // за один шаг 1/60 с летит 3.3 м, стена в 10 см
+    run(*w, 60);
+    CHECK(w->positionOf(ball).x < 10.f);
+    CHECK(w->allFinite());
+}
+
+TEST_CASE("physics P1: упругость из таблицы — металлический шар отскакивает выше ковёрного") {
+    auto w = makeWorldWithTable();
+    w->addStaticBox({0, -0.5f, 0}, {50, 0.5f, 50}, SurfaceMaterial::Concrete);
+    const EntityId metal = w->addDynamicSphere({-3, 3, 0}, 0.25f, 1.f, SurfaceMaterial::Metal);
+    const EntityId carpet = w->addDynamicSphere({3, 3, 0}, 0.25f, 1.f, SurfaceMaterial::Carpet);
+    float peakMetal = 0, peakCarpet = 0;
+    bool bounced = false;
+    for (int i = 0; i < 150; ++i) {
+        w->step(1.f / 60.f);
+        if (w->velocityOf(metal).y > 0.5f) bounced = true;  // после первого удара
+        if (bounced) {
+            peakMetal = std::max(peakMetal, w->positionOf(metal).y);
+            peakCarpet = std::max(peakCarpet, w->positionOf(carpet).y);
+        }
+    }
+    CHECK(peakMetal > peakCarpet + 0.1f);
+}
+
+TEST_CASE("physics P1: удар шара об пол даёт событие звука с материалами и скоростью") {
+    auto w = makeWorldWithTable();
+    const EntityId floor = w->addStaticBox({0, -0.5f, 0}, {50, 0.5f, 50}, SurfaceMaterial::Tile);
+    const EntityId ball = w->addDynamicSphere({0, 3, 0}, 0.25f, 1.f, SurfaceMaterial::Metal);
+    std::vector<physics::PhysicsWorld::ContactEvent> events;
+    for (int i = 0; i < 120; ++i) {
+        w->step(1.f / 60.f);
+        w->drainContacts(events);
+    }
+    REQUIRE_FALSE(events.empty());
+    const auto& e = events.front();
+    CHECK(e.impactSpeed > 5.f);  // падение с 3 м: ~7.5 м/с
+    CHECK(((e.a == ball && e.b == floor) || (e.a == floor && e.b == ball)));
+    CHECK(((e.materialA == SurfaceMaterial::Metal && e.materialB == SurfaceMaterial::Tile) ||
+           (e.materialA == SurfaceMaterial::Tile && e.materialB == SurfaceMaterial::Metal)));
+    std::vector<physics::PhysicsWorld::ContactEvent> again;
+    w->drainContacts(again);
+    CHECK(again.empty());  // очередь после чтения пуста
+}
+
+TEST_CASE("physics P1: покоящееся тело не шумит звуком, тихие касания отфильтрованы") {
+    auto w = makeWorldWithTable();
+    w->addStaticBox({0, -0.5f, 0}, {50, 0.5f, 50});
+    w->addDynamicBox({0, 0.5f, 0}, {0.5f, 0.5f, 0.5f});
+    std::vector<physics::PhysicsWorld::ContactEvent> events;
+    run(*w, 300);
+    w->drainContacts(events);
+    CHECK(events.empty());
+}
+
+TEST_CASE("physics P1: 10 000 кадров, 160 тел в ящике — без NaN, все остаются внутри") {
+    physics::WorldSettings s;
+    s.collisionSteps = 2;
+    auto w = makeWorldWithTable(s);
+    w->addStaticBox({0, -0.5f, 0}, {8, 0.5f, 8});
+    w->addStaticBox({8.5f, 3, 0}, {0.5f, 4, 8}, SurfaceMaterial::Concrete);
+    w->addStaticBox({-8.5f, 3, 0}, {0.5f, 4, 8}, SurfaceMaterial::Concrete);
+    w->addStaticBox({0, 3, 8.5f}, {8, 4, 0.5f}, SurfaceMaterial::Concrete);
+    w->addStaticBox({0, 3, -8.5f}, {8, 4, 0.5f}, SurfaceMaterial::Concrete);
+    std::vector<EntityId> ids;
+    for (int i = 0; i < 160; ++i) {
+        const float x = -6.f + static_cast<float>(i % 8) * 1.7f, z = -6.f + static_cast<float>((i / 8) % 8) * 1.7f;
+        const float y = 1.f + static_cast<float>(i / 64) * 1.5f;
+        ids.push_back(i % 2 ? w->addDynamicSphere({x, y, z}, 0.4f, 3.f, SurfaceMaterial::Wood)
+                            : w->addDynamicBox({x, y, z}, {0.4f, 0.4f, 0.4f}, 4.f, SurfaceMaterial::Metal));
+    }
+    const EntityId hero = w->create({}, {0, 0.05f, 0});
+    for (int frame = 0; frame < 10000; ++frame) {
+        if (frame % 120 == 0) w->setDesiredVelocity(hero, {std::sin(static_cast<float>(frame)) * 3.f, 0, std::cos(static_cast<float>(frame)) * 3.f});
+        if (frame % 600 == 0) w->jump(hero, 5.f);
+        w->step(1.f / 60.f);
+        if (frame % 500 == 0) REQUIRE_MESSAGE(w->allFinite(), "NaN на кадре " << frame);
+        if (frame % 100 == 0) {
+            std::vector<physics::PhysicsWorld::ContactEvent> sink;
+            w->drainContacts(sink);
+        }
+    }
+    CHECK(w->allFinite());
+    for (EntityId id : ids) {
+        const Vec3 p = w->positionOf(id);
+        CHECK(std::fabs(p.x) < 9.f);
+        CHECK(std::fabs(p.z) < 9.f);
+        CHECK(p.y > -1.f);
+    }
+}
+
+TEST_CASE("physics P1: allFinite ловит нормальный мир и пустой мир") {
+    auto w = physics::PhysicsWorld::create();
+    CHECK(w->allFinite());
+}
+
 namespace {
 std::unique_ptr<physics::PhysicsWorld> makeWorldWithFloor(EntityId* floorOut = nullptr) {
     auto w = physics::PhysicsWorld::create();
@@ -27,9 +181,6 @@ std::unique_ptr<physics::PhysicsWorld> makeWorldWithFloor(EntityId* floorOut = n
     REQUIRE(floor != contracts::kNoEntity);
     if (floorOut) *floorOut = floor;
     return w;
-}
-void run(physics::PhysicsWorld& w, int steps) {
-    for (int i = 0; i < steps; ++i) w.step(1.f / 60.f);
 }
 }  // namespace
 

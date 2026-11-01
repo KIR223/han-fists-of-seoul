@@ -1,0 +1,13 @@
+# Физические свойства поверхностей (P1). Колонки через табуляцию: материал, трение (0..2), упругость (0..1), ключ звука удара.
+# Названия материалов — как в contracts/physics_query.h (SurfaceMaterial). Звуки подключит звуковая система (E7) по ключам.
+Unknown	0.50	0.10	phys.impact.generic
+Asphalt	0.80	0.05	phys.impact.asphalt
+Concrete	0.70	0.05	phys.impact.concrete
+Wood	0.50	0.20	phys.impact.wood
+Metal	0.35	0.30	phys.impact.metal
+Glass	0.30	0.10	phys.impact.glass
+Grass	0.60	0.05	phys.impact.grass
+Dirt	0.65	0.05	phys.impact.dirt
+Water	0.10	0.00	phys.impact.water
+Tile	0.40	0.10	phys.impact.tile
+Carpet	0.85	0.02	phys.impact.carpet

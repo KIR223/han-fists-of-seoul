@@ -8,6 +8,7 @@
 
 #include "contracts/character_controller.h"
 #include "contracts/physics_query.h"
+#include "han/physics/surface_table.h"
 
 namespace han::physics {
 constexpr std::uint32_t kLayerStatic = 1u << 0;
@@ -16,6 +17,8 @@ constexpr std::uint32_t kLayerMoving = 1u << 1;
 struct WorldSettings {
     contracts::Vec3 gravity{0.f, -9.81f, 0.f};
     std::uint32_t maxBodies = 16384;
+    int collisionSteps = 1;  // субшаги столкновений за один step(): 2–4 для быстрых и сложных сцен (дороже, но стабильнее)
+    float contactSoundMinSpeed = 0.6f;  // удары тише этой скорости сближения (м/с) не попадают в события звука
     int workerThreads = 1;  // 1 — детерминированный тестовый режим; в игре будет job system из han_core (позже)
 };
 
@@ -37,6 +40,22 @@ public:
                                       contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Unknown,
                                       contracts::Quat rotation = {});
     void removeBody(contracts::EntityId id);
+    void setVelocity(contracts::EntityId id, contracts::Vec3 velocity);  // линейная скорость динамического тела, м/с
+
+    // Свойства поверхностей (трение, упругость, ключ звука). Применяются к телам, созданным ПОСЛЕ вызова.
+    void setSurfaceTable(const SurfaceTable& table);
+    const SurfaceTable& surfaceTable() const;
+
+    // Звук из физики (P1): удары тел о поверхности за последние шаги. Очередь ограничена (старые теряются), вызывать раз в кадр.
+    struct ContactEvent {
+        contracts::Vec3 point;
+        float impactSpeed = 0;  // скорость сближения вдоль нормали, м/с
+        contracts::EntityId a = contracts::kNoEntity, b = contracts::kNoEntity;
+        contracts::SurfaceMaterial materialA = contracts::SurfaceMaterial::Unknown, materialB = contracts::SurfaceMaterial::Unknown;
+    };
+    void drainContacts(std::vector<ContactEvent>& out);
+    // Проверка стабильности: все ли тела и персонажи имеют конечные координаты и скорости (нет NaN и бесконечностей).
+    bool allFinite() const;
 
     // Шаг мира: фиксированный dt (обычно 1/60), внутри — столкновения и персонажи.
     void step(float dt);
