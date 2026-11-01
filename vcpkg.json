@@ -4,8 +4,12 @@
   "version": "0.0.1",
   "builtin-baseline": "9a5dfef5d1a0438a7d24856a85bd60f309d355e9",
   "description": "HAN Engine: все сторонние библиотеки проекта объявлены здесь. Версии фиксирует builtin-baseline.",
-  "default-features": ["tests", "window", "ui", "assets", "physics"],
+  "default-features": ["tests", "window", "ui", "assets", "physics", "audio"],
   "features": {
+    "audio": {
+      "description": "Звук (E7): miniaudio",
+      "dependencies": ["miniaudio"]
+    },
     "physics": {
       "description": "Физика (E5): Jolt",
       "dependencies": ["joltphysics"]
