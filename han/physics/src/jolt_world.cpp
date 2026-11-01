@@ -93,8 +93,15 @@ void joltRelease() {
 bool hasJolt() { return true; }
 
 struct PhysicsWorld::Impl {
+    // Что нарисовать в отладочных линиях: форма тела.
+    struct ShapeInfo {
+        bool sphere = false, isStatic = false;
+        Vec3 half;         // для коробки: половины размеров
+        float radius = 0;  // для шара
+    };
     struct Character {
         JPH::Ref<JPH::CharacterVirtual> body;
+        float radius = 0.3f, height = 1.8f;
         Vec3 desired;
         Vec3 knock;        // скорость от толчков, затухает
         float mass = 75.f;
@@ -112,6 +119,7 @@ struct PhysicsWorld::Impl {
     EntityId nextId = 1;
     std::unordered_map<EntityId, JPH::BodyID> bodies;
     std::unordered_map<EntityId, contracts::SurfaceMaterial> materials;
+    std::unordered_map<EntityId, ShapeInfo> shapes;
     std::unordered_map<EntityId, Character> characters;
 
     EntityId entityOf(JPH::BodyID id) const {
@@ -123,9 +131,11 @@ struct PhysicsWorld::Impl {
         return it == materials.end() ? contracts::SurfaceMaterial::Unknown : it->second;
     }
 
-    EntityId addBody(const JPH::Shape* shape, Vec3 center, JPH::EMotionType motion, float mass, contracts::SurfaceMaterial material) {
+    EntityId addBody(const JPH::Shape* shape, Vec3 center, contracts::Quat rotation, JPH::EMotionType motion, float mass,
+                     contracts::SurfaceMaterial material, ShapeInfo info) {
         const bool moving = motion != JPH::EMotionType::Static;
-        JPH::BodyCreationSettings settings(shape, JPH::RVec3(center.x, center.y, center.z), JPH::Quat::sIdentity(), motion,
+        JPH::BodyCreationSettings settings(shape, JPH::RVec3(center.x, center.y, center.z),
+                                           JPH::Quat(rotation.x, rotation.y, rotation.z, rotation.w).Normalized(), motion,
                                            moving ? kObjMoving : kObjStatic);
         if (moving) {
             settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
@@ -139,6 +149,8 @@ struct PhysicsWorld::Impl {
         ++nextId;
         bodies[id] = body;
         materials[id] = material;
+        info.isStatic = !moving;
+        shapes[id] = info;
         return id;
     }
 };
@@ -170,19 +182,19 @@ std::unique_ptr<PhysicsWorld> PhysicsWorld::create(const WorldSettings& settings
     return world;
 }
 
-EntityId PhysicsWorld::addStaticBox(Vec3 center, Vec3 halfExtents, contracts::SurfaceMaterial material) {
+EntityId PhysicsWorld::addStaticBox(Vec3 center, Vec3 halfExtents, contracts::SurfaceMaterial material, contracts::Quat rotation) {
     JPH::Ref<JPH::Shape> shape = new JPH::BoxShape(toJolt(halfExtents));
-    return impl_->addBody(shape, center, JPH::EMotionType::Static, 0.f, material);
+    return impl_->addBody(shape, center, rotation, JPH::EMotionType::Static, 0.f, material, {false, true, halfExtents, 0.f});
 }
 
 EntityId PhysicsWorld::addDynamicSphere(Vec3 center, float radius, float mass, contracts::SurfaceMaterial material) {
     JPH::Ref<JPH::Shape> shape = new JPH::SphereShape(radius);
-    return impl_->addBody(shape, center, JPH::EMotionType::Dynamic, mass, material);
+    return impl_->addBody(shape, center, {}, JPH::EMotionType::Dynamic, mass, material, {true, false, {}, radius});
 }
 
-EntityId PhysicsWorld::addDynamicBox(Vec3 center, Vec3 halfExtents, float mass, contracts::SurfaceMaterial material) {
+EntityId PhysicsWorld::addDynamicBox(Vec3 center, Vec3 halfExtents, float mass, contracts::SurfaceMaterial material, contracts::Quat rotation) {
     JPH::Ref<JPH::Shape> shape = new JPH::BoxShape(toJolt(halfExtents));
-    return impl_->addBody(shape, center, JPH::EMotionType::Dynamic, mass, material);
+    return impl_->addBody(shape, center, rotation, JPH::EMotionType::Dynamic, mass, material, {false, false, halfExtents, 0.f});
 }
 
 void PhysicsWorld::removeBody(EntityId id) {
@@ -193,6 +205,7 @@ void PhysicsWorld::removeBody(EntityId id) {
     bi.DestroyBody(it->second);
     impl_->bodies.erase(it);
     impl_->materials.erase(id);
+    impl_->shapes.erase(id);
 }
 
 void PhysicsWorld::step(float dt) {
@@ -232,6 +245,79 @@ Vec3 PhysicsWorld::velocityOf(EntityId id) const {
     if (auto c = impl_->characters.find(id); c != impl_->characters.end()) return fromJolt(c->second.body->GetLinearVelocity());
     if (auto b = impl_->bodies.find(id); b != impl_->bodies.end()) return fromJolt(impl_->system.GetBodyInterface().GetLinearVelocity(b->second));
     return {};
+}
+
+contracts::Quat PhysicsWorld::rotationOf(EntityId id) const {
+    if (auto b = impl_->bodies.find(id); b != impl_->bodies.end()) {
+        const JPH::Quat q = impl_->system.GetBodyInterface().GetRotation(b->second);
+        return contracts::Quat{q.GetX(), q.GetY(), q.GetZ(), q.GetW()};
+    }
+    return {};
+}
+
+bool PhysicsWorld::isAwake(EntityId id) const {
+    if (auto b = impl_->bodies.find(id); b != impl_->bodies.end()) return impl_->system.GetBodyInterface().IsActive(b->second);
+    return impl_->characters.count(id) != 0;
+}
+
+bool PhysicsWorld::jump(EntityId id, float speed) {
+    auto it = impl_->characters.find(id);
+    if (it == impl_->characters.end() || it->second.body->GetGroundState() != JPH::CharacterBase::EGroundState::OnGround) return false;
+    it->second.knock.y = speed;  // шаг мира добавит это к вертикальной скорости один раз
+    return true;
+}
+
+void PhysicsWorld::debugLines(std::vector<DebugLine>& out) const {
+    // Поворот вектора кватернионом: v + 2w(q x v) + 2 q x (q x v).
+    const auto quatRotate = [](contracts::Quat q, Vec3 v) {
+        const Vec3 t{2 * (q.y * v.z - q.z * v.y), 2 * (q.z * v.x - q.x * v.z), 2 * (q.x * v.y - q.y * v.x)};
+        return Vec3{v.x + q.w * t.x + (q.y * t.z - q.z * t.y), v.y + q.w * t.y + (q.z * t.x - q.x * t.z),
+                    v.z + q.w * t.z + (q.x * t.y - q.y * t.x)};
+    };
+    const auto add = [&](Vec3 a, Vec3 b, std::uint32_t color) { out.push_back({a, b, color}); };
+    // Окружность вокруг оси (0 — X, 1 — Y, 2 — Z).
+    const auto ring = [&](Vec3 center, int axis, float radius, std::uint32_t color) {
+        constexpr int kSeg = 16;
+        constexpr float kTwoPi = 6.2831853f;
+        Vec3 prev{};
+        for (int i = 0; i <= kSeg; ++i) {
+            const float a = kTwoPi * static_cast<float>(i) / kSeg, c = std::cos(a) * radius, s = std::sin(a) * radius;
+            const Vec3 p = axis == 0 ? Vec3{center.x, center.y + c, center.z + s}
+                                     : (axis == 1 ? Vec3{center.x + c, center.y, center.z + s} : Vec3{center.x + c, center.y + s, center.z});
+            if (i > 0) add(prev, p, color);
+            prev = p;
+        }
+    };
+    for (const auto& [id, info] : impl_->shapes) {
+        const Vec3 center = positionOf(id);
+        const std::uint32_t color = info.isStatic ? kColorStatic : (isAwake(id) ? kColorAwake : kColorAsleep);
+        if (info.sphere) {
+            for (int axis = 0; axis < 3; ++axis) ring(center, axis, info.radius, color);
+            continue;
+        }
+        const contracts::Quat q = rotationOf(id);
+        Vec3 corner[8];
+        for (int i = 0; i < 8; ++i) {
+            const Vec3 local{(i & 1 ? 1.f : -1.f) * info.half.x, (i & 2 ? 1.f : -1.f) * info.half.y, (i & 4 ? 1.f : -1.f) * info.half.z};
+            const Vec3 r = quatRotate(q, local);
+            corner[i] = Vec3{center.x + r.x, center.y + r.y, center.z + r.z};
+        }
+        for (int i = 0; i < 8; ++i)
+            for (int bit = 1; bit <= 4; bit <<= 1)
+                if (!(i & bit)) add(corner[i], corner[i | bit], color);
+    }
+    for (const auto& [id, c] : impl_->characters) {
+        const Vec3 base = positionOf(id);
+        const float top = std::max(c.height - c.radius, c.radius);
+        ring({base.x, base.y + c.radius, base.z}, 1, c.radius, kColorCharacter);
+        ring({base.x, base.y + top, base.z}, 1, c.radius, kColorCharacter);
+        ring({base.x, base.y + c.height * 0.5f, base.z}, 1, c.radius, kColorCharacter);
+        for (int k = 0; k < 4; ++k) {
+            const float a = 1.5707963f * static_cast<float>(k);
+            const float dx = std::cos(a) * c.radius, dz = std::sin(a) * c.radius;
+            add({base.x + dx, base.y + c.radius, base.z + dz}, {base.x + dx, base.y + top, base.z + dz}, kColorCharacter);
+        }
+    }
 }
 
 std::uint32_t PhysicsWorld::bodyCount() const { return static_cast<std::uint32_t>(impl_->bodies.size()); }
@@ -309,6 +395,8 @@ EntityId PhysicsWorld::create(const contracts::CharacterDesc& desc, Vec3 positio
     Impl::Character c;
     c.body = new JPH::CharacterVirtual(&settings, JPH::RVec3(position.x, position.y, position.z), JPH::Quat::sIdentity(), &impl_->system);
     c.mass = desc.mass;
+    c.radius = desc.radius;
+    c.height = desc.height;
     c.stepHeight = desc.stepHeight;
     const EntityId id = impl_->nextId++;
     impl_->characters.emplace(id, std::move(c));

@@ -4,6 +4,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "contracts/character_controller.h"
 #include "contracts/physics_query.h"
@@ -28,18 +29,33 @@ public:
 
     // Тела. Возвращают EntityId (0 — ошибка). Материал нужен для звука и эффектов.
     contracts::EntityId addStaticBox(contracts::Vec3 center, contracts::Vec3 halfExtents,
-                                     contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Concrete);
+                                     contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Concrete,
+                                     contracts::Quat rotation = {});
     contracts::EntityId addDynamicSphere(contracts::Vec3 center, float radius, float mass = 1.f,
                                          contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Unknown);
     contracts::EntityId addDynamicBox(contracts::Vec3 center, contracts::Vec3 halfExtents, float mass = 1.f,
-                                      contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Unknown);
+                                      contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Unknown,
+                                      contracts::Quat rotation = {});
     void removeBody(contracts::EntityId id);
 
     // Шаг мира: фиксированный dt (обычно 1/60), внутри — столкновения и персонажи.
     void step(float dt);
 
     contracts::Vec3 positionOf(contracts::EntityId id) const;  // центр масс тела или ноги персонажа
+    contracts::Quat rotationOf(contracts::EntityId id) const;  // поворот тела (у персонажа — единичный)
     contracts::Vec3 velocityOf(contracts::EntityId id) const;
+    bool isAwake(contracts::EntityId id) const;                // false — тело уснуло или не найдено
+
+    // Прыжок: вертикальная скорость персонажа (м/с), только с земли. true — прыжок состоялся.
+    bool jump(contracts::EntityId id, float speed);
+
+    // Отладочная отрисовка: контуры тел и капсул персонажей линиями (цвета 0xAABBGGRR для ImGui).
+    struct DebugLine {
+        contracts::Vec3 a, b;
+        std::uint32_t color = 0xFFFFFFFFu;
+    };
+    static constexpr std::uint32_t kColorStatic = 0xFF9A9A9Au, kColorAwake = 0xFF3C9BFFu, kColorAsleep = 0xFFD2A050u, kColorCharacter = 0xFF50E678u;
+    void debugLines(std::vector<DebugLine>& out) const;
     std::uint32_t bodyCount() const;
 
     // IPhysicsQuery

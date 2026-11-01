@@ -155,4 +155,71 @@ TEST_CASE("physics: два мира живут одновременно") {
     a.reset();
     CHECK(b->raycast({0, 5, 0}, {0, -5, 0}).hit);
 }
+
+TEST_CASE("physics: прыжок поднимает персонажа и возвращает на землю; в воздухе прыгнуть нельзя") {
+    auto w = makeWorldWithFloor();
+    const EntityId c = w->create({}, {0, 0.05f, 0});
+    CHECK_FALSE(w->jump(c, 5.f));  // ещё не стоит на земле до первого шага
+    run(*w, 30);
+    REQUIRE(w->jump(c, 5.f));
+    float peak = 0;
+    for (int i = 0; i < 20; ++i) {
+        w->step(1.f / 60.f);
+        peak = std::max(peak, w->state(c).position.y);
+        if (i == 5) CHECK_FALSE(w->jump(c, 5.f));
+    }
+    CHECK(peak > 0.5f);
+    run(*w, 120);
+    CHECK(w->state(c).grounded);
+    CHECK(w->state(c).position.y < 0.2f);
+    CHECK_FALSE(w->jump(contracts::kNoEntity, 5.f));
+}
+
+TEST_CASE("physics: наклонная статическая коробка работает как рампа, поворот тела читается") {
+    auto w = makeWorldWithFloor();
+    // Рампа: коробка 4x0.1x2 (полуразмеры), повёрнутая на 15 градусов вокруг Z.
+    const float half = 0.5f * 15.f * 3.14159265f / 180.f;
+    const contracts::Quat tilt{0, 0, std::sin(half), std::cos(half)};
+    w->addStaticBox({5, 0.5f, 0}, {4, 0.1f, 2}, SurfaceMaterial::Wood, tilt);
+    const EntityId box = w->addDynamicBox({0, 2, 5}, {0.5f, 0.5f, 0.5f}, 1.f, SurfaceMaterial::Wood, tilt);
+    w->step(1.f / 60.f);
+    const contracts::Quat q = w->rotationOf(box);
+    CHECK(q.z == doctest::Approx(std::sin(half)).epsilon(0.01));
+    const auto hit = w->raycast({5, 5, 0}, {5, -5, 0});
+    REQUIRE(hit.hit);
+    CHECK(hit.material == SurfaceMaterial::Wood);
+    CHECK(hit.normal.y == doctest::Approx(std::cos(2 * half)).epsilon(0.02));
+    CHECK(std::fabs(hit.normal.x) > 0.2f);
+}
+
+TEST_CASE("physics: тело засыпает на полу, isAwake отражает это") {
+    auto w = makeWorldWithFloor();
+    const EntityId b = w->addDynamicBox({0, 1, 0}, {0.5f, 0.5f, 0.5f});
+    CHECK(w->isAwake(b));
+    run(*w, 600);
+    CHECK_FALSE(w->isAwake(b));
+    CHECK_FALSE(w->isAwake(12345));
+}
+
+TEST_CASE("physics: debugLines рисует коробки (12 рёбер), шары (3 кольца) и капсулу персонажа") {
+    auto w = physics::PhysicsWorld::create();
+    std::vector<physics::PhysicsWorld::DebugLine> lines;
+    w->debugLines(lines);
+    CHECK(lines.empty());
+    w->addStaticBox({0, 0, 0}, {1, 1, 1});
+    w->debugLines(lines);
+    CHECK(lines.size() == 12);
+    for (const auto& l : lines) CHECK(l.color == physics::PhysicsWorld::kColorStatic);
+    lines.clear();
+    w->addDynamicSphere({0, 5, 0}, 0.5f);
+    w->debugLines(lines);
+    CHECK(lines.size() == 12 + 3 * 16);
+    lines.clear();
+    w->create({}, {10, 0, 10});
+    w->debugLines(lines);
+    CHECK(lines.size() > 12 + 3 * 16);
+    bool hasCharacter = false;
+    for (const auto& l : lines) hasCharacter = hasCharacter || l.color == physics::PhysicsWorld::kColorCharacter;
+    CHECK(hasCharacter);
+}
 #endif

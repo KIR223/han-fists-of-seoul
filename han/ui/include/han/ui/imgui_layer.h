@@ -3,11 +3,13 @@
 // Собирается, если найдены imgui, SDL3 и Vulkan (HAN_WITH_IMGUI); игровой интерфейс (RmlUi) — отдельный этап E8.
 #ifdef HAN_WITH_IMGUI
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "han/core/console.h"
+#include "han/core/math.h"
 #include "han/platform/window.h"
 #include "han/render/overlay.h"
 
@@ -34,6 +36,13 @@ public:
     void drawConsole(core::Console& console, bool& open);
     // Полупрозрачная панель в углу экрана.
     void drawStats(const std::vector<std::string>& lines);
+    // Линии в мировых координатах поверх сцены (отладочная отрисовка физики). color — 0xAABBGGRR.
+    // viewProjection — та же матрица, что в FrameParams (Vulkan: Y клипа вниз); width/height — размер окна в пикселях.
+    struct Line3D {
+        core::Vec3 a, b;
+        std::uint32_t color = 0xFFFFFFFFu;
+    };
+    void drawLines(const std::vector<Line3D>& lines, const core::Mat4& viewProjection, int width, int height);
 
     // IOverlay
     void onRendererReady(const render::VulkanHandles& handles) override;
