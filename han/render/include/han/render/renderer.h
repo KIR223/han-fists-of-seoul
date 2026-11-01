@@ -2,6 +2,7 @@
 // Рендерер Vulkan 1.3 (E2): инстанс, устройство, swapchain, глубина, меши, dynamic rendering.
 // Заголовок не тянет Vulkan и SDL: поверхность окна создаёт колбэк, который даёт платформенный слой.
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <span>
@@ -86,6 +87,13 @@ public:
     // width/height — текущий размер окна в пикселях (для пересоздания swapchain).
     // false — кадр пропущен (окно свёрнуто, пересоздание swapchain) или произошла ошибка устройства.
     bool drawFrame(const FrameParams& frame, std::span<const DrawItem> items, int width, int height);
+
+    // Снимок экрана: следующий нарисованный кадр (вместе с наложением) сохраняется в PNG (RGB, как на экране).
+    // false — захват невозможен (swapchain без TRANSFER_SRC или уже есть незавершённый запрос).
+    // После drawFrame() screenshotPending() == false; при ошибке записи screenshotError() непуст.
+    bool requestScreenshot(const std::filesystem::path& path);
+    bool screenshotPending() const;
+    const std::string& screenshotError() const;
 
     const std::string& deviceName() const;
     bool validationEnabled() const;
