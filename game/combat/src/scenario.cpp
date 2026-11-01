@@ -38,7 +38,8 @@ bool defenseFromName(const std::string& n, DefenseAction& out) {
     static const std::map<std::string, DefenseAction> names = {
         {"parry", DefenseAction::Parry}, {"slip_left", DefenseAction::SlipLeft}, {"slip_right", DefenseAction::SlipRight}, {"duck", DefenseAction::Duck},
         {"bob_left", DefenseAction::BobLeft}, {"bob_right", DefenseAction::BobRight}, {"lean_back", DefenseAction::LeanBack},
-        {"sidestep_left", DefenseAction::SidestepLeft}, {"sidestep_right", DefenseAction::SidestepRight}, {"step_back", DefenseAction::StepBack}};
+        {"sidestep_left", DefenseAction::SidestepLeft}, {"sidestep_right", DefenseAction::SidestepRight}, {"step_back", DefenseAction::StepBack},
+        {"shoulder_roll_left", DefenseAction::ShoulderRollLeft}, {"shoulder_roll_right", DefenseAction::ShoulderRollRight}};
     const auto it = names.find(n);
     if (it == names.end()) return false;
     out = it->second;

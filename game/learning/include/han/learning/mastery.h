@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "han/combat/sim.h"
 #include "han/core/json.h"
 
 namespace han::learning {
@@ -58,6 +59,11 @@ private:
     std::map<std::string, MoveProgress> progress_;
     float trainedToday_ = 0.f;
 };
+
+// Боевые события кадра → путь приёма. Приёмы игрока дают опыт (попал/заблокирован — как попадание, мимо — как применение);
+// приёмы врагов, которых игрок видел в деле, подсматриваются (каждое разрешённое событие — одно наблюдение).
+// Оценка мини-игры (0..4 = D..S, как minigames::Rating) → опыт приёма: mastery.train(moveId, static_cast<int>(rating)).
+void applyCombatEvents(MoveMastery& mastery, const std::vector<combat::CombatEvent>& events, int playerIndex, float observationSkill = 0.f);
 
 const char* stageName(MoveStage s);
 bool parseLearningConfig(const core::Json& json, LearningConfig& out, std::string& error);

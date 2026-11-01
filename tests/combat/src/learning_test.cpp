@@ -118,3 +118,63 @@ TEST_CASE("learning: пороги конфига проверяются") {
     REQUIRE(han::core::parseJson(R"({"star_xp":[100,50,200]})", j, error));
     CHECK_FALSE(parseLearningConfig(j, c, error));
 }
+
+TEST_CASE("learning: события боя — приёмы игрока дают опыт, приёмы врага подсматриваются, чужие бои не считаются") {
+    using namespace han::combat;
+    CombatRules rules;
+    MoveLibrary moves;
+    std::string error;
+    REQUIRE_MESSAGE(rules.load((std::filesystem::path(HAN_REPO_DIR) / "data/combat/combat_rules.json").string(), error), error);
+    REQUIRE_MESSAGE(moves.loadDirectory((std::filesystem::path(HAN_REPO_DIR) / "data/combat/moves").string(), error), error);
+    const MoveData* jab = moves.byId("boxing_jab");
+    const MoveData* cross = moves.byId("boxing_cross");
+    REQUIRE(jab);
+    REQUIRE(cross);
+
+    MoveMastery m(config());
+    m.grant("boxing_jab");
+    std::vector<CombatEvent> events;
+    CombatEvent hit;
+    hit.type = CombatEventType::Hit;
+    hit.attacker = 0;
+    hit.defender = 1;
+    hit.move = jab;
+    events.push_back(hit);
+    CombatEvent whiff = hit;
+    whiff.type = CombatEventType::Whiff;
+    events.push_back(whiff);
+    CombatEvent foe;
+    foe.type = CombatEventType::Hit;
+    foe.attacker = 1;
+    foe.defender = 0;
+    foe.move = cross;
+    events.push_back(foe);
+    CombatEvent other = foe;  // драка двух других бойцов — игрок её не видел
+    other.attacker = 2;
+    other.defender = 1;
+    events.push_back(other);
+    CombatEvent ko;
+    ko.type = CombatEventType::KnockedOut;
+    ko.attacker = 0;
+    ko.defender = 1;
+    ko.move = jab;
+    events.push_back(ko);
+
+    applyCombatEvents(m, events, 0);
+    CHECK(m.xp("boxing_jab") == doctest::Approx(m.config().learnXp + 2.5f + 1.f));
+    CHECK(m.stage("boxing_cross") == MoveStage::Seen);
+    applyCombatEvents(m, events, 0);
+    applyCombatEvents(m, events, 0);
+    CHECK(m.stage("boxing_cross") == MoveStage::Remembered);
+}
+
+TEST_CASE("moves: нырок и хук — контрприём с шагом вперёд, данные читаются") {
+    using namespace han::combat;
+    MoveLibrary moves;
+    std::string error;
+    REQUIRE_MESSAGE(moves.loadDirectory((std::filesystem::path(HAN_REPO_DIR) / "data/combat/moves").string(), error), error);
+    const MoveData* m = moves.byId("boxing_duck_hook");
+    REQUIRE(m);
+    CHECK(m->damage > moves.byId("boxing_left_hook")->damage);
+    CHECK(m->startup < moves.byId("boxing_left_hook")->startup);
+}

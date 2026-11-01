@@ -26,6 +26,9 @@ FighterInput SimpleScheme::map(const RawInput& raw, const CombatSim& sim, int se
     if (raw.rmbPressed) {
         out.defense = DefenseAction::Parry;
         lastDefense_ = out.defense;
+    } else if (raw.shoulderPressed) {
+        out.defense = raw.right < -0.5f ? DefenseAction::ShoulderRollLeft : DefenseAction::ShoulderRollRight;
+        lastDefense_ = out.defense;
     } else if (raw.spacePressed) {
         const bool left = raw.right < -0.5f, right = raw.right > 0.5f, back = raw.forward < -0.5f;
         const MoveData* threat = (foe && foe->state == FighterState::Attacking && foe->move && foe->stateFrame < foe->move->startup) ? foe->move : nullptr;

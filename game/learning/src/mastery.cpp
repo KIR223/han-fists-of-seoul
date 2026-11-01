@@ -111,6 +111,18 @@ bool MoveMastery::fromJson(const Json& json, std::string& error) {
     return true;
 }
 
+void applyCombatEvents(MoveMastery& mastery, const std::vector<combat::CombatEvent>& events, int playerIndex, float observationSkill) {
+    for (const combat::CombatEvent& e : events) {
+        if (!e.move || e.attacker < 0) continue;
+        using combat::CombatEventType;
+        const bool resolved = e.type == CombatEventType::Hit || e.type == CombatEventType::Blocked || e.type == CombatEventType::Evaded ||
+                              e.type == CombatEventType::PerfectParry || e.type == CombatEventType::Whiff;
+        if (!resolved) continue;
+        if (e.attacker == playerIndex) mastery.fightUse(e.move->id, e.type == CombatEventType::Hit || e.type == CombatEventType::Blocked);
+        else if (e.defender == playerIndex) mastery.observe(e.move->id, observationSkill);
+    }
+}
+
 bool parseLearningConfig(const Json& json, LearningConfig& out, std::string& error) {
     if (!json.isObject()) {
         error = "обучение: ожидался объект";

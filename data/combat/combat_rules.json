@@ -47,6 +47,11 @@
     { "max_degrees": 120.0, "factor": 0.4 },
     { "max_degrees": 180.0, "factor": 0.0 }
   ],
+  "rhythm": { "hits_for_flow": 5, "flow_frames": 360, "decay_frames": 240 },
+  "boxing": {
+    "head_movement": { "bonus_per_charge": 0.1, "max_charges": 5, "decay_frames": 240 },
+    "body_work": { "threshold": 28.0, "decay_per_second": 1.5, "doubled_frames": 50 }
+  },
   "input_buffer_frames": 8,
   "defenses": {
     "high_block": {
@@ -76,6 +81,10 @@
     "bob_weave": {
       "covers": ["head", "torso"], "total": 20, "window": [1, 11], "cost": 5.0, "sided": true, "shift": 0.45,
       "outcomes": { "straight": "evade_angle", "arc_same": "evade_angle", "arc_other": "evade_angle", "up": "hit*1.5", "down": "hit", "low": "hit" }
+    },
+    "shoulder_roll": {
+      "covers": ["head", "torso"], "total": 18, "window": [2, 12], "cost": 2.0, "sided": true, "shift": 0.12,
+      "outcomes": { "straight": "evade_angle", "arc_same": "partial", "arc_other": "evade_angle", "up": "hit", "down": "hit", "low": "hit" }
     },
     "lean_back": {
       "covers": ["head", "torso"], "total": 14, "window": [1, 7], "cost": 3.0,

@@ -1,0 +1,32 @@
+{
+  "combos": [
+    {
+      "id": "boxing_one_two_three",
+      "name_key": "combo.boxing.one_two_three",
+      "moves": ["boxing_jab", "boxing_cross", "boxing_left_hook"],
+      "max_gap_frames": 50,
+      "reward": { "stream_points": 20, "flow_hits": 1 }
+    },
+    {
+      "id": "boxing_jab_uppercut_hook",
+      "name_key": "combo.boxing.jab_uppercut_hook",
+      "moves": ["boxing_jab", "boxing_uppercut", "boxing_left_hook"],
+      "max_gap_frames": 55,
+      "reward": { "stream_points": 25, "flow_hits": 1 }
+    },
+    {
+      "id": "boxing_liver_head",
+      "name_key": "combo.boxing.liver_head",
+      "moves": ["boxing_liver_hook", "boxing_left_hook"],
+      "max_gap_frames": 55,
+      "reward": { "stream_points": 25, "flow_hits": 2 }
+    },
+    {
+      "id": "boxing_duck_two_hooks",
+      "name_key": "combo.boxing.duck_two_hooks",
+      "moves": ["boxing_duck_hook", "boxing_left_hook", "boxing_right_hook"],
+      "max_gap_frames": 60,
+      "reward": { "stream_points": 35, "flow_hits": 2 }
+    }
+  ]
+}

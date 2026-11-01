@@ -17,11 +17,12 @@ struct Vec2 {
 };
 
 enum class FighterState : unsigned char { Idle, Moving, Attacking, Defending, Blocking, HitStun, BlockStun, Knockdown, GettingUp, KnockedOut };
-enum class DefenseAction : unsigned char { None, Parry, SlipLeft, SlipRight, Duck, BobLeft, BobRight, LeanBack, SidestepLeft, SidestepRight, StepBack };
+enum class DefenseAction : unsigned char { None, Parry, SlipLeft, SlipRight, Duck, BobLeft, BobRight, LeanBack, SidestepLeft, SidestepRight, StepBack, ShoulderRollLeft, ShoulderRollRight };
 
 struct FighterStats {
     float strength = 5, endurance = 5, technique = 5, toughness = 5;
     int stars = 1;  // 1..3
+    bool headMovement = false;  // боксёрская механика «движение головой»: уклоны копят заряд для следующего удара
 };
 
 // Ввод бойца на один кадр. forward/right — относительно врага (вперёд = к цели), −1..1.
@@ -56,6 +57,11 @@ struct Fighter {
     // Окно контратаки после ухода на угол или идеального парирования
     int counterReady = 0;
     bool counterPerfect = false;
+    // Бокс: заряды движения головой (до headMoveMaxCharges) и накопленный урон по корпусу
+    int headCharges = 0, headChargeFrame = 0;
+    float bodyWork = 0.f;
+    // Ритм и «Поток»: чистые попадания подряд; пока flowUntil больше текущего кадра, урон усилен
+    int rhythm = 0, rhythmFrame = 0, flowUntil = 0;
     // Буфер ввода
     const MoveData* buffered = nullptr;
     int bufferAge = 0;
@@ -77,6 +83,9 @@ struct CombatEvent {
     float damage = 0, balanceDamage = 0, impulse = 0;
     Vec2 direction;  // от атакующего к защитнику
     bool counter = false, crit = false, back = false, downed = false, angle = false;
+    bool flowStarted = false, flow = false;  // удар нанесён в «Потоке» / этим ударом открылся «Поток»
+    bool doubled = false;  // удар по корпусу согнул защитника (накопленный урон)
+    int headCharges = 0;   // заряды движения головой, пошедшие в этот удар
     std::string defense;  // имя защиты, сработавшей у защитника ("" — нет)
 };
 
@@ -89,6 +98,8 @@ public:
     void setTarget(int fighter, int target);
     // Нокаут по числу нокдаунов (бой «по правилам»); в уличной драке — только по здоровью.
     void setOfficialRules(bool on) { official_ = on; }
+    // Награда за комбо: засчитывает бойцу ещё hits чистых попаданий в ритм (может открыть «Поток»). Возвращает true, если Поток открылся.
+    bool awardRhythm(int fighter, int hits);
 
     // Один кадр. inputs — по одному на бойца в порядке добавления (недостающие считаются пустыми).
     void step(const std::vector<FighterInput>& inputs);
