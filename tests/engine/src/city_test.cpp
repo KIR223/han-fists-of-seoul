@@ -251,10 +251,20 @@ TEST_CASE("city: высота зданий и ширина дорог берут
     CHECK(roadWidth("proposed") == 0.f);
 }
 
+namespace {
+// Чистая геометрия без деталей (витрины, парапеты, надстройки, тротуары, деревья): для проверок объёма и направлений граней.
+CityBuildSettings plain() {
+    CityBuildSettings s;
+    s.buildingDetail = false;
+    s.streetProps = false;
+    return s;
+}
+}  // namespace
+
 TEST_CASE("city: из фрагмента строятся дорога, дома, парк; мелкое и незамкнутое отбрасывается") {
     const OsmData d = parseFixture();
     CityStats st;
-    const auto chunks = buildCity(d, GeoProjection(37.5, 127.0), {}, &st);
+    const auto chunks = buildCity(d, GeoProjection(37.5, 127.0), plain(), &st);
     CHECK(st.buildings == 3);  // 101, 102, 103
     CHECK(st.roads == 2);      // 100 и пешеходная 107
     CHECK(st.parks == 1);
@@ -284,7 +294,7 @@ TEST_CASE("city: крыша дома равна площади контура, �
         <node id="3" lat="37.5002" lon="127.0002"/><node id="4" lat="37.5002" lon="127.0000"/>
         <way id="7"><nd ref="1"/><nd ref="2"/><nd ref="3"/><nd ref="4"/><nd ref="1"/><tag k="building" v="yes"/><tag k="height" v="10"/></way></osm>)", d, error));
     const GeoProjection proj(37.5, 127.0);
-    const auto chunks = buildCity(d, proj, {});
+    const auto chunks = buildCity(d, proj, plain());
     REQUIRE(chunks.size() == 1);
     const GeoMesh& m = chunks.begin()->second.buildings;
     float x0, z0, x1, z1;
@@ -314,7 +324,7 @@ TEST_CASE("city: направление обхода контура не вли�
         OsmData d;
         std::string error;
         REQUIRE(parseOsmXml(text, d, error));
-        const auto chunks = buildCity(d, GeoProjection(37.5, 127.0), {});
+        const auto chunks = buildCity(d, GeoProjection(37.5, 127.0), plain());
         REQUIRE(chunks.size() == 1);
         CHECK(wrongFacing(chunks.begin()->second.buildings) == 0);
     }
@@ -371,7 +381,7 @@ TEST_CASE("city: реальный район Мапо (если файл ска�
     std::string error;
     REQUIRE_MESSAGE(loadOsmFile(file.string(), d, error), error);
     CityStats st;
-    const auto chunks = buildCity(d, GeoProjection(37.5572, 126.9230), {}, &st);
+    const auto chunks = buildCity(d, GeoProjection(37.5572, 126.9230), plain(), &st);
     CHECK(st.buildings > 500);
     CHECK(st.roads > 200);
     int wrong = 0;
@@ -421,11 +431,15 @@ TEST_CASE("city: стены размечены UV в плитках (метры 
     const OsmData d = parseFixture();
     const auto chunks = buildCity(d, GeoProjection(37.5, 127.0), {});
     for (const auto& [cell, chunk] : chunks) {
-        for (const GeoVertex& v : chunk.ground.vertices) {
-            // Плоские материалы: UV пропорциональны координатам XZ (плитка 6 м у дорог, 8 м у парков).
-            const bool road = std::fabs(v.uv[0] * 6.f - v.position[0]) < 1e-2f && std::fabs(v.uv[1] * 6.f - v.position[2]) < 1e-2f;
-            const bool park = std::fabs(v.uv[0] * 8.f - v.position[0]) < 1e-2f && std::fabs(v.uv[1] * 8.f - v.position[2]) < 1e-2f;
-            CHECK((road || park));
+        for (const GeoRange& r : chunk.ground.ranges) {
+            // Плоские материалы: UV пропорциональны координатам XZ (плитка 6 м у дорог, 8 м у парков, 4 м у тротуара); разметка и вода без текстуры.
+            const float tile = r.material == GeoMaterial::Road ? 6.f : (r.material == GeoMaterial::Park ? 8.f : (r.material == GeoMaterial::Sidewalk ? 4.f : 0.f));
+            if (tile == 0.f) continue;
+            for (std::uint32_t i = 0; i < r.indexCount; ++i) {
+                const GeoVertex& v = chunk.ground.vertices[chunk.ground.indices[r.firstIndex + i]];
+                CHECK(std::fabs(v.uv[0] * tile - v.position[0]) < 1e-2f);
+                CHECK(std::fabs(v.uv[1] * tile - v.position[2]) < 1e-2f);
+            }
         }
         for (const GeoVertex& v : chunk.buildings.vertices) {
             if (std::fabs(v.normal[1]) < 0.5f) {  // стена: v по высоте в плитках по 5 м, 0 вверху
@@ -491,4 +505,78 @@ TEST_CASE("city: разметка только на широких дорога�
     }
     CHECK(markingIndices % 3 == 0);
     if (markingIndices > 0) CHECK(markTop > roadTop - 1e-4f);  // разметка не ниже верха дороги
+}
+
+TEST_CASE("city: детали зданий — витрины на первом этаже, парапет поднимает крышу, надстройка только на большой крыше, тротуар вокруг") {
+    OsmData d;
+    std::string error;
+    // Дом 40 x 40 м высотой 12 м: подходит под витрины, парапет, надстройку.
+    REQUIRE(parseOsmXml(R"(<osm><node id="1" lat="37.5000" lon="127.0000"/><node id="2" lat="37.5000" lon="127.0005"/>
+        <node id="3" lat="37.5004" lon="127.0005"/><node id="4" lat="37.5004" lon="127.0000"/>
+        <way id="8"><nd ref="1"/><nd ref="2"/><nd ref="3"/><nd ref="4"/><nd ref="1"/><tag k="building" v="yes"/><tag k="height" v="12"/></way></osm>)", d, error));
+    int shopSeen = 0, apronSeen = 0, rimSeen = 0;
+    float maxPlain = 0.f, maxDetail = 0.f;
+    // у дома номер 8 лавки зависят от номера; проверяем на нескольких номерах: хотя бы у одного есть витрина, парапет и тротуар
+    for (int id = 1; id <= 12; ++id) {
+        OsmData e = d;
+        e.ways[0].id = id;
+        const auto plainChunks = buildCity(e, GeoProjection(37.5, 127.0), plain());
+        const auto detailChunks = buildCity(e, GeoProjection(37.5, 127.0), {});
+        for (const auto& [cell, c] : plainChunks)
+            for (const GeoVertex& v : c.buildings.vertices) maxPlain = std::max(maxPlain, v.position[1]);
+        for (const auto& [cell, c] : detailChunks) {
+            for (const GeoRange& r : c.buildings.ranges) shopSeen += r.material == GeoMaterial::Storefront ? 1 : 0;
+            for (const GeoRange& r : c.ground.ranges) apronSeen += r.material == GeoMaterial::Sidewalk ? 1 : 0;
+            for (const GeoVertex& v : c.buildings.vertices) {
+                maxDetail = std::max(maxDetail, v.position[1]);
+                if (std::fabs(v.position[1] - 12.8f) < 1e-3f) ++rimSeen;
+            }
+        }
+    }
+    CHECK(shopSeen > 0);
+    CHECK(apronSeen > 0);
+    CHECK(rimSeen > 0);                          // верх парапета на 12,8 м
+    CHECK(maxPlain == doctest::Approx(12.f));
+    CHECK(maxDetail > maxPlain + 0.5f);          // парапет и надстройка выше крыши
+}
+
+TEST_CASE("city: деревья и фонари вдоль улицы — стволы, кроны, столбы; внутри домов не ставятся; настройка выключает") {
+    OsmData d;
+    std::string error;
+    REQUIRE(parseOsmXml(R"(<osm><node id="1" lat="37.5" lon="127.0000"/><node id="2" lat="37.5" lon="127.0020"/>
+        <way id="1"><nd ref="1"/><nd ref="2"/><tag k="highway" v="residential"/></way></osm>)", d, error));
+    const auto withProps = buildCity(d, GeoProjection(37.5, 127.0), {});
+    int trunks = 0, leaves = 0, metals = 0;
+    for (const auto& [cell, c] : withProps)
+        for (const GeoRange& r : c.buildings.ranges) {
+            trunks += r.material == GeoMaterial::Trunk ? 1 : 0;
+            leaves += r.material == GeoMaterial::Leaves ? 1 : 0;
+            metals += r.material == GeoMaterial::Metal ? 1 : 0;
+        }
+    CHECK(trunks > 0);
+    CHECK(leaves > 0);
+    CHECK(metals > 0);
+    CityBuildSettings off;
+    off.streetProps = false;
+    for (const auto& [cell, c] : buildCity(d, GeoProjection(37.5, 127.0), off)) CHECK(c.buildings.empty());
+
+    // Здание на самой улице: деревья не оказываются внутри контура.
+    OsmData e;
+    REQUIRE(parseOsmXml(R"(<osm><node id="1" lat="37.5" lon="127.0000"/><node id="2" lat="37.5" lon="127.0020"/>
+        <node id="10" lat="37.49990" lon="127.0004"/><node id="11" lat="37.49990" lon="127.0016"/><node id="12" lat="37.50010" lon="127.0016"/><node id="13" lat="37.50010" lon="127.0004"/>
+        <way id="1"><nd ref="1"/><nd ref="2"/><tag k="highway" v="residential"/></way>
+        <way id="2"><nd ref="10"/><nd ref="11"/><nd ref="12"/><nd ref="13"/><nd ref="10"/><tag k="building" v="yes"/></way></osm>)", e, error));
+    const GeoProjection proj(37.5, 127.0);
+    float x0, z0, x1, z1;
+    proj.toLocal(37.4999, 127.0004, x0, z0);
+    proj.toLocal(37.5001, 127.0016, x1, z1);
+    const float minX = std::min(x0, x1), maxX = std::max(x0, x1), minZ = std::min(z0, z1), maxZ = std::max(z0, z1);
+    for (const auto& [cell, c] : buildCity(e, proj, {}))
+        for (const GeoRange& r : c.buildings.ranges) {
+            if (r.material != GeoMaterial::Trunk) continue;
+            for (std::uint32_t i = 0; i < r.indexCount; ++i) {
+                const GeoVertex& v = c.buildings.vertices[c.buildings.indices[r.firstIndex + i]];
+                CHECK_FALSE((v.position[0] > minX + 0.5f && v.position[0] < maxX - 0.5f && v.position[2] > minZ + 0.5f && v.position[2] < maxZ - 0.5f));
+            }
+        }
 }

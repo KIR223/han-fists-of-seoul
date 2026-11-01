@@ -16,6 +16,8 @@ struct CityBuildSettings {
     float maxBuildingHeight = 300.f;
     float minBuildingArea = 6.f;         // меньше (м²) — не здание (сарай, ошибка данных)
     float roadLift = 0.05f;              // дорога чуть выше земли
+    bool buildingDetail = true;          // витрины, парапеты, надстройки на крышах и тротуар вокруг домов
+    bool streetProps = true;             // деревья и фонари вдоль улиц
     float junctionSides = 10;            // сторон «диска» в стыках сегментов дороги (закрывает щели на поворотах)
 };
 
