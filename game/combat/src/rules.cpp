@@ -127,6 +127,15 @@ bool CombatRules::parse(const Json& j, std::string& error) {
         !number(arcs, "down", r.arcDown, 1, 180, e) || !number(arcs, "spin", r.arcSpin, 1, 180, e) || !number(arcs, "low", r.arcLow, 1, 180, e) ||
         !number(arcs, "push", r.arcPush, 1, 180, e))
         return fail("hit_arc_degrees: " + e);
+    if (j.has("boxing")) {
+        const Json& bx = j["boxing"];
+        if (bx.has("head_movement") && (!number(bx["head_movement"], "bonus_per_charge", r.headMoveBonus, 0, 1, e) || !integer(bx["head_movement"], "max_charges", r.headMoveMaxCharges, 0, 20, e) ||
+                                         !integer(bx["head_movement"], "decay_frames", r.headMoveDecayFrames, 1, 3600, e)))
+            return fail("boxing.head_movement: " + e);
+        if (bx.has("body_work") && (!number(bx["body_work"], "threshold", r.bodyWorkThreshold, 1, 1000, e) || !number(bx["body_work"], "decay_per_second", r.bodyWorkDecayPerSecond, 0, 100, e) ||
+                                     !integer(bx["body_work"], "doubled_frames", r.bodyDoubledFrames, 1, 600, e)))
+            return fail("boxing.body_work: " + e);
+    }
     if (!integer(j, "input_buffer_frames", r.inputBufferFrames, 0, 60, e) || !integer(j, "fps", r.fps, 30, 240, e)) return fail(e);
 
     if (!j["block_by_angle"].isArray() || j["block_by_angle"].size() == 0) return fail("block_by_angle — непустой массив");

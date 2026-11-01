@@ -47,6 +47,10 @@
     { "max_degrees": 120.0, "factor": 0.4 },
     { "max_degrees": 180.0, "factor": 0.0 }
   ],
+  "boxing": {
+    "head_movement": { "bonus_per_charge": 0.1, "max_charges": 5, "decay_frames": 240 },
+    "body_work": { "threshold": 28.0, "decay_per_second": 1.5, "doubled_frames": 50 }
+  },
   "input_buffer_frames": 8,
   "defenses": {
     "high_block": {

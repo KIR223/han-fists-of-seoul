@@ -22,6 +22,7 @@ enum class DefenseAction : unsigned char { None, Parry, SlipLeft, SlipRight, Duc
 struct FighterStats {
     float strength = 5, endurance = 5, technique = 5, toughness = 5;
     int stars = 1;  // 1..3
+    bool headMovement = false;  // боксёрская механика «движение головой»: уклоны копят заряд для следующего удара
 };
 
 // Ввод бойца на один кадр. forward/right — относительно врага (вперёд = к цели), −1..1.
@@ -56,6 +57,9 @@ struct Fighter {
     // Окно контратаки после ухода на угол или идеального парирования
     int counterReady = 0;
     bool counterPerfect = false;
+    // Бокс: заряды движения головой (до headMoveMaxCharges) и накопленный урон по корпусу
+    int headCharges = 0, headChargeFrame = 0;
+    float bodyWork = 0.f;
     // Буфер ввода
     const MoveData* buffered = nullptr;
     int bufferAge = 0;
@@ -77,6 +81,8 @@ struct CombatEvent {
     float damage = 0, balanceDamage = 0, impulse = 0;
     Vec2 direction;  // от атакующего к защитнику
     bool counter = false, crit = false, back = false, downed = false, angle = false;
+    bool doubled = false;  // удар по корпусу согнул защитника (накопленный урон)
+    int headCharges = 0;   // заряды движения головой, пошедшие в этот удар
     std::string defense;  // имя защиты, сработавшей у защитника ("" — нет)
 };
 

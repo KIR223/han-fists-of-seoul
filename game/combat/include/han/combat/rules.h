@@ -61,6 +61,11 @@ struct CombatRules {
         float maxDegrees, factor;
     };
     std::vector<AngleStep> blockByAngle;
+    // Бокс: «движение головой» (заряд за успешный уклон усиливает следующий удар) и «работа по корпусу» (накопленный урон сгибает врага)
+    float headMoveBonus = 0.1f;
+    int headMoveMaxCharges = 5, headMoveDecayFrames = 240;
+    float bodyWorkThreshold = 28.f, bodyWorkDecayPerSecond = 1.5f;
+    int bodyDoubledFrames = 50;
     int inputBufferFrames = 8;
     std::map<std::string, DefenseDef> defenses;
 

@@ -364,6 +364,10 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
     switch (out.kind) {
         case OutcomeKind::Evade:
             e.type = CombatEventType::Evaded;
+            if (d.stats.headMovement) {
+                d.headCharges = std::min(rules_.headMoveMaxCharges, d.headCharges + 1);
+                d.headChargeFrame = frame_;
+            }
             if (out.angle) {
                 d.counterReady = 30;  // «уход + угол»: окно контратаки
                 d.counterPerfect = false;
@@ -395,6 +399,11 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
         e.counter = true;
         a.counterReady = 0;
     }
+    if (s.stats.headMovement && a.headCharges > 0 && out.kind != OutcomeKind::Block) {
+        situation *= 1.f + rules_.headMoveBonus * static_cast<float>(a.headCharges);  // «движение головой»: до ×1,5 на следующем ударе
+        e.headCharges = a.headCharges;
+        a.headCharges = 0;
+    }
     if (e.back) situation *= rules_.back;
     if (e.downed) situation *= rules_.downed;
     const float critChance = rules_.critBase + rules_.critTechniquePerPoint * (s.stats.technique - 5.f);
@@ -418,6 +427,16 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
 
     d.health = std::max(0.f, d.health - e.damage);
     d.balance -= e.balanceDamage;
+    if (out.kind == OutcomeKind::Hit) d.headCharges = 0;  // пропущенный удар сбивает ритм движения головой
+    bool doubledOver = false;
+    if (m.height == Height::Torso && out.kind != OutcomeKind::Block && !d.down()) {  // работа по корпусу: урон накапливается
+        d.bodyWork += e.damage;
+        if (d.bodyWork >= rules_.bodyWorkThreshold) {
+            d.bodyWork = 0.f;
+            doubledOver = true;
+            e.doubled = true;
+        }
+    }
     if (out.kind == OutcomeKind::Block) d.stamina = std::max(0.f, d.stamina - m.damage * 0.5f);
 
     // 3. Реакция защитника: оглушение по кадровому преимуществу (отдача — остаток восстановления атакующего).
@@ -426,6 +445,7 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
         d.state = out.kind == OutcomeKind::Block ? FighterState::BlockStun : FighterState::HitStun;
         d.stateFrame = 0;
         d.stunFrames = std::max(4, remaining + (out.kind == OutcomeKind::Block ? m.onBlockFrames : m.onHitFrames));
+        if (doubledOver) d.stunFrames = std::max(d.stunFrames, rules_.bodyDoubledFrames);  // согнулся: окно для апперкота
         d.move = nullptr;
         d.action = DefenseAction::None;
         d.buffered = nullptr;
@@ -459,6 +479,8 @@ void CombatSim::regen(Fighter& f) {
         const float rate = f.state == FighterState::Blocking ? rules_.staminaRegenBlock : rules_.staminaRegen;
         f.stamina = std::min(100.f, f.stamina + rate / fps);
     }
+    if (f.headCharges > 0 && frame_ - f.headChargeFrame > rules_.headMoveDecayFrames) f.headCharges = 0;
+    f.bodyWork = std::max(0.f, f.bodyWork - rules_.bodyWorkDecayPerSecond / fps);
     if (!f.stunned() && !f.down()) f.balance = std::min(rules_.balanceMax, f.balance + rules_.balanceRegen / fps);
 }
 

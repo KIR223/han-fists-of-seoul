@@ -22,6 +22,7 @@ FighterStats FighterProfile::stats() const {
     s.technique = std::clamp(techniqueQuality * 10.f - impairment() * 5.f, 0.f, 10.f);
     s.toughness = std::clamp(0.4f * courage + 0.3f * experience + 2.f, 1.f, 10.f);
     s.stars = experience >= 8.f ? 3 : (experience >= 5.f ? 2 : 1);
+    s.headMovement = archetype == "boxer";
     return s;
 }
 
