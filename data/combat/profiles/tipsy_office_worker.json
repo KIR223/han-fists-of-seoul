@@ -1,0 +1,30 @@
+{
+  "id": "tipsy_office_worker",
+  "archetype": "office_worker",
+  "experience": 2,
+  "striking": 3,
+  "grappling": 2,
+  "defense": 2,
+  "cardio": 3,
+  "courage": 4,
+  "aggression": 5,
+  "sobriety": "tipsy",
+  "personality": "panic",
+  "action_weights": {
+    "hook": 0.4,
+    "straight": 0.35,
+    "jab": 0.25
+  },
+  "technique_quality": 0.25,
+  "mistakes": [
+    "drops_hands",
+    "telegraphs",
+    "leans_forward"
+  ],
+  "background": [
+    "desk_job"
+  ],
+  "items": [
+    "umbrella"
+  ]
+}

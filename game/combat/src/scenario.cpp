@@ -45,7 +45,7 @@ bool defenseFromName(const std::string& n, DefenseAction& out) {
     return true;
 }
 
-bool runScenario(const Json& sc, const CombatRules& rules, const MoveLibrary& moves, ScenarioResult& out, std::string& error) {
+bool runScenario(const Json& sc, const CombatRules& rules, const MoveLibrary& moves, ScenarioResult& out, std::string& error, const ProfileLibrary* profiles) {
     const auto fail = [&](const std::string& why) {
         error = "сценарий: " + why;
         return false;
@@ -57,14 +57,23 @@ bool runScenario(const Json& sc, const CombatRules& rules, const MoveLibrary& mo
     CombatSim sim(rules, static_cast<std::uint32_t>(sc["seed"].asNumber(1)));
     sim.setOfficialRules(sc["official"].asBool(false));
     std::vector<std::string> names;
+    std::vector<const FighterProfile*> aiProfiles;
     for (const Json& f : sc["fighters"].items()) {
         FighterStats st;
+        const FighterProfile* profile = nullptr;
+        if (f.has("ai")) {
+            if (!profiles) return fail("«ai» указан, но библиотека профилей не передана");
+            profile = profiles->byId(f["ai"].asString());
+            if (!profile) return fail("неизвестный боевой профиль «" + f["ai"].asString() + "»");
+            st = profile->stats();
+        }
+        aiProfiles.push_back(profile);
         const Json& s = f["stats"];
-        st.strength = static_cast<float>(s["strength"].asNumber(5));
-        st.endurance = static_cast<float>(s["endurance"].asNumber(5));
-        st.technique = static_cast<float>(s["technique"].asNumber(5));
-        st.toughness = static_cast<float>(s["toughness"].asNumber(5));
-        st.stars = static_cast<int>(s["stars"].asNumber(1));
+        st.strength = static_cast<float>(s["strength"].asNumber(st.strength));
+        st.endurance = static_cast<float>(s["endurance"].asNumber(st.endurance));
+        st.technique = static_cast<float>(s["technique"].asNumber(st.technique));
+        st.toughness = static_cast<float>(s["toughness"].asNumber(st.toughness));
+        st.stars = static_cast<int>(s["stars"].asNumber(st.stars));
         sim.addFighter({static_cast<float>(f["x"].asNumber(0)), static_cast<float>(f["z"].asNumber(0))}, st);
         names.push_back(f["name"].isString() ? f["name"].asString() : std::string(1, static_cast<char>('A' + static_cast<int>(names.size()))));
     }
@@ -74,6 +83,18 @@ bool runScenario(const Json& sc, const CombatRules& rules, const MoveLibrary& mo
         const Json& t = sc["fighters"].at(i)["target"];
         if (t.isNumber()) sim.setTarget(static_cast<int>(i), static_cast<int>(t.asNumber()));
     }
+
+    // ИИ бойцов: общий набор жетонов атаки (в групповой драке бьют не больше двух сразу).
+    AttackTokens tokens(2, 70);
+    std::vector<FightAI> ais;
+    std::vector<int> aiIndex(static_cast<std::size_t>(n), -1);
+    std::vector<const MoveData*> styleMoves;
+    for (const MoveData& m : moves.all()) styleMoves.push_back(&m);
+    for (int i = 0; i < n; ++i)
+        if (aiProfiles[static_cast<std::size_t>(i)]) {
+            aiIndex[static_cast<std::size_t>(i)] = static_cast<int>(ais.size());
+            ais.emplace_back(*aiProfiles[static_cast<std::size_t>(i)], styleMoves, rules, static_cast<std::uint32_t>(sc["fighters"].at(static_cast<std::size_t>(i))["seed_ai"].asNumber(100 + i)), &tokens);
+        }
 
     struct Scheduled {
         int fighter;
@@ -101,6 +122,8 @@ bool runScenario(const Json& sc, const CombatRules& rules, const MoveLibrary& mo
     std::vector<int> blockUntil(static_cast<std::size_t>(n), 0);
     for (int frame = 1; frame <= frames; ++frame) {
         std::vector<FighterInput> inputs(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i)
+            if (aiIndex[static_cast<std::size_t>(i)] >= 0) inputs[static_cast<std::size_t>(i)] = ais[static_cast<std::size_t>(aiIndex[static_cast<std::size_t>(i)])].decide(sim, i);
         if (const auto it = byFrame.find(frame); it != byFrame.end())
             for (const Scheduled& s : it->second) {
                 FighterInput& slot = inputs[static_cast<std::size_t>(s.fighter)];
@@ -111,7 +134,8 @@ bool runScenario(const Json& sc, const CombatRules& rules, const MoveLibrary& mo
                 slot.dash = slot.dash || s.input.dash;
                 if (s.blockFrames > 0) blockUntil[static_cast<std::size_t>(s.fighter)] = frame + s.blockFrames;
             }
-        for (int i = 0; i < n; ++i) inputs[static_cast<std::size_t>(i)].blockHeld = frame < blockUntil[static_cast<std::size_t>(i)];
+        for (int i = 0; i < n; ++i)
+            if (aiIndex[static_cast<std::size_t>(i)] < 0 || frame < blockUntil[static_cast<std::size_t>(i)]) inputs[static_cast<std::size_t>(i)].blockHeld = frame < blockUntil[static_cast<std::size_t>(i)];
         sim.step(inputs);
         for (const CombatEvent& e : sim.events()) {
             out.log.push_back("кадр " + std::to_string(frame) + ": " + describe(e, names));

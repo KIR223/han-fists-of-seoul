@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "han/fighter_profile.schema.json",
+  "title": "Боевой профиль NPC (data/combat/profiles/*.json)",
+  "description": "Поставщик: B. Профиль — характер и умения бойца для ИИ (часть 64.5 дизайна). Числа 0–10, где не сказано иное.",
+  "type": "object",
+  "required": ["id", "archetype", "experience", "striking", "defense", "cardio", "courage", "aggression", "personality", "technique_quality"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,40}$" },
+    "archetype": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,40}$" },
+    "experience": { "type": "number", "minimum": 0, "maximum": 10 },
+    "striking": { "type": "number", "minimum": 0, "maximum": 10 },
+    "grappling": { "type": "number", "minimum": 0, "maximum": 10 },
+    "defense": { "type": "number", "minimum": 0, "maximum": 10 },
+    "cardio": { "type": "number", "minimum": 0, "maximum": 10 },
+    "courage": { "type": "number", "minimum": 0, "maximum": 10 },
+    "aggression": { "type": "number", "minimum": 0, "maximum": 10 },
+    "sobriety": { "enum": ["sober", "tipsy", "drunk"], "default": "sober" },
+    "personality": { "enum": ["aggressor", "counter", "defensive", "panic", "balanced"] },
+    "action_weights": {
+      "type": "object",
+      "propertyNames": { "enum": ["jab", "straight", "hook", "uppercut", "body", "power", "counter", "special"] },
+      "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+    },
+    "technique_quality": { "type": "number", "minimum": 0, "maximum": 1 },
+    "mistakes": { "type": "array", "items": { "enum": ["drops_hands", "telegraphs", "leans_forward"] }, "uniqueItems": true },
+    "background": { "type": "array", "items": { "type": "string" } },
+    "random_skills": { "type": "array", "items": { "type": "string" } },
+    "clothing": { "type": "object", "additionalProperties": { "type": "string" } },
+    "items": { "type": "array", "items": { "type": "string" } }
+  }
+}

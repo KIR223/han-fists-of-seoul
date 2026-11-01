@@ -1,0 +1,28 @@
+{
+  "id": "street_brawler",
+  "archetype": "brawler",
+  "experience": 5,
+  "striking": 6,
+  "grappling": 3,
+  "defense": 3,
+  "cardio": 5,
+  "courage": 7,
+  "aggression": 9,
+  "sobriety": "sober",
+  "personality": "aggressor",
+  "action_weights": {
+    "hook": 0.4,
+    "power": 0.25,
+    "straight": 0.2,
+    "jab": 0.1,
+    "uppercut": 0.05
+  },
+  "technique_quality": 0.45,
+  "mistakes": [
+    "drops_hands",
+    "leans_forward"
+  ],
+  "background": [
+    "street_fights"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "boxer_veteran",
+  "archetype": "boxer",
+  "experience": 9,
+  "striking": 8,
+  "grappling": 2,
+  "defense": 8,
+  "cardio": 8,
+  "courage": 8,
+  "aggression": 6,
+  "sobriety": "sober",
+  "personality": "balanced",
+  "action_weights": {
+    "jab": 0.35,
+    "straight": 0.25,
+    "hook": 0.2,
+    "uppercut": 0.1,
+    "body": 0.1
+  },
+  "technique_quality": 0.92,
+  "mistakes": [],
+  "background": [
+    "gym_boxing",
+    "amateur_league"
+  ]
+}
