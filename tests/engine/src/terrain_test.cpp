@@ -4,6 +4,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 #include "han/world/city_builder.h"
 #include "han/world/osm.h"
@@ -306,4 +307,76 @@ TEST_CASE("city colliders: у дома четыре тонкие стены; в 
     const auto roof = world->raycast({0.f, 20.f, 0.f}, {0.f, -5.f, 0.f});
     REQUIRE(roof.hit);
     CHECK(roof.point.y == doctest::Approx(0.f).epsilon(0.05));
+}
+
+#include "han/world/cell_io.h"
+
+TEST_CASE("cell_io: запечённая ячейка читается обратно — те же индексы и части, позиции до 1 см, фонари и коллайдеры совпадают; плохие файлы отклоняются") {
+    const Heightmap m = slope();
+    OsmData d;
+    std::string error;
+    REQUIRE(parseOsmXml(R"(<osm><node id="1" lat="37.5000" lon="127.0000"/><node id="2" lat="37.5000" lon="127.0006"/>
+        <node id="3" lat="37.5003" lon="127.0006"/><node id="4" lat="37.5003" lon="127.0000"/>
+        <node id="10" lat="37.4990" lon="127.0000"/><node id="11" lat="37.4990" lon="127.0010"/>
+        <way id="7"><nd ref="1"/><nd ref="2"/><nd ref="3"/><nd ref="4"/><nd ref="1"/><tag k="building" v="yes"/><tag k="height" v="14"/></way>
+        <way id="8"><nd ref="10"/><nd ref="11"/><tag k="highway" v="residential"/></way></osm>)", d, error));
+    const GeoProjection proj(37.4995, 126.9990);
+    CityBuildSettings s;
+    s.terrain = &m;
+    const auto chunks = buildCity(d, proj, s);
+    REQUIRE_FALSE(chunks.empty());
+    const auto dir = std::filesystem::temp_directory_path() / "han_cells_test";
+    std::filesystem::create_directories(dir);
+    int checked = 0;
+    for (const auto& [cell, chunk] : chunks) {
+        const std::string file = (dir / cellFileName(cell)).string();
+        REQUIRE_MESSAGE(saveCell(file, cell, s.cellSize, chunk, error), error);
+        CellCoord back;
+        float size = 0.f;
+        CityChunk loaded;
+        REQUIRE_MESSAGE(loadCell(file, back, size, loaded, error), error);
+        CHECK(back == cell);
+        CHECK(size == doctest::Approx(s.cellSize));
+        for (const auto [orig, got] : {std::pair<const GeoMesh*, const GeoMesh*>{&chunk.ground, &loaded.ground}, {&chunk.buildings, &loaded.buildings}}) {
+            REQUIRE(got->vertices.size() == orig->vertices.size());
+            CHECK(got->indices == orig->indices);
+            REQUIRE(got->ranges.size() == orig->ranges.size());
+            for (std::size_t i = 0; i < orig->ranges.size(); ++i) {
+                CHECK(got->ranges[i].firstIndex == orig->ranges[i].firstIndex);
+                CHECK(got->ranges[i].indexCount == orig->ranges[i].indexCount);
+                CHECK(got->ranges[i].material == orig->ranges[i].material);
+            }
+            for (std::size_t i = 0; i < orig->vertices.size(); ++i)
+                for (int k = 0; k < 3; ++k) {
+                    CHECK(std::fabs(got->vertices[i].position[k] - orig->vertices[i].position[k]) < 0.0101f);
+                    CHECK(std::fabs(got->vertices[i].normal[k] - orig->vertices[i].normal[k]) < 0.01f);
+                    CHECK(std::fabs(got->vertices[i].color[k] - orig->vertices[i].color[k]) < 0.003f);
+                }
+        }
+        REQUIRE(loaded.lamps.size() == chunk.lamps.size());
+        REQUIRE(loaded.walls.size() == chunk.walls.size());
+        for (std::size_t i = 0; i < chunk.walls.size(); ++i) {
+            CHECK(loaded.walls[i].center.x == doctest::Approx(chunk.walls[i].center.x));
+            CHECK(loaded.walls[i].half.y == doctest::Approx(chunk.walls[i].half.y));
+            CHECK(loaded.walls[i].yaw == doctest::Approx(chunk.walls[i].yaw));
+        }
+        ++checked;
+    }
+    CHECK(checked >= 1);
+    // Плохие файлы
+    CellCoord c;
+    float size = 0.f;
+    CityChunk out;
+    CHECK_FALSE(loadCell((dir / "нет.hcell").string(), c, size, out, error));
+    const auto junk = dir / "junk.hcell";
+    std::ofstream(junk, std::ios::binary) << "NOPE1234";
+    CHECK_FALSE(loadCell(junk.string(), c, size, out, error));
+    CHECK(error.find("HCL1") != std::string::npos);
+    const std::string good = (dir / cellFileName(chunks.begin()->first)).string();
+    std::ifstream in(good, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    const auto cut = dir / "cut.hcell";
+    std::ofstream(cut, std::ios::binary).write(bytes.data(), static_cast<std::streamsize>(bytes.size() / 2));
+    CHECK_FALSE(loadCell(cut.string(), c, size, out, error));
 }

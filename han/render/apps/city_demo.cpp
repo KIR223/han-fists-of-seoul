@@ -1,7 +1,7 @@
 // Демо E10: город из данных OpenStreetMap (по умолчанию Мапо: Хондэ), ячейки подгружаются по мере полёта (E9).
 // Управление: мышь — взгляд, W/A/S/D — полёт, Space/Ctrl — вверх/вниз, Shift — быстрее, Tab — захват мыши, ` — консоль, Esc — выход.
 // Запуск: han_city_demo.exe [--osm файл.osm] [--origin широта долгота] [--frames N] [--no-capture] [--no-ui] [--deterministic]
-//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины] [--wet 0..1] [--traffic число машин, 0 — выключить] [--walk]
+//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины] [--wet 0..1] [--traffic число машин, 0 — выключить] [--walk] [--cooked папка]
 // Данные OSM (ODbL) не лежат в Git: python han/tools/pipeline/han_osm_fetch.py (карта © участники OpenStreetMap).
 #include <SDL3/SDL_timer.h>
 
@@ -29,6 +29,7 @@
 #include "han/physics/physics_world.h"
 #include "han/player/camera_rig.h"
 #include "han/player/player_controller.h"
+#include "han/world/cell_io.h"
 #include "han/world/city_builder.h"
 #include "han/world/terrain_physics.h"
 #include "han/world/streaming.h"
@@ -54,6 +55,7 @@ struct CityLoader final : world::ICellLoader {
     std::vector<han::render::TextureId> textureIds;  // альбедо материалов города (0 — нет файла)
     world::StreamingManager* manager = nullptr;
     const std::map<world::CellCoord, world::CityChunk>* chunks = nullptr;
+    std::string cookedDir;  // не пусто — ячейки читаются из .hcell
     struct Gpu {
         han::render::MeshId ground = 0, buildings = 0;
         std::size_t triangles = 0;
@@ -65,13 +67,27 @@ struct CityLoader final : world::ICellLoader {
 
     void beginLoad(world::CellCoord cell) override {
         Gpu g;
-        const auto it = chunks->find(cell);
-        if (it != chunks->end()) {
-            if (!it->second.ground.empty()) g.ground = renderer->uploadMesh(han::render::citytex::toMesh(it->second.ground, textureIds, 0.9f), textureIds);
-            if (!it->second.buildings.empty()) g.buildings = renderer->uploadMesh(han::render::citytex::toMesh(it->second.buildings, textureIds, 0.8f), textureIds);
-            g.triangles = (it->second.ground.indices.size() + it->second.buildings.indices.size()) / 3;
+        world::CityChunk fromDisk;
+        const world::CityChunk* found = nullptr;
+        if (!cookedDir.empty()) {
+            const std::string file = (std::filesystem::path(cookedDir) / world::cellFileName(cell)).string();
+            world::CellCoord c;
+            float size = 0.f;
+            std::string error;
+            if (std::filesystem::exists(file)) {
+                if (world::loadCell(file, c, size, fromDisk, error)) found = &fromDisk;
+                else std::fprintf(stderr, "ячейка: %s\n", error.c_str());
+            }
+        } else {
+            const auto it0 = chunks->find(cell);
+            if (it0 != chunks->end()) found = &it0->second;
+        }
+        if (found) {
+            if (!found->ground.empty()) g.ground = renderer->uploadMesh(han::render::citytex::toMesh(found->ground, textureIds, 0.9f), textureIds);
+            if (!found->buildings.empty()) g.buildings = renderer->uploadMesh(han::render::citytex::toMesh(found->buildings, textureIds, 0.8f), textureIds);
+            g.triangles = (found->ground.indices.size() + found->buildings.indices.size()) / 3;
             if (physics)
-                for (const world::WallCollider& w : it->second.walls) {
+                for (const world::WallCollider& w : found->walls) {
                     const float h = w.yaw * 0.5f;
                     g.walls.push_back(physics->addStaticBox({w.center.x, w.center.y, w.center.z}, {w.half.x, w.half.y, w.half.z}, han::contracts::SurfaceMaterial::Concrete,
                                                             {0.f, std::sin(h), 0.f, std::cos(h)}));
@@ -95,6 +111,7 @@ struct CityLoader final : world::ICellLoader {
 }  // namespace
 
 int main(int argc, char** argv) {
+    std::string cookedDir;  // папка запечённых ячеек (han_citycook): город грузится с диска без разбора OSM
     bool walk = false;  // режим прогулки: физика, коллайдеры домов, рельеф и игрок вместо летающей камеры
     float wetness = 0.f;
     int trafficCars = 120;
@@ -127,6 +144,7 @@ int main(int argc, char** argv) {
             for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
         if (!std::strcmp(argv[i], "--traffic") && i + 1 < argc) trafficCars = std::clamp(std::atoi(argv[i + 1]), 0, 400);
         if (!std::strcmp(argv[i], "--walk")) walk = true;
+        if (!std::strcmp(argv[i], "--cooked") && i + 1 < argc) cookedDir = argv[i + 1];
         if (!std::strcmp(argv[i], "--wet") && i + 1 < argc) wetness = std::clamp(static_cast<float>(std::atof(argv[i + 1])), 0.f, 1.f);
         if (!std::strcmp(argv[i], "--sun") && i + 3 < argc)
             for (int k = 0; k < 3; ++k) sunArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
@@ -135,10 +153,12 @@ int main(int argc, char** argv) {
     // --- Данные города ---
     world::OsmData osm;
     std::string error;
-    if (!world::loadOsmFile(osmPath.string(), osm, error)) {
+    const bool haveOsm = world::loadOsmFile(osmPath.string(), osm, error);
+    if (!haveOsm && cookedDir.empty()) {
         std::fprintf(stderr, "%s\nСкачайте данные: python han/tools/pipeline/han_osm_fetch.py\n", error.c_str());
         return 1;
     }
+    if (!haveOsm) trafficCars = 0;  // без OSM нет графа дорог для трафика (запечённые ячейки дорог не хранят)
     world::CityStats cityStats;
     // Рельеф (E17): assets_bin/terrain/seoul.hht (python han/tools/pipeline/han_terrain_fetch.py); нет файла — плоская земля.
     world::Heightmap terrain;
@@ -150,9 +170,11 @@ int main(int argc, char** argv) {
     world::CityBuildSettings citySettings;
     citySettings.terrain = haveTerrain ? &terrain : nullptr;
     citySettings.shopTileMeters = han::render::citytex::shopTileMeters();
-    const auto chunks = world::buildCity(osm, world::GeoProjection(origin[0], origin[1]), citySettings, &cityStats);
+    std::map<world::CellCoord, world::CityChunk> chunks;
+    if (cookedDir.empty()) chunks = world::buildCity(osm, world::GeoProjection(origin[0], origin[1]), citySettings, &cityStats);
+    else std::printf("город с диска: %s\n", cookedDir.c_str());
     // Трафик (G7): граф дорог из тех же данных; машины едут вокруг камеры (появляются в радиусе 350 м, уходят за 550 м).
-    const han::ai::RoadGraph roads = han::ai::RoadGraph::build(osm, world::GeoProjection(origin[0], origin[1]));
+    const han::ai::RoadGraph roads = haveOsm ? han::ai::RoadGraph::build(osm, world::GeoProjection(origin[0], origin[1])) : han::ai::RoadGraph();
     han::ai::TrafficSettings trafficSettings;
     trafficSettings.maxCars = trafficCars;
     trafficSettings.spawnRadius = 350.f;
@@ -237,6 +259,7 @@ int main(int argc, char** argv) {
     han::render::MeshId farTerrain = 0;  // дальний план рельефа (вся карта грубой сеткой)
     if (haveTerrain) farTerrain = renderer->uploadMesh(han::render::citytex::toMesh(world::buildFarTerrain(terrain), loader.textureIds, 0.95f), loader.textureIds);
     loader.chunks = &chunks;
+    loader.cookedDir = cookedDir;
     world::StreamingManager streaming(ss, loader);
     loader.manager = &streaming;
     // Режим прогулки (--walk): физика мира, коллайдеры стен (по ячейкам вместе с загрузкой), плитки рельефа и игрок с камерой за спиной.
