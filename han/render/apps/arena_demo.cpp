@@ -14,12 +14,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "han/core/repo_root.h"
 #include "han/combat/ai.h"
+#include "han/combat/combos.h"
 #include "han/combat/input_scheme.h"
 #include "han/combat/scenario.h"
 #include "han/combat/targeting.h"
@@ -42,7 +45,7 @@ namespace cb = han::combat;
 namespace phys = han::physics;
 namespace contracts = han::contracts;
 
-constexpr int kW = 26, kA = 4, kS = 22, kD = 7, kR = 21, kSpace = 44, kLShift = 225, kTab = 43, kEsc = 41, kGrave = 53, kF1 = 58, kEnter = 40;
+constexpr int kW = 26, kA = 4, kS = 22, kD = 7, kR = 21, kQ = 20, kSpace = 44, kLShift = 225, kTab = 43, kEsc = 41, kGrave = 53, kF1 = 58, kEnter = 40;
 
 std::string fmt(const char* format, double a = 0, double b = 0, double c = 0) {
     char buf[200];
@@ -124,6 +127,17 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "данные боя: %s\n(запускайте из корня репозитория)\n", error.c_str());
         return 1;
     }
+    cb::ComboLibrary comboLib;
+    if (!comboLib.loadDirectory("data/combat/combos", error)) std::fprintf(stderr, "комбо: %s\n", error.c_str());
+    std::map<std::string, std::string> ruNames;  // ключ локализации → русский текст (из contracts/loc_requests/B.csv)
+    {
+        std::ifstream csv("contracts/loc_requests/B.csv");
+        std::string line;
+        while (std::getline(csv, line)) {
+            const std::size_t c1 = line.find(','), c2 = c1 == std::string::npos ? c1 : line.find(',', c1 + 1);
+            if (c2 != std::string::npos) ruNames[line.substr(0, c1)] = line.substr(c1 + 1, c2 - c1 - 1);
+        }
+    }
     const cb::FighterProfile* enemyProfile = profiles.byId(enemyId);
     const cb::FighterProfile* heroProfile = profiles.byId("boxer_veteran");
     if (!enemyProfile || !heroProfile) {
@@ -204,6 +218,9 @@ int main(int argc, char** argv) {
     std::unique_ptr<cb::SimpleScheme> scheme;
     std::unique_ptr<cb::WorldBridge> bridge;
     std::unique_ptr<cb::FightAI> heroAi;
+    std::unique_ptr<cb::ComboTracker> comboTracker;
+    std::string comboBanner;  // «КОМБО: …» на пару секунд
+    int comboBannerFrames = 0, comboCount = 0;
     std::vector<std::unique_ptr<cb::FightAI>> foeAi;
     cb::TargetSelector targets;
     ArenaWorld arenaWorld;
@@ -242,6 +259,9 @@ int main(int argc, char** argv) {
         targets.update(*sim);
         scheme = std::make_unique<cb::SimpleScheme>(moves);
         heroAi = std::make_unique<cb::FightAI>(*heroProfile, moveList, rules, 5u + round * 3u, &tokens);
+        comboTracker = std::make_unique<cb::ComboTracker>(comboLib);
+        comboBannerFrames = 0;
+        comboCount = 0;
         hitstop = 0;
         std::fill(flash.begin(), flash.end(), 0);
         log.clear();
@@ -257,6 +277,7 @@ int main(int argc, char** argv) {
     input.bind("dash", kLShift);
     input.bind("space", kSpace);
     input.bind("special", kR);
+    input.bind("shoulder", kQ);
     input.bind("restart", kEnter);
     input.bind("debug", kF1);
     input.bind("capture", kTab);
@@ -327,6 +348,7 @@ int main(int argc, char** argv) {
             raw.dash = input.held("dash");
             raw.spacePressed = input.pressed("space");
             raw.specialPressed = input.pressed("special");
+            raw.shoulderPressed = input.pressed("shoulder");
             const bool lmb = window->mouseButtonHeld(1), rmb = window->mouseButtonHeld(3);
             raw.lmbHeld = lmb && captured;
             raw.lmbPressed = raw.lmbHeld && !lmbWasHeld;
@@ -351,10 +373,24 @@ int main(int argc, char** argv) {
                 targets.update(*sim);
             }
             cb::FighterInput heroIn = autoPlay ? heroAi->decide(*sim, 0) : scheme->map(raw, *sim, 0);
-            raw.lmbPressed = raw.rmbPressed = raw.spacePressed = raw.specialPressed = false;  // одноразовые нажатия — один шаг
+            raw.lmbPressed = raw.rmbPressed = raw.spacePressed = raw.specialPressed = raw.shoulderPressed = false;  // одноразовые нажатия — один шаг
             std::vector<cb::FighterInput> inputs{heroIn};
             for (int k = 0; k < foeCount; ++k) inputs.push_back(foeAi[static_cast<std::size_t>(k)]->decide(*sim, k + 1));
             bridge->step(inputs);  // позиции из физики, шаг боя, отброс обратно в физику
+            for (const cb::ComboEvent& c : comboTracker->update(sim->events())) {
+                const auto it = ruNames.find(c.combo->nameKey);
+                const std::string name = it != ruNames.end() ? it->second : c.combo->id;
+                const bool flowOpened = sim->awardRhythm(c.fighter, c.combo->flowHits);  // награда комбо — в ритм, может открыть «Поток»
+                if (flowOpened) log.push_back(std::string(c.fighter == 0 ? "ты" : "враг " + std::to_string(c.fighter)) + ": ПОТОК");
+                if (c.fighter == 0) {
+                    comboBanner = "КОМБО: " + name;
+                    comboBannerFrames = 150;
+                    ++comboCount;
+                }
+                log.push_back(std::string(c.fighter == 0 ? "ты" : "враг " + std::to_string(c.fighter)) + ": комбо «" + name + "»");
+                if (log.size() > 7) log.erase(log.begin());
+            }
+            if (comboBannerFrames > 0) --comboBannerFrames;
             // Физика ведёт бойцов: боевая симуляция говорит, куда они хотят сдвинуться, мир (стены, пол) решает, куда реально.
             for (int i = 0; i < fighters; ++i) {
                 const contracts::Vec3 p = world->state(phyId[static_cast<std::size_t>(i)]).position;
@@ -420,6 +456,15 @@ int main(int argc, char** argv) {
             lines.push_back(std::string("ТЫ       здоровье ") + bar(hero.health, 100.f) + fmt(" %.0f", hero.health));
             lines.push_back(std::string("          стамина  ") + bar(hero.stamina, 100.f) + fmt(" %.0f", hero.stamina));
             lines.push_back(std::string("          баланс   ") + bar(hero.balance, 100.f) + fmt(" %.0f   фокус %.0f", hero.balance, hero.focus));
+            {
+                std::string extra;
+                if (hero.flowUntil > sim->frame()) extra += "ПОТОК!  ";
+                else if (hero.rhythm > 0) extra += fmt("ритм %.0f/", hero.rhythm) + std::to_string(rules.rhythmHitsForFlow) + "  ";
+                if (hero.headCharges > 0) extra += fmt("голова x%.0f  ", hero.headCharges);
+                if (comboCount > 0) extra += fmt("комбо: %.0f", comboCount);
+                if (!extra.empty()) lines.push_back("          " + extra);
+                if (comboBannerFrames > 0) lines.push_back(">>> " + comboBanner);
+            }
             for (int k = 1; k < fighters; ++k) {
                 const cb::Fighter& foe = sim->fighter(k);
                 lines.push_back("ВРАГ " + std::to_string(k) + " (" + enemyId + ")" + (k == focus ? "  <- цель" : ""));
@@ -428,7 +473,7 @@ int main(int argc, char** argv) {
             lines.push_back(fmt("Счёт: ты %.0f — враг %.0f", heroWins, enemyWins));
             if (targets.teamDefeated(*sim, 0) || targets.teamDefeated(*sim, 1)) lines.push_back(hero.alive() ? ">>> ПОБЕДА! Enter — новый бой" : ">>> ПОРАЖЕНИЕ. Enter — новый бой");
             for (const std::string& l : log) lines.push_back("· " + l);
-            lines.push_back("ЛКМ — удары, ПКМ — блок, Space — уклон, R — спец, Shift — рывок, Enter — заново");
+            lines.push_back("ЛКМ — удары, ПКМ — блок, Space — уклон, Q + A/D — шолдер-ролл, R — спец, Shift — рывок, Enter — заново");
             ui.drawStats(lines);
             ui.drawConsole(console, consoleOpen);
             if (debugDraw) {
