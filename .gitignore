@@ -33,3 +33,4 @@ screenshots_out/
 
 # Данные OpenStreetMap (ODbL) в Git не кладём: скачиваются скриптом han/tools/pipeline/han_osm_fetch.py
 assets_src/osm/*.osm
+assets_src/osm/*.license.txt

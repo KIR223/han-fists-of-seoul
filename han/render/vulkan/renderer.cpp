@@ -87,7 +87,53 @@ struct GpuSubmesh {
 };
 
 
+// Пирамида видимости из матрицы вид-проекция (Vulkan: z клипа 0..1, столбцы). Плоскости смотрят внутрь: точка внутри, если dot(n, p) + d >= 0.
+struct Frustum {
+    float p[6][4];
+    int count = 0;
+    static Frustum from(const float* m, bool useNear) {
+        Frustum f;
+        const auto row = [&](int i, int k) { return m[k * 4 + i]; };  // строка i, столбец k
+        const float r[4][4] = {{row(0, 0), row(0, 1), row(0, 2), row(0, 3)}, {row(1, 0), row(1, 1), row(1, 2), row(1, 3)},
+                               {row(2, 0), row(2, 1), row(2, 2), row(2, 3)}, {row(3, 0), row(3, 1), row(3, 2), row(3, 3)}};
+        const auto add = [&](float sign, int a) {
+            for (int k = 0; k < 4; ++k) f.p[f.count][k] = r[3][k] + sign * r[a][k];
+            ++f.count;
+        };
+        add(+1.f, 0);  // левая
+        add(-1.f, 0);  // правая
+        add(+1.f, 1);  // верх/низ (знак зависит от оси Y, обе плоскости нужны)
+        add(-1.f, 1);
+        if (useNear) {
+            for (int k = 0; k < 4; ++k) f.p[f.count][k] = r[2][k];  // ближняя: z >= 0
+            ++f.count;
+        }
+        for (int k = 0; k < 4; ++k) f.p[f.count][k] = r[3][k] - r[2][k];  // дальняя
+        ++f.count;
+        return f;
+    }
+    // false — коробка целиком за одной из плоскостей.
+    bool sees(const float* model, const float bmin[3], const float bmax[3]) const {
+        float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+        for (int c = 0; c < 8; ++c) {
+            const float x = (c & 1) ? bmax[0] : bmin[0], y = (c & 2) ? bmax[1] : bmin[1], z = (c & 4) ? bmax[2] : bmin[2];
+            for (int a = 0; a < 3; ++a) {
+                const float v = model[a] * x + model[4 + a] * y + model[8 + a] * z + model[12 + a];
+                lo[a] = std::min(lo[a], v);
+                hi[a] = std::max(hi[a], v);
+            }
+        }
+        for (int i = 0; i < count; ++i) {
+            const float* q = p[i];
+            const float px = q[0] >= 0.f ? hi[0] : lo[0], py = q[1] >= 0.f ? hi[1] : lo[1], pz = q[2] >= 0.f ? hi[2] : lo[2];
+            if (q[0] * px + q[1] * py + q[2] * pz + q[3] < 0.f) return false;
+        }
+        return true;
+    }
+};
+
 struct GpuMesh {
+    float boundsMin[3] = {0, 0, 0}, boundsMax[3] = {0, 0, 0};
     VkBuffer vertexBuffer = VK_NULL_HANDLE, indexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexMemory = VK_NULL_HANDLE, indexMemory = VK_NULL_HANDLE;
     std::uint32_t indexCount = 0;
@@ -995,6 +1041,14 @@ bool Renderer::Impl::createTexture(const TextureData& data, GpuTexture& out, std
 
 bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId> textureIds, GpuMesh& out, std::string& err) {
     out.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
+    if (!mesh.vertices.empty()) {
+        for (int a = 0; a < 3; ++a) out.boundsMin[a] = out.boundsMax[a] = mesh.vertices[0].position[a];
+        for (const Vertex& v : mesh.vertices)
+            for (int a = 0; a < 3; ++a) {
+                out.boundsMin[a] = std::min(out.boundsMin[a], v.position[a]);
+                out.boundsMax[a] = std::max(out.boundsMax[a], v.position[a]);
+            }
+    }
     for (const Submesh& s : effectiveSubmeshes(mesh)) {
         TextureId tex = 0;
         if (s.texture >= 0 && static_cast<std::size_t>(s.texture) < textureIds.size()) tex = textureIds[static_cast<std::size_t>(s.texture)];
@@ -1326,10 +1380,13 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowLayout, 1, 1, &s.frameSets[f], 0, nullptr);
             ShadowPush shadowPush{};
             shadowPush.cascade = cascade;
+            // Отсечение по пирамиде каскада без ближней плоскости: отбрасывающие тень объекты могут стоять между светом и кадром.
+            const Frustum cascadeFrustum = Frustum::from(ubo.lightViewProj[cascade], false);
             for (const DrawItem& item : items) {
                 if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
                 const GpuMesh& mesh = s.meshes[item.mesh - 1];
                 if (mesh.indexCount == 0) continue;
+                if (!cascadeFrustum.sees(item.model.m, mesh.boundsMin, mesh.boundsMax)) continue;
                 std::memcpy(shadowPush.model, item.model.m, sizeof(shadowPush.model));
                 const VkDeviceSize offset = 0;
                 vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1397,10 +1454,12 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
 
     VertexPush vertexPush{};
     VkDescriptorSet boundSet = VK_NULL_HANDLE;
+    const Frustum viewFrustum = Frustum::from(frame.viewProjection.m, true);
     for (const DrawItem& item : items) {
         if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
         const GpuMesh& mesh = s.meshes[item.mesh - 1];
         if (mesh.indexCount == 0) continue;
+        if (!viewFrustum.sees(item.model.m, mesh.boundsMin, mesh.boundsMax)) continue;  // вне кадра
         std::memcpy(vertexPush.model, item.model.m, sizeof(vertexPush.model));
         const VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
