@@ -204,6 +204,7 @@ inline MeshId uploadGround(Renderer& renderer, float halfSize = 4000.f, const st
 }
 
 inline int slotOf(world::GeoMaterial m) {
+    if (m == world::GeoMaterial::Terrain) m = world::GeoMaterial::Sidewalk;  // земля — мощёная плитка, как раньше плоскость
     for (std::size_t i = 0; i < slots().size(); ++i)
         if (slots()[i].material == m) return static_cast<int>(i);
     return -1;

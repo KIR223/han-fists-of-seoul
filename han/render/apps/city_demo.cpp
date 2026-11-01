@@ -124,7 +124,15 @@ int main(int argc, char** argv) {
         return 1;
     }
     world::CityStats cityStats;
+    // Рельеф (E17): assets_bin/terrain/seoul.hht (python han/tools/pipeline/han_terrain_fetch.py); нет файла — плоская земля.
+    world::Heightmap terrain;
+    {
+        std::string terrainError;
+        if (!terrain.load("assets_bin/terrain/seoul.hht", terrainError)) std::fprintf(stderr, "рельеф: %s\n", terrainError.c_str());
+    }
+    const bool haveTerrain = terrain.valid();
     world::CityBuildSettings citySettings;
+    citySettings.terrain = haveTerrain ? &terrain : nullptr;
     citySettings.shopTileMeters = han::render::citytex::shopTileMeters();
     const auto chunks = world::buildCity(osm, world::GeoProjection(origin[0], origin[1]), citySettings, &cityStats);
     // Трафик (G7): граф дорог из тех же данных; машины едут вокруг камеры (появляются в радиусе 350 м, уходят за 550 м).
@@ -224,7 +232,7 @@ int main(int argc, char** argv) {
     input.bind("console", kGrave);
 
     han::render::Camera camera;
-    camera.position = {cameraArgs[0], cameraArgs[1], cameraArgs[2]};
+    camera.position = {cameraArgs[0], cameraArgs[1] + (haveTerrain ? terrain.heightAt(cameraArgs[0], cameraArgs[2]) : 0.f), cameraArgs[2]};  // высота — над землёй
     camera.yaw = cameraArgs[3] * 0.01745329f;
     camera.pitch = cameraArgs[4] * 0.01745329f;
     camera.farZ = 4000.f;
@@ -327,15 +335,15 @@ int main(int argc, char** argv) {
         std::vector<han::render::DrawItem> items;
         for (const han::ai::Car& car : traffic.cars()) {
             const std::size_t color = car.id % carMeshes.size();
-            items.push_back({carMeshes[color], Mat4::translation({car.pos.x, 0.85f, car.pos.z}) * Mat4::rotationY(car.heading)});
+            items.push_back({carMeshes[color], Mat4::translation({car.pos.x, 0.85f + (haveTerrain ? terrain.heightAt(car.pos.x, car.pos.z) : 0.f), car.pos.z}) * Mat4::rotationY(car.heading)});
         }
         if (haveMetro) {
             for (const auto& st : metro.stations()) {
                 const float dx = st.pos.x - camera.position.x, dz = st.pos.z - camera.position.z;
-                if (dx * dx + dz * dz < 600.f * 600.f) items.push_back({metroEntrance, Mat4::translation({st.pos.x, 1.75f, st.pos.z})});
+                if (dx * dx + dz * dz < 600.f * 600.f) items.push_back({metroEntrance, Mat4::translation({st.pos.x, 1.75f + (haveTerrain ? terrain.heightAt(st.pos.x, st.pos.z) : 0.f), st.pos.z})});
             }
         }
-        items.push_back({ground, Mat4::translation({0.f, -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
+        items.push_back({ground, Mat4::translation({0.f, haveTerrain ? terrain.minHeight() - 2.f : -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
         for (const auto& [cell, g] : loader.gpu) {
             if (g.ground) items.push_back({g.ground, Mat4::identity()});
             if (g.buildings) items.push_back({g.buildings, Mat4::identity()});

@@ -7,6 +7,7 @@
 #include "han/world/geometry.h"
 #include "han/world/osm.h"
 #include "han/world/streaming.h"
+#include "han/world/terrain.h"
 
 namespace han::world {
 struct CityBuildSettings {
@@ -16,6 +17,8 @@ struct CityBuildSettings {
     float maxBuildingHeight = 300.f;
     float minBuildingArea = 6.f;         // меньше (м²) — не здание (сарай, ошибка данных)
     float roadLift = 0.05f;              // дорога чуть выше земли
+    const Heightmap* terrain = nullptr;   // рельеф: дороги, дома, парки и уличные объекты идут по высоте; nullptr — плоская земля (y = 0)
+    bool terrainMesh = true;              // добавлять сетку земли в ячейки (при заданном рельефе)
     float shopTileMeters = 19.2f;        // длина стены на одну плитку текстуры витрин (атлас брендов из 16 секций — 76,8)
     bool buildingDetail = true;          // витрины, парапеты, надстройки на крышах и тротуар вокруг домов
     bool streetProps = true;             // деревья и фонари вдоль улиц

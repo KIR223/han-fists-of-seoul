@@ -58,7 +58,15 @@ void planarUv(GeoMesh& m, std::size_t from, float tile) {
 // Размер плитки текстуры в метрах (одна плитка Poly Haven 1k ≈ 2–4 м в жизни; берём крупнее для города).
 constexpr float kRoadTile = 6.f, kParkTile = 8.f, kWallTile = 6.4f, kRoofTile = 5.f;
 
+// Рельеф на время построения (buildCity однопоточный): все вершины поднимаются на высоту земли в своей точке, а детали зданий — на общую
+// «верхнюю отметку основания» (крыши плоские): gFixed — брать gFixedBase вместо высоты земли.
+const Heightmap* gTerrain = nullptr;
+bool gFixed = false, gHaveBase = false;
+float gFixedBase = 0.f;
+float groundAt(float x, float z) { return gTerrain ? gTerrain->heightAt(x, z) : 0.f; }
+
 void pushVertex(GeoMesh& m, float x, float y, float z, float nx, float ny, float nz, Color c, float u = 0.f, float v = 0.f) {
+    y += gFixed ? gFixedBase : groundAt(x, z);
     GeoVertex g{{x, y, z}, {nx, ny, nz}, {c.r, c.g, c.b}};
     g.uv[0] = u;
     g.uv[1] = v;
@@ -177,12 +185,17 @@ bool insidePolygon(const std::vector<Vec2>& poly, float x, float z) {
 }
 
 // Вертикальная плоскость a-b от y0 до y1 с нормалью (nx, nz); UV: u — метры вдоль / uTile, v — (y1 - y) / vTile + vOffset.
-void addWallQuad(GeoMesh& mesh, Vec2 a, Vec2 b, float y0, float y1, float nx, float nz, Color c, float u0, float u1, float v0, float v1) {
+void addWallQuad(GeoMesh& mesh, Vec2 a, Vec2 b, float y0, float y1, float nx, float nz, Color c, float u0, float u1, float v0, float v1, bool groundBottom = false) {
     const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
+    const bool saved = gFixed;
+    gFixed = gHaveBase && !groundBottom;  // низ стены садится на землю, верх и промежуточные отметки — на основание здания
+    if (groundBottom && gTerrain) y0 -= 0.5f;  // стена уходит под землю: на склоне и рядом с чуть опущенной сеткой земли щелей не видно
     pushVertex(mesh, a.x, y0, a.y, nx, 0, nz, c, u0, v1);
     pushVertex(mesh, b.x, y0, b.y, nx, 0, nz, c, u1, v1);
+    gFixed = gHaveBase;
     pushVertex(mesh, b.x, y1, b.y, nx, 0, nz, c, u1, v0);
     pushVertex(mesh, a.x, y1, a.y, nx, 0, nz, c, u0, v0);
+    gFixed = saved;
     mesh.indices.insert(mesh.indices.end(), {base, base + 2, base + 1, base, base + 3, base + 2});
 }
 
@@ -220,6 +233,16 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
     if (signedArea(footprint) < 0) std::reverse(footprint.begin(), footprint.end());
     const auto roofTriOriented = triangulate(footprint);  // после разворота индексы другие
     const std::size_t n = footprint.size();
+    // Основание: крыша плоская на высоте самой высокой точки земли под зданием; низ стен идёт по склону.
+    float baseTop = 0.f;
+    if (gTerrain) {
+        baseTop = -1e9f;
+        for (const Vec2& v : footprint) baseTop = std::max(baseTop, groundAt(v.x, v.y));
+    }
+    struct BaseScope {
+        BaseScope(float base) { gHaveBase = gFixed = true; gFixedBase = base; }
+        ~BaseScope() { gHaveBase = gFixed = false; gFixedBase = 0.f; }
+    } baseScope(baseTop);
     constexpr float kShopHeight = 3.6f;  // высота витрины
     const float kShopBay = look.shopTile;  // ширина плитки вывесок (секции по 4,8 м)
     const bool shop = look.shop && height > kShopHeight + 2.f;
@@ -233,17 +256,17 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
         const float u0 = along / kWallTile, u1 = (along + len) / kWallTile;
         const float yBottom = shop ? kShopHeight : 0.f;
         const auto first = static_cast<std::uint32_t>(mesh.indices.size());
-        addWallQuad(mesh, a, b, yBottom, height, nx, nz, wall, u0, u1, 0.f, (height - yBottom) / kWallTile);
+        addWallQuad(mesh, a, b, yBottom, height, nx, nz, wall, u0, u1, 0.f, (height - yBottom) / kWallTile, !shop);
         mesh.tag(look.wall, first);
         if (shop && len > 2.f) {
             const auto shopFirst = static_cast<std::uint32_t>(mesh.indices.size());
             // Витрина: нейтральный цвет (оттенок дома не красит вывески), u — в плитках по 19,2 м; со сдвигом по дому, чтобы вывески различались.
             const float shift = std::fmod(std::fabs(a.x * 0.37f + a.y * 0.61f), 1.f);
-            addWallQuad(mesh, a, b, 0.f, kShopHeight, nx, nz, {1.f, 1.f, 1.f}, shift + along / kShopBay, shift + (along + len) / kShopBay, 0.f, 1.f);
+            addWallQuad(mesh, a, b, 0.f, kShopHeight, nx, nz, {1.f, 1.f, 1.f}, shift + along / kShopBay, shift + (along + len) / kShopBay, 0.f, 1.f, true);
             mesh.tag(GeoMaterial::Storefront, shopFirst);
         } else if (shop) {
             const auto shopFirst = static_cast<std::uint32_t>(mesh.indices.size());
-            addWallQuad(mesh, a, b, 0.f, kShopHeight, nx, nz, wall, u0, u1, (height - kShopHeight) / kWallTile, height / kWallTile);
+            addWallQuad(mesh, a, b, 0.f, kShopHeight, nx, nz, wall, u0, u1, (height - kShopHeight) / kWallTile, height / kWallTile, true);
             mesh.tag(look.wall, shopFirst);
         }
         along += len;
@@ -430,6 +453,8 @@ std::vector<std::vector<Vec2>> buildingFootprints(const OsmData& data, const Geo
 std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjection& projection, const CityBuildSettings& settings, CityStats* stats) {
     std::map<CellCoord, CityChunk> chunks;
     CityStats st;
+    gTerrain = settings.terrain && settings.terrain->valid() ? settings.terrain : nullptr;
+    gFixed = gHaveBase = false;
     CellGrid grid(settings.cellSize);
     bool haveBounds = false;
     const auto grow = [&](float x, float z) {
@@ -588,7 +613,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                         if (!insideAnyBuilding(lx, lz)) {
                             CityChunk& lampChunk = chunkAt({lx, lz});
                             addLamp(lampChunk.buildings, lx, lz, -nx * s, -nz * s);
-                            lampChunk.lamps.push_back({lx - nx * s * 0.7f, 6.8f, lz - nz * s * 0.7f});
+                            lampChunk.lamps.push_back({lx - nx * s * 0.7f, 6.8f + groundAt(lx, lz), lz - nz * s * 0.7f});
                         }
                         sinceLamp = 0.f;
                     }
@@ -626,11 +651,23 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 }
         }
     }
+    // Земля: сетка по высотам во всех ячейках с городом и на одну ячейку вокруг (иначе у края карты обрыв).
+    if (gTerrain && settings.terrainMesh && !chunks.empty()) {
+        TerrainSettings ts;
+        ts.cellSize = settings.cellSize;
+        const CellCoord lo = grid.cellOf(st.minX, st.minZ), hi = grid.cellOf(st.maxX, st.maxZ);
+        for (int cx = lo.x - 1; cx <= hi.x + 1; ++cx)
+            for (int cz = lo.z - 1; cz <= hi.z + 1; ++cz) {
+                const GeoMesh land = buildTerrainCell(*gTerrain, {cx, cz}, ts);
+                if (!land.empty()) chunks[{cx, cz}].ground.append(land);
+            }
+    }
     for (auto& [cell, chunk] : chunks) {
         chunk.ground.groupByMaterial();
         chunk.buildings.groupByMaterial();
     }
     if (stats) *stats = st;
+    gTerrain = nullptr;
     return chunks;
 }
 }  // namespace han::world
