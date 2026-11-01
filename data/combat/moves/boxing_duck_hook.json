@@ -1,0 +1,36 @@
+{
+  "id": "boxing_duck_hook",
+  "style": "boxing",
+  "name_key": "move.boxing.duck_hook",
+  "unlock_level": 4,
+  "type": "counter",
+  "trajectory": "arc_left",
+  "limb": "left_hand",
+  "height": "head",
+  "movement_variant": "step_in",
+  "frames": {
+    "startup": 6,
+    "active": 3,
+    "recovery": 15
+  },
+  "cancel_window": [
+    8,
+    16
+  ],
+  "range": 1.0,
+  "damage": 13,
+  "stamina": 5,
+  "balance": 14,
+  "on_block_frames": -4,
+  "on_hit_frames": 3,
+  "armor": false,
+  "unblockable": false,
+  "power": false,
+  "impulse": 170,
+  "fx": {
+    "hitstop_ms": 95,
+    "shake": 0.65,
+    "sound": "impact_counter"
+  },
+  "anim": "anims/boxing/duck_hook.ozz"
+}
