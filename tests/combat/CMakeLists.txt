@@ -4,7 +4,7 @@ if(NOT doctest_FOUND)
     return()
 endif()
 
-add_executable(han_tests_combat src/main.cpp src/combat_data_test.cpp src/combat_sim_test.cpp src/combat_extra_test.cpp src/combat_scenario_test.cpp src/combat_ai_test.cpp src/combat_scheme_test.cpp)
+add_executable(han_tests_combat src/main.cpp src/combat_data_test.cpp src/combat_sim_test.cpp src/combat_extra_test.cpp src/combat_scenario_test.cpp src/combat_ai_test.cpp src/combat_scheme_test.cpp src/combat_bridge_test.cpp)
 target_link_libraries(han_tests_combat PRIVATE doctest::doctest han_combat han_core)
 target_compile_definitions(han_tests_combat PRIVATE HAN_REPO_DIR="${CMAKE_SOURCE_DIR}")
 if(MSVC)
