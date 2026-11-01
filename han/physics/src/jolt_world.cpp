@@ -8,6 +8,7 @@
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -92,6 +93,30 @@ void joltRelease() {
 
 bool hasJolt() { return true; }
 
+namespace {
+// Слушатель контактов: Jolt зовёт его из потоков физики, поэтому очередь под мьютексом.
+class ContactCollector final : public JPH::ContactListener {
+public:
+    struct Raw {
+        Vec3 point;
+        float speed;
+        JPH::uint64 a, b;
+    };
+    void OnContactAdded(const JPH::Body& b1, const JPH::Body& b2, const JPH::ContactManifold& manifold, JPH::ContactSettings&) override {
+        if (manifold.mRelativeContactPointsOn1.empty()) return;
+        const JPH::RVec3 p = manifold.GetWorldSpaceContactPointOn1(0);
+        const float speed = std::fabs((b1.GetPointVelocity(p) - b2.GetPointVelocity(p)).Dot(manifold.mWorldSpaceNormal));
+        if (speed < minSpeed) return;
+        std::lock_guard<std::mutex> lock(mutex);
+        if (events.size() >= 1024) events.erase(events.begin());  // переполнение: теряем самое старое
+        events.push_back({Vec3{p.GetX(), p.GetY(), p.GetZ()}, speed, b1.GetUserData(), b2.GetUserData()});
+    }
+    float minSpeed = 0.6f;
+    std::mutex mutex;
+    std::vector<Raw> events;
+};
+}  // namespace
+
 struct PhysicsWorld::Impl {
     // Что нарисовать в отладочных линиях: форма тела.
     struct ShapeInfo {
@@ -115,6 +140,9 @@ struct PhysicsWorld::Impl {
     JPH::TempAllocatorImpl temp{8 * 1024 * 1024};
     std::unique_ptr<JPH::JobSystemThreadPool> jobs;
     Vec3 gravity;
+    int collisionSteps = 1;
+    SurfaceTable surfaces;
+    ContactCollector contacts;
 
     EntityId nextId = 1;
     std::unordered_map<EntityId, JPH::BodyID> bodies;
@@ -143,6 +171,10 @@ struct PhysicsWorld::Impl {
         }
         const EntityId id = nextId;
         settings.mUserData = id;
+        const SurfaceProperties& surface = surfaces.get(material);
+        settings.mFriction = surface.friction;
+        settings.mRestitution = surface.restitution;
+        if (moving) settings.mMotionQuality = JPH::EMotionQuality::LinearCast;  // CCD: быстрые тела не пролетают сквозь тонкие стены
         JPH::BodyInterface& bi = system.GetBodyInterface();
         const JPH::BodyID body = bi.CreateAndAddBody(settings, moving ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
         if (body.IsInvalid()) return contracts::kNoEntity;
@@ -176,6 +208,9 @@ std::unique_ptr<PhysicsWorld> PhysicsWorld::create(const WorldSettings& settings
     std::unique_ptr<PhysicsWorld> world(new PhysicsWorld());
     Impl& impl = *world->impl_;
     impl.gravity = settings.gravity;
+    impl.collisionSteps = std::max(settings.collisionSteps, 1);
+    impl.contacts.minSpeed = settings.contactSoundMinSpeed;
+    impl.system.SetContactListener(&impl.contacts);
     impl.jobs = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::max(settings.workerThreads, 1));
     impl.system.Init(settings.maxBodies, 0, std::max<std::uint32_t>(settings.maxBodies, 1024), 4096, impl.broadPhase, impl.objectVsBroad, impl.pairFilter);
     impl.system.SetGravity(toJolt(settings.gravity));
@@ -208,6 +243,10 @@ void PhysicsWorld::removeBody(EntityId id) {
     impl_->shapes.erase(id);
 }
 
+void PhysicsWorld::setVelocity(EntityId id, Vec3 velocity) {
+    if (auto it = impl_->bodies.find(id); it != impl_->bodies.end()) impl_->system.GetBodyInterface().SetLinearVelocity(it->second, toJolt(velocity));
+}
+
 void PhysicsWorld::step(float dt) {
     Impl& im = *impl_;
     for (auto& [id, c] : im.characters) {
@@ -226,7 +265,7 @@ void PhysicsWorld::step(float dt) {
         body.ExtendedUpdate(dt, toJolt(im.gravity), ext, im.system.GetDefaultBroadPhaseLayerFilter(kObjMoving),
                             im.system.GetDefaultLayerFilter(kObjMoving), {}, {}, im.temp);
     }
-    im.system.Update(dt, 1, &im.temp, im.jobs.get());
+    im.system.Update(dt, im.collisionSteps, &im.temp, im.jobs.get());
 }
 
 Vec3 PhysicsWorld::positionOf(EntityId id) const {
@@ -245,6 +284,37 @@ Vec3 PhysicsWorld::velocityOf(EntityId id) const {
     if (auto c = impl_->characters.find(id); c != impl_->characters.end()) return fromJolt(c->second.body->GetLinearVelocity());
     if (auto b = impl_->bodies.find(id); b != impl_->bodies.end()) return fromJolt(impl_->system.GetBodyInterface().GetLinearVelocity(b->second));
     return {};
+}
+
+void PhysicsWorld::setSurfaceTable(const SurfaceTable& table) { impl_->surfaces = table; }
+
+const SurfaceTable& PhysicsWorld::surfaceTable() const { return impl_->surfaces; }
+
+void PhysicsWorld::drainContacts(std::vector<ContactEvent>& out) {
+    std::vector<ContactCollector::Raw> raw;
+    {
+        std::lock_guard<std::mutex> lock(impl_->contacts.mutex);
+        raw.swap(impl_->contacts.events);
+    }
+    for (const auto& r : raw) {
+        ContactEvent e;
+        e.point = r.point;
+        e.impactSpeed = r.speed;
+        e.a = static_cast<EntityId>(r.a);
+        e.b = static_cast<EntityId>(r.b);
+        e.materialA = impl_->materialOf(e.a);
+        e.materialB = impl_->materialOf(e.b);
+        out.push_back(e);
+    }
+}
+
+bool PhysicsWorld::allFinite() const {
+    const auto finite = [](Vec3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+    for (const auto& [id, body] : impl_->bodies)
+        if (!finite(positionOf(id)) || !finite(velocityOf(id))) return false;
+    for (const auto& [id, c] : impl_->characters)
+        if (!finite(positionOf(id)) || !finite(velocityOf(id))) return false;
+    return true;
 }
 
 contracts::Quat PhysicsWorld::rotationOf(EntityId id) const {
