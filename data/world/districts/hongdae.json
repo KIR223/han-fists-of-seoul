@@ -1,0 +1,45 @@
+{
+  "id": "hongdae",
+  "numeric_id": 3,
+  "name_key": "world.district.hongdae",
+  "kind": "city_district",
+  "bounds": [
+    [
+      176.7,
+      -222.0
+    ],
+    [
+      1237.0,
+      -222.0
+    ],
+    [
+      1237.0,
+      776.9
+    ],
+    [
+      176.7,
+      776.9
+    ]
+  ],
+  "sacred_allowed": false,
+  "danger": 2,
+  "tags": [
+    "youth",
+    "clubs",
+    "buskers",
+    "start"
+  ],
+  "ambience": {
+    "lut": "pink_violet",
+    "saturation": 1.35,
+    "contrast": 1.15,
+    "neon": 1.8,
+    "lamp_color": [
+      1.0,
+      0.62,
+      0.55
+    ],
+    "crowd_density": 1.6,
+    "music_key": "world.music.hongdae_buskers"
+  }
+}

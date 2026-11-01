@@ -2,6 +2,7 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <fstream>
 
 #include "han/ai/navgrid.h"
 #include "han/ai/traffic.h"
@@ -294,4 +295,81 @@ TEST_CASE("services: контракт IWorldServices — время и сезо�
     CHECK(services.crimesReported() == 1);
     w.addCrime(1, {200, 0, 200}, 1);  // в святыне: Trespass (15 жара) вместо драки (12)
     CHECK(police.heat() == doctest::Approx(12.f + 15.f));
+}
+
+#include <filesystem>
+
+#include "han/ai/district_catalog.h"
+#include "han/ui/localization.h"
+
+TEST_CASE("districts: файлы data/world/districts читаются, контуры корректны, названия есть в заявках локализации на трёх языках") {
+    han::ai::DistrictCatalog catalog;
+    std::string error;
+    REQUIRE_MESSAGE(catalog.loadDirectory((std::filesystem::path(HAN_REPO_DIR) / "data/world/districts").string(), error), error);
+    REQUIRE(catalog.all().size() >= 4);
+    han::ui::Localization loc;
+    std::string locError;
+    REQUIRE_MESSAGE(loc.loadTable((std::filesystem::path(HAN_REPO_DIR) / "contracts/loc_requests/A.csv").string(), locError), locError);
+    for (const auto& d : catalog.all()) {
+        float area = 0.f;
+        for (std::size_t i = 0; i < d.polygon.size(); ++i) {
+            const auto a = d.polygon[i], b = d.polygon[(i + 1) % d.polygon.size()];
+            area += a.x * b.z - b.x * a.z;
+        }
+        CHECK_MESSAGE(std::fabs(area) * 0.5f > 100000.f, d.id << ": площадь района слишком мала");
+        for (const char* lang : {"ru", "ko", "en"}) CHECK_MESSAGE(loc.has(d.nameKey, lang), d.id << ": нет перевода " << lang);
+        CHECK(d.ambience.neon >= 0.f);
+    }
+    // Начало координат (центр выгрузки Мапо) — Хапчон; точка в Хондэ — Хондэ; далеко за картой — вне районов.
+    CHECK(catalog.infoAt({0.f, 0.f}) != nullptr);
+    CHECK(catalog.infoAt({0.f, 0.f})->id == "hapjeong");
+    CHECK(catalog.infoAt({1500.f, 100.f}) == nullptr);
+    const auto* hongdae = catalog.byId("hongdae");
+    REQUIRE(hongdae != nullptr);
+    CHECK(hongdae->ambience.neon > catalog.byId("mangwon")->ambience.neon);  // Хондэ неоновее рынка
+    // Районы не пересекаются в центрах друг друга
+    for (const auto& a : catalog.all()) {
+        float cx = 0.f, cz = 0.f;
+        for (const auto& p : a.polygon) {
+            cx += p.x;
+            cz += p.z;
+        }
+        cx /= static_cast<float>(a.polygon.size());
+        cz /= static_cast<float>(a.polygon.size());
+        CHECK(catalog.infoAt({cx, cz}) != nullptr);
+    }
+    // Регистрация в мировых сервисах
+    han::ai::WorldServices services;
+    catalog.registerIn(services);
+    CHECK(services.districtAt({0.f, 0.f, 0.f}) == catalog.byId("hapjeong")->numericId);
+    CHECK(services.districtAt({5000.f, 0.f, 0.f}) == 0);
+}
+
+TEST_CASE("districts: плавный переход настроения — по постоянной времени, без рывков; повторные файлы и плохие данные отклоняются") {
+    han::ai::Ambience cur, target;
+    target.saturation = 1.5f;
+    target.neon = 2.0f;
+    target.lampColor[0] = 0.5f;
+    han::ai::blendAmbience(cur, target, 0.1f, 1.5f);
+    CHECK(cur.saturation > 1.0f);
+    CHECK(cur.saturation < 1.1f);
+    for (int i = 0; i < 600; ++i) han::ai::blendAmbience(cur, target, 0.1f, 1.5f);
+    CHECK(cur.saturation == doctest::Approx(1.5f).epsilon(0.001));
+    CHECK(cur.neon == doctest::Approx(2.0f).epsilon(0.001));
+    CHECK(cur.lampColor[0] == doctest::Approx(0.5f).epsilon(0.001));
+
+    const auto dir = std::filesystem::temp_directory_path() / "han_districts_test";
+    std::filesystem::create_directories(dir);
+    const auto write = [&](const char* name, const char* text) { std::ofstream(dir / name, std::ios::binary) << text; };
+    write("a.json", R"({"id":"a","numeric_id":1,"name_key":"world.district.a","kind":"city_district","bounds":[[0,0],[10,0],[10,10]],"sacred_allowed":false})");
+    write("b.json", R"({"id":"b","numeric_id":1,"name_key":"world.district.b","kind":"city_district","bounds":[[0,0],[10,0],[10,10]],"sacred_allowed":false})");  // тот же numeric_id
+    write("c.json", R"({"id":"c","numeric_id":3,"name_key":"world.district.c","kind":"city_district","bounds":[[0,0],[10,0]],"sacred_allowed":false})");        // две точки
+    write("d.json", R"({"id":"d","numeric_id":0,"name_key":"world.district.d","kind":"city_district","bounds":[[0,0],[10,0],[10,10]],"sacred_allowed":false})");  // нулевой id
+    han::ai::DistrictCatalog catalog;
+    std::string error;
+    CHECK_FALSE(catalog.loadDirectory(dir.string(), error));
+    CHECK(catalog.all().size() == 1);
+    CHECK(error.find("повторяющийся") != std::string::npos);
+    CHECK(error.find("минимум из трёх") != std::string::npos);
+    CHECK(error.find("больше 0") != std::string::npos);
 }

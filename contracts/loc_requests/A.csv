@@ -31,3 +31,7 @@ people.react.watch,Что там происходит?,무슨 일이야?,What's 
 people.react.film,Снимаю на телефон!,찍어 둬야겠다!,I'm getting this on camera!,реакция прохожего на событие
 people.react.call_police,"Алло, полиция? Тут драка!","여보세요, 경찰이죠? 여기 싸움 났어요!","Hello, police? There's a fight here!",реакция прохожего на событие
 people.react.intervene,"Эй, прекратите!","이봐, 그만해!","Hey, stop that!",реакция прохожего на событие
+world.district.mangwon,Мангвон,망원동,Mangwon,название района (рынок и старт игры)
+world.district.hapjeong,Хапчон,합정동,Hapjeong,название района (перекрёсток кафе)
+world.district.hongdae,Хондэ,홍대,Hongdae,название района (молодёжь и клубы)
+world.district.yeonnam,Ённам,연남동,Yeonnam,название района (кафе и парк)

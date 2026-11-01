@@ -19,6 +19,21 @@
     },
     "sacred_allowed": { "type": "boolean", "description": "Есть ли в районе места с флагом sacred (храмы, церкви, мечеть)" },
     "danger": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Уровень опасности 0–5" },
-    "tags": { "type": "array", "items": { "type": "string" } }
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "ambience": {
+      "type": "object",
+      "description": "Настроение района: цветокоррекция, неон, свет фонарей, плотность толпы, музыка (потребитель — рендер и звук A)",
+      "required": ["lut", "saturation", "neon", "lamp_color"],
+      "additionalProperties": false,
+      "properties": {
+        "lut": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,40}$" },
+        "saturation": { "type": "number", "minimum": 0.5, "maximum": 2 },
+        "contrast": { "type": "number", "minimum": 0.5, "maximum": 2 },
+        "neon": { "type": "number", "minimum": 0, "maximum": 4, "description": "множитель свечения вывесок ночью" },
+        "lamp_color": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": 0, "maximum": 2 } },
+        "crowd_density": { "type": "number", "minimum": 0, "maximum": 4 },
+        "music_key": { "type": "string", "pattern": "^world[.]music[.][a-z0-9_]+$" }
+      }
+    }
   }
 }

@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "city_common.h"
+#include "han/ai/district_catalog.h"
 #include "han/ai/traffic.h"
 #include "han/core/repo_root.h"
 #include "han/core/console.h"
@@ -130,6 +131,13 @@ int main(int argc, char** argv) {
     trafficSettings.spawnRadius = 350.f;
     trafficSettings.despawnRadius = 550.f;
     han::ai::TrafficSim traffic(roads, trafficSettings);
+    // Районы (G6): контуры и настроение из data/world/districts; цветокоррекция, неон и свет фонарей плавно меняются по ходу камеры.
+    han::ai::DistrictCatalog districts;
+    {
+        std::string districtError;
+        if (!districts.loadDirectory("data/world/districts", districtError)) std::fprintf(stderr, "районы: %s\n", districtError.c_str());
+    }
+    han::ai::Ambience mood;
     std::printf("город: домов %d, дорог %d, парков %d, воды %d, пропущено %d, ячеек %zu, размер %.0f x %.0f м\n", cityStats.buildings, cityStats.roads,
                 cityStats.parks, cityStats.waters, cityStats.skipped, chunks.size(), cityStats.maxX - cityStats.minX, cityStats.maxZ - cityStats.minZ);
 
@@ -283,6 +291,7 @@ int main(int argc, char** argv) {
         if (!noUi) {
             ui.drawStats({fmt("FPS: %.0f", fps), "GPU: " + renderer->deviceName(), fmt("ошибок валидации: %.0f", renderer->validationErrors()),
                           fmt("камера: %.0f %.0f %.0f", camera.position.x, camera.position.y, camera.position.z),
+                          std::string("район: ") + (districts.infoAt({camera.position.x, camera.position.z}) ? districts.infoAt({camera.position.x, camera.position.z})->id : "—") + " (" + mood.lut + ")",
                           fmt("ячеек загружено: %.0f, треугольников: %.0f", stats.loaded, static_cast<double>(loader.uploadedTriangles)),
                           "© участники OpenStreetMap (ODbL)"});
             ui.drawConsole(console, consoleOpen);
@@ -310,6 +319,11 @@ int main(int argc, char** argv) {
         params.sun = han::render::makeSun(sunElevation, sunAzimuth, sunKelvin);
         params.sky = han::render::skyFromSun(params.sun);
         params.wetness = wetness;
+        const han::ai::Ambience target = districts.ambienceAt({camera.position.x, camera.position.z});
+        han::ai::blendAmbience(mood, target, std::min(dt, 0.1f));
+        params.saturation = mood.saturation;
+        params.contrast = mood.contrast;
+        params.neonBoost = mood.neon;
         if (sunElevation < 6.f) {  // ночью и в сумерки горят ближайшие 32 фонаря (натриевый тёплый свет)
             struct Near {
                 float d2;
@@ -325,7 +339,7 @@ int main(int argc, char** argv) {
             std::partial_sort(near.begin(), near.begin() + static_cast<std::ptrdiff_t>(keep), near.end(), [](const Near& a, const Near& b) { return a.d2 < b.d2; });
             const float k = std::clamp((6.f - sunElevation) / 8.f, 0.f, 1.f);  // плавное включение на закате
             for (std::size_t i = 0; i < keep; ++i)
-                params.pointLights.push_back({{near[i].p->x, near[i].p->y, near[i].p->z}, {k * 60.f, k * 42.f, k * 22.f}, 24.f});
+                params.pointLights.push_back({{near[i].p->x, near[i].p->y, near[i].p->z}, {k * 60.f * mood.lampColor[0], k * 60.f * mood.lampColor[1], k * 60.f * mood.lampColor[2]}, 24.f});
         }
         params.exposure = exposure;
         params.fogDensity = 0.0006f;

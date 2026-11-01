@@ -48,7 +48,7 @@ struct FrameUbo {
     float skyZenith[4];
     float skyHorizon[4];
     float skyGround[4];
-    float params[4];     // x — экспозиция, y — плотность воздушной дымки
+    float params[4];     // x — экспозиция, y — плотность воздушной дымки, z — усиление неона
     float lightViewProj[3][16];  // каскады теней: мир → клип карты теней
     float cascadeSplits[4];      // xyz — дальние границы каскадов (м), w — 1, если тени включены
     float cascadeTexel[4];       // xyz — размер текселя карты каждого каскада (м)
@@ -1283,6 +1283,7 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     put3(ubo.skyGround, frame.sky.ground);
     ubo.params[0] = frame.exposure;
     ubo.params[1] = frame.fogDensity;
+    ubo.params[2] = frame.neonBoost;
     {
         const std::size_t count = std::min<std::size_t>(frame.pointLights.size(), 32);
         for (std::size_t i = 0; i < count; ++i) {

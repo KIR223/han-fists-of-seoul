@@ -143,7 +143,9 @@ void main() {
         bool lit = seed < 0.42;
         float lum = dot(albedoSample.rgb, vec3(0.299, 0.587, 0.114));
         vec3 glow = mix(vec3(1.0, 0.78, 0.5) * 1.6, albedoSample.rgb * 3.0, smoothstep(0.2, 0.4, lum));  // яркие (вывески) светят своим цветом, стекло — тёплым
-        if (lit) color += glow * night * emissiveMask;
+        // Неон усиливает вывески сильнее, чем обычные окна (окна в Хондэ не выгорают в белое).
+        float boost = mix(mix(1.0, frame.params.z, 0.25), frame.params.z, smoothstep(0.2, 0.4, lum));
+        if (lit) color += glow * night * emissiveMask * boost;
     }
     // Воздушная дымка: дальние объекты тонут в цвете горизонта, глубина города читается (при плотности 0 — без изменений).
     float dist = length(frame.cameraPos.xyz - vWorldPos);

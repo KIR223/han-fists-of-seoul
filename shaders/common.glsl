@@ -14,7 +14,7 @@ layout(set = 1, binding = 0, std140) uniform Frame {
     vec4 skyZenith;   // rgb — небо над головой
     vec4 skyHorizon;  // rgb — небо у горизонта
     vec4 skyGround;   // rgb — «земля» под горизонтом
-    vec4 params;      // x — экспозиция, y — плотность воздушной дымки
+    vec4 params;      // x — экспозиция, y — плотность воздушной дымки, z — усиление неона
     mat4 lightViewProj[3];  // каскады теней: мир → клип карты теней
     vec4 cascadeSplits;     // xyz — дальние границы каскадов по глубине вида, метры; w — 1, если тени включены
     vec4 cascadeTexel;      // xyz — размер текселя карты каждого каскада, метры
