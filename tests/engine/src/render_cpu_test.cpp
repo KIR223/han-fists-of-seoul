@@ -4,6 +4,7 @@
 
 #include "han/core/math.h"
 #include "han/render/camera.h"
+#include "han/render/lighting.h"
 #include "han/render/mesh.h"
 
 using namespace han::core;
@@ -118,4 +119,98 @@ TEST_CASE("makePlane: нормаль вверх, обход правильный
         CHECK(v.normal[1] == doctest::Approx(1));
         CHECK(v.position[1] == doctest::Approx(0));
     }
+}
+
+TEST_CASE("Mat4: обратная матрица возвращает точку из клипа в мир") {
+    const Mat4 vp = Mat4::perspective(1.0f, 1.6f, 0.1f, 2000.0f) * Mat4::lookDirection({1, 2, 3}, normalize({0.3f, -0.2f, -1.0f}));
+    Mat4 inverse;
+    REQUIRE(invert(vp, inverse));
+    const Vec3 world{4, 1, -7};
+    const Vec4 clip = transform(vp, world);
+    const Vec4 back = transform(inverse, {clip.x / clip.w, clip.y / clip.w, clip.z / clip.w});
+    CHECK(back.x / back.w == doctest::Approx(4).epsilon(1e-3));
+    CHECK(back.y / back.w == doctest::Approx(1).epsilon(1e-3));
+    CHECK(back.z / back.w == doctest::Approx(-7).epsilon(1e-3));
+
+    const Mat4 product = vp * inverse;
+    for (int i = 0; i < 16; ++i) CHECK(product.m[i] == doctest::Approx((i % 5 == 0) ? 1.0f : 0.0f).epsilon(1e-3));
+}
+
+TEST_CASE("Mat4: вырожденная матрица не обращается и результат не трогает") {
+    Mat4 zero;
+    for (float& v : zero.m) v = 0;
+    Mat4 out = Mat4::translation({1, 2, 3});
+    CHECK_FALSE(invert(zero, out));
+    CHECK(out.m[12] == doctest::Approx(1));
+}
+
+TEST_CASE("makeSphere: нормали наружу, обход против часовой стрелки, без вырожденных треугольников") {
+    const MeshData sphere = makeSphere(2.0f, 24, 12, {1, 1, 1});
+    REQUIRE(sphere.indices.size() % 3 == 0);
+    for (const auto& v : sphere.vertices) {
+        const float r = std::sqrt(v.position[0] * v.position[0] + v.position[1] * v.position[1] + v.position[2] * v.position[2]);
+        CHECK(r == doctest::Approx(2.0f).epsilon(1e-4));
+        CHECK(v.normal[0] * v.position[0] + v.normal[1] * v.position[1] + v.normal[2] * v.position[2] > 0);
+    }
+    int degenerate = 0;
+    checkOutwardWinding(sphere);
+    for (std::size_t i = 0; i < sphere.indices.size(); i += 3) {
+        const Vertex &a = sphere.vertices[sphere.indices[i]], &b = sphere.vertices[sphere.indices[i + 1]], &c = sphere.vertices[sphere.indices[i + 2]];
+        const Vec3 n = cross(Vec3{b.position[0] - a.position[0], b.position[1] - a.position[1], b.position[2] - a.position[2]},
+                             Vec3{c.position[0] - a.position[0], c.position[1] - a.position[1], c.position[2] - a.position[2]});
+        if (length(n) < 1e-6f) ++degenerate;
+    }
+    CHECK(degenerate == 0);
+}
+
+TEST_CASE("свет: цвет по температуре") {
+    const Vec3 warm = colorFromTemperature(2000.0f), white = colorFromTemperature(6500.0f), cold = colorFromTemperature(12000.0f);
+    CHECK(warm.x == doctest::Approx(1.0f));  // нормирован на наибольший канал
+    CHECK(warm.x > warm.y);
+    CHECK(warm.y > warm.z);
+    CHECK(white.x > 0.9f);
+    CHECK(white.y > 0.9f);
+    CHECK(white.z > 0.9f);
+    CHECK(cold.z == doctest::Approx(1.0f));
+    CHECK(cold.z > cold.x);
+}
+
+TEST_CASE("свет: направление солнца и освещённость") {
+    const SunLight zenith = makeSun(90.0f, 0.0f, 5500.0f);
+    CHECK(zenith.direction.y == doctest::Approx(1.0f));
+    const SunLight east = makeSun(0.0f, 90.0f, 5500.0f);
+    CHECK(east.direction.x == doctest::Approx(1.0f));
+    CHECK(east.direction.z == doctest::Approx(0.0f).epsilon(1e-5));
+    const SunLight north = makeSun(0.0f, 0.0f, 5500.0f);
+    CHECK(north.direction.z == doctest::Approx(-1.0f));  // север — это -Z, как «вперёд» у камеры
+    for (const float elevation : {-30.0f, -4.0f, 3.0f, 35.0f, 80.0f}) CHECK(length(makeSun(elevation, 123.0f, 5000.0f).direction) == doctest::Approx(1.0f));
+
+    CHECK(makeSun(-10.0f, 0.0f, 5000.0f).illuminance == doctest::Approx(0.0f));
+    CHECK(makeSun(-4.0f, 0.0f, 5000.0f).illuminance == doctest::Approx(0.0f));
+    CHECK(makeSun(3.0f, 0.0f, 5000.0f).illuminance > 0.0f);
+    CHECK(makeSun(3.0f, 0.0f, 5000.0f).illuminance < makeSun(35.0f, 0.0f, 5000.0f).illuminance);
+    CHECK(makeSun(60.0f, 0.0f, 5000.0f).illuminance == doctest::Approx(7.5f));
+    CHECK(makeSun(60.0f, 0.0f, 5000.0f, 10.0f).illuminance == doctest::Approx(10.0f));
+}
+
+TEST_CASE("свет: небо светлеет с высотой солнца и тёмное ночью") {
+    const auto luminance = [](Vec3 c) { return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; };
+    float previous = -1.0f;
+    for (const float elevation : {-30.0f, -15.0f, -6.0f, 0.0f, 10.0f, 30.0f, 60.0f}) {
+        const SkyColors sky = skyFromSun(makeSun(elevation, 90.0f, 5000.0f));
+        const float l = luminance(sky.horizon) + luminance(sky.zenith);
+        CHECK_MESSAGE(l >= previous - 1e-4f, "высота " << elevation);
+        previous = l;
+        for (const Vec3 c : {sky.zenith, sky.horizon, sky.ground}) {
+            CHECK(c.x >= 0.0f);
+            CHECK(c.y >= 0.0f);
+            CHECK(c.z >= 0.0f);
+        }
+    }
+    const SkyColors night = skyFromSun(makeSun(-40.0f, 0.0f, 4000.0f));
+    CHECK(luminance(night.zenith) < 0.01f);
+    CHECK(luminance(night.horizon) < 0.03f);
+    const SkyColors day = skyFromSun(makeSun(60.0f, 0.0f, 5800.0f));
+    CHECK(day.zenith.z > day.zenith.x);  // днём небо над головой синее
+    CHECK(luminance(day.horizon) > luminance(day.zenith));  // и светлее у горизонта
 }

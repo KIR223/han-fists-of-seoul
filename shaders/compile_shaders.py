@@ -32,7 +32,7 @@ def main():
         if src.suffix not in (".vert", ".frag"):
             continue
         spv = OUT / (src.name + ".spv")
-        subprocess.run([glslc, "--target-env=vulkan1.3", "-O", str(src), "-o", str(spv)], check=True)
+        subprocess.run([glslc, "--target-env=vulkan1.3", "-O", "-I", str(ROOT / "shaders"), str(src), "-o", str(spv)], check=True)
         data = spv.read_bytes()
         words = [int.from_bytes(data[i:i + 4], "little") for i in range(0, len(data), 4)]
         name = src.name.replace(".", "_")

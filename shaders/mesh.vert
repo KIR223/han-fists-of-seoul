@@ -1,22 +1,27 @@
 #version 450
-// Меши E2/E3: вершины из буфера, матрицы через push constants (viewProj + model = 128 байт).
-layout(push_constant) uniform PushConstants {
-    mat4 viewProj;
+#extension GL_GOOGLE_include_directive : require
+// Меши (E2–E4): вершины из буфера, матрица модели через push constants (vertex, 64 байта), остальное — данные кадра.
+#include "common.glsl"
+
+layout(push_constant) uniform VertexPush {
     mat4 model;
-} pc;
+} vpc;
 
 layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec3 inColor;
 layout(location = 3) in vec2 inUV;
 
-layout(location = 0) out vec3 vNormal;
-layout(location = 1) out vec3 vColor;
-layout(location = 2) out vec2 vUV;
+layout(location = 0) out vec3 vWorldPos;
+layout(location = 1) out vec3 vNormal;
+layout(location = 2) out vec3 vColor;
+layout(location = 3) out vec2 vUV;
 
 void main() {
-    gl_Position = pc.viewProj * (pc.model * vec4(inPos, 1.0));
-    vNormal = mat3(pc.model) * inNormal;  // верно для равномерного масштаба
+    vec4 world = vpc.model * vec4(inPos, 1.0);
+    gl_Position = frame.viewProj * world;
+    vWorldPos = world.xyz;
+    vNormal = mat3(vpc.model) * inNormal;  // верно для равномерного масштаба
     vColor = inColor;
     vUV = inUV;
 }
