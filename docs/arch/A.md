@@ -23,3 +23,31 @@ render + ui + world <- editor          core <- tools
 
 ## Бюджеты
 Кадр 16,6 мс на RTX 2050, память — по части «Память». Бюджеты по подсистемам добавляются вместе с модулями (E2+).
+
+## Конвейер ассетов (E20, часть 76 дизайна)
+```
+assets_src/manifest.json (в Git) ──► han_fetch.py fetch ──► assets_bin/downloads/<id> (хэш дерева в манифесте)
+                                  └► han_fetch.py process ──► Blender (han/tools/blender/han_pipeline.py)
+                                          нормализация → бюджет треугольников → UV → LOD1–3 → коллизия ≤ 32 вершин → поиск брендов
+                                      ──► assets_bin/processed/<id>/*.glb ──► han_cooker ──► assets_bin/cooked/*.hmesh + tex_*.ktx2
+                                      ──► docs/credits/<зона>.md (строка добавляется сама)
+```
+- Одна команда: `python han/tools/pipeline/han_fetch.py add --id … --source polyhaven|sketchfab|direct|local … --process`.
+- Источники: Poly Haven (CC0, без токена), Sketchfab (токен в `SKETCHFAB_TOKEN`), прямая ссылка, локальный файл («положил в папку»).
+- Защита: только HTTPS, лимит размера, безопасная распаковка zip, лицензия проверяется до сети (`license_rules.py`, общие тест-векторы с C++),
+  при смене содержимого у источника хэш не совпадёт, а смена лицензии на запрещённую остановит загрузку.
+- Остановки конвейера: бюджет треугольников превышен; найдены имена реальных брендов (`real_brands.txt`) — пока не вписан `brand_review`.
+- Из манифеста всё воспроизводится с нуля: `han_fetch.py all`. Текстуры при варке называются по содержимому и делятся между LOD-ами.
+- Тесты: `python -m unittest discover -s han/tools/pipeline/tests` (в CI; с установленным Blender добавляется настоящий прогон).
+
+## Рендер кадра (E4)
+```
+проход 1 (HDR RGBA16F + глубина D32): меши (PBR, GGX, солнце + окружение из неба) → небо на дальней плоскости (z = 1, тест «≤»)
+проход 2: тонмаппинг AgX (экспозиция, контраст, насыщенность, дизеринг) → изображение swapchain (sRGB)
+проход 3: наложение (ImGui)
+```
+- Данные кадра — один UBO на кадр в полёте (set 1): матрицы, камера, солнце, цвета неба, экспозиция. Структура `FrameUbo` в `renderer.cpp`
+  зеркалит блок `Frame` в `shaders/common.glsl`; менять только вместе.
+- Материал части меша (металличность, шероховатость) идёт push constants фрагментного шейдера; цвет — множитель из вершин и текстура (set 0).
+- Свет и небо: `makeSun`/`skyFromSun` (CPU). Это стартовая модель; таблица времени суток из части 34.1 переедет в `data/render/*.json`.
+- Шейдеры собираются `shaders/compile_shaders.py` (glslc из Vulkan SDK, `#include "common.glsl"`), SPIR-V лежит в `han/render/generated/`.
