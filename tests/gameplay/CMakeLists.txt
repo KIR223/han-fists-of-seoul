@@ -1,0 +1,12 @@
+find_package(doctest CONFIG QUIET)
+if(NOT doctest_FOUND)
+    message(WARNING "doctest не найден (нужен vcpkg-манифест, функция tests): тесты игры пропущены")
+    return()
+endif()
+
+add_executable(han_tests_gameplay src/main.cpp src/camera_test.cpp src/player_test.cpp)
+target_link_libraries(han_tests_gameplay PRIVATE doctest::doctest han_player han_physics han_core)
+if(MSVC)
+    target_compile_options(han_tests_gameplay PRIVATE /W4 /permissive- /utf-8)
+endif()
+add_test(NAME gameplay COMMAND han_tests_gameplay)
