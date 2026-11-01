@@ -3,7 +3,7 @@ han_module(render DEPENDS han_platform)
 # Vulkan-рендерер — если найден Vulkan SDK (загрузчик и заголовки). Демо дополнительно требует окно (SDL3).
 find_package(Vulkan QUIET)
 if(Vulkan_FOUND)
-    target_sources(han_render PRIVATE vulkan/renderer.cpp)
+    target_sources(han_render PRIVATE vulkan/renderer.cpp vulkan/vk_util.cpp vulkan/post_process.cpp)
     target_link_libraries(han_render PUBLIC Vulkan::Vulkan)
     target_compile_definitions(han_render PUBLIC HAN_WITH_VULKAN=1)
     if(MSVC)

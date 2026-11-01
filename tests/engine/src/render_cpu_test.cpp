@@ -8,6 +8,7 @@
 #include "han/render/lighting.h"
 #include "han/render/mesh.h"
 #include "han/render/shadow.h"
+#include "han/render/taa.h"
 
 using namespace han::core;
 using namespace han::render;
@@ -339,4 +340,70 @@ TEST_CASE("Mat4: ортографическая проекция перевод�
     CHECK(corner.x == doctest::Approx(1.0f));
     CHECK(corner.y == doctest::Approx(1.0f));
     CHECK(corner.z == doctest::Approx(0.5f));
+}
+
+TEST_CASE("TAA: джиттер Холтона — 8 различных фаз внутри пикселя с периодом 8") {
+    std::vector<Jitter> phases;
+    float sumX = 0, sumY = 0;
+    for (int i = 0; i < kTaaJitterPhases; ++i) {
+        const Jitter j = haltonJitter(i);
+        CHECK(j.x > -0.5f);
+        CHECK(j.x < 0.5f);
+        CHECK(j.y > -0.5f);
+        CHECK(j.y < 0.5f);
+        for (const Jitter& other : phases) CHECK((std::fabs(other.x - j.x) > 1e-4f || std::fabs(other.y - j.y) > 1e-4f));
+        phases.push_back(j);
+        sumX += j.x;
+        sumY += j.y;
+    }
+    CHECK(std::fabs(sumX / kTaaJitterPhases) < 0.1f);  // фазы не смещены в одну сторону пикселя
+    CHECK(std::fabs(sumY / kTaaJitterPhases) < 0.1f);
+    CHECK(haltonJitter(3).x == doctest::Approx(haltonJitter(11).x));
+    CHECK(haltonJitter(3).y == doctest::Approx(haltonJitter(3 + 8 * 100).y));
+    CHECK(std::isfinite(haltonJitter(-5).x));  // отрицательные номера кадров не ломают последовательность
+}
+
+TEST_CASE("TAA: сдвиг проекции смещает NDC ровно на долю пикселя") {
+    Camera cam;
+    const Mat4 vp = cam.viewProjection(1.6f);
+    const Vec3 point{1.0f, 0.5f, -6.0f};
+    const Vec4 a = transform(vp, point);
+    const Jitter jitter{0.25f, -0.4f};
+    const Vec4 b = transform(jitteredViewProjection(vp, jitter, 1280, 720), point);
+    CHECK(b.x / b.w - a.x / a.w == doctest::Approx(2.0f * 0.25f / 1280.0f).epsilon(1e-3));
+    CHECK(b.y / b.w - a.y / a.w == doctest::Approx(2.0f * -0.4f / 720.0f).epsilon(1e-3));
+    CHECK(b.z / b.w == doctest::Approx(a.z / a.w));  // глубина не меняется
+    CHECK(b.w == doctest::Approx(a.w));
+    const Mat4 unchanged = jitteredViewProjection(vp, jitter, 0, 0);  // нулевой размер — матрица как есть
+    for (int i = 0; i < 16; ++i) CHECK(unchanged.m[i] == doctest::Approx(vp.m[i]));
+}
+
+TEST_CASE("TAA: матрица переотображения находит пиксель в прошлом кадре") {
+    Camera previous;
+    previous.position = {0, 2, 8};
+    Camera current = previous;
+    current.position = {1.5f, 2.2f, 7.0f};
+    current.yaw = 0.15f;
+    const Mat4 prevVp = previous.viewProjection(1.6f), curVp = current.viewProjection(1.6f);
+    Mat4 reproject;
+    REQUIRE(reprojectionMatrix(curVp, prevVp, reproject));
+
+    for (const Vec3 world : {Vec3{0, 0, -5}, Vec3{3, 1, -20}, Vec3{-4, 0.5f, -60}}) {
+        const Vec4 cur = transform(curVp, world), prev = transform(prevVp, world);
+        const Vec4 mapped = transform(reproject, {cur.x / cur.w, cur.y / cur.w, cur.z / cur.w});
+        CHECK(mapped.x / mapped.w == doctest::Approx(prev.x / prev.w).epsilon(1e-3));
+        CHECK(mapped.y / mapped.w == doctest::Approx(prev.y / prev.w).epsilon(1e-3));
+    }
+
+    // Неподвижная камера: история лежит ровно в том же месте.
+    Mat4 same;
+    REQUIRE(reprojectionMatrix(curVp, curVp, same));
+    const Vec4 clip = transform(curVp, {2, 1, -9});
+    const Vec4 mapped = transform(same, {clip.x / clip.w, clip.y / clip.w, clip.z / clip.w});
+    CHECK(mapped.x / mapped.w == doctest::Approx(clip.x / clip.w).epsilon(1e-3));
+
+    Mat4 zero;
+    for (float& v : zero.m) v = 0;
+    Mat4 out;
+    CHECK_FALSE(reprojectionMatrix(zero, curVp, out));
 }
