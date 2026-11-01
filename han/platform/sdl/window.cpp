@@ -1,4 +1,5 @@
 #include <SDL3/SDL.h>
+#include <cstdio>
 #include <SDL3/SDL_vulkan.h>
 
 #include "han/platform/window.h"
@@ -18,10 +19,16 @@ Window::~Window() {
 }
 
 std::unique_ptr<Window> Window::create(const char* title, int width, int height) {
-    if (!SDL_Init(SDL_INIT_VIDEO)) return nullptr;
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        return nullptr;
+    }
     std::unique_ptr<Window> w(new Window());
     w->impl_->window = SDL_CreateWindow(title, width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN);
-    if (!w->impl_->window) return nullptr;  // деструктор вызовет SDL_Quit
+    if (!w->impl_->window) {
+        std::fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
+        return nullptr;  // деструктор вызовет SDL_Quit
+    }
     return w;
 }
 

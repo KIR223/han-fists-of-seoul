@@ -389,8 +389,8 @@ int main(int argc, char** argv) {
         if (!noUi) {
             const ai::CrowdStats& cst = crowd.stats();
             std::vector<std::string> lines = {fmt("FPS: %.0f", fps), "GPU: " + renderer->deviceName(), fmt("ошибок валидации: %.0f", renderer->validationErrors()),
-                                              fmt("время: %.1f ч%s", hour, timeFlows ? "" : " (пауза)"),
-                                              fmt("прохожих: %.0f (рядом %.0f, средне %.0f, далеко %.0f)", cst.agents, cst.near, cst.mid) + fmt(", вдали %.0f", cst.far + cst.dormant),
+                                              fmt("время: %.1f ч", hour) + (timeFlows ? "" : " (пауза)"),
+                                              fmt("прохожих: %.0f (рядом %.0f, средне %.0f", cst.agents, cst.near, cst.mid) + fmt(", далеко %.0f, вдали %.0f)", cst.far, cst.dormant),
                                               fmt("в пути: %.0f, запросов пути: %.0f, ждут: %.0f", cst.moving, cst.pathQueries, cst.pendingPaths),
                                               fmt("толпа: %.2f мс", crowdMs), fmt("вызовов полиции: %.0f, снимают на камеру: %.0f", policeCalls, filmed),
                                               "F — драка, G — выстрел, [ ] — время, T — пауза времени, P — пути"};

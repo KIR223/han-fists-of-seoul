@@ -134,6 +134,7 @@ struct Fixture {
         s.headless = true;
         s.maxVoices = maxVoices;
         s.seed = seed;
+        s.streamMusic = false;  // поток читается фоновым заданием: в тесте это даёт щель при зацикливании короткого файла
         std::string error;
         sys = audio::AudioSystem::create(s, error);
         REQUIRE_MESSAGE(sys, error);

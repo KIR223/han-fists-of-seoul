@@ -20,7 +20,7 @@
     },
     "window": {
       "description": "Окно, ввод и Vulkan (E1, E2): SDL3, заголовки и загрузчик Vulkan",
-      "dependencies": ["sdl3", "vulkan-headers", "vulkan-loader"]
+      "dependencies": [{ "name": "sdl3", "features": ["vulkan"] }, "vulkan-headers", "vulkan-loader"]
     },
     "assets": {
       "description": "Конвейер ассетов (E3): импорт glTF, декодирование картинок, оптимизация мешей",
@@ -33,7 +33,7 @@
     "engine": {
       "description": "Все библиотеки движка (включается по мере появления модулей): -DVCPKG_MANIFEST_FEATURES=tests;engine",
       "dependencies": [
-        "sdl3",
+        { "name": "sdl3", "features": ["vulkan"] },
         "volk",
         "vulkan-memory-allocator",
         "glm",
