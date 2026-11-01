@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "han/npc_archetype.schema.json",
+  "title": "Архетип прохожего (data/people/archetypes/*.json)",
+  "description": "Поставщик: A. Потребители: B (бой, диалоги). Взрослые только: детей и подростков в игре нет. Числа — здесь, не в коде.",
+  "type": "object",
+  "required": ["id", "numeric_id", "name_key", "age_range", "schedule"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,40}$" },
+    "numeric_id": { "type": "integer", "minimum": 0, "description": "Параметр archetype в IWorldServices::spawnNpc" },
+    "name_key": { "type": "string", "pattern": "^people\\.[a-z0-9_.]+$" },
+    "age_range": { "type": "array", "items": { "type": "integer", "minimum": 18, "maximum": 100 }, "minItems": 2, "maxItems": 2 },
+    "money_range": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 },
+    "walk_speed": { "type": "number", "exclusiveMinimum": 0, "maximum": 3 },
+    "courage": { "type": "number", "minimum": 0, "maximum": 1, "description": "0 — убегает, 1 — вмешивается в драку" },
+    "fights_back": { "type": "number", "minimum": 0, "maximum": 1 },
+    "schedule": {
+      "type": "array", "minItems": 1, "items": {
+        "type": "object", "required": ["from", "to", "activity"], "additionalProperties": false,
+        "properties": {
+          "from": { "type": "number", "minimum": 0, "maximum": 24 },
+          "to": { "type": "number", "minimum": 0, "maximum": 24 },
+          "activity": { "enum": ["work", "commute", "cafe", "shop", "home", "wait", "walk", "eat", "exercise", "sleep"] },
+          "place_category": { "type": "string" }
+        }
+      }
+    },
+    "reactions": {
+      "type": "object", "additionalProperties": { "type": "string" },
+      "description": "Событие мира → реакция (flee, watch, film, call_police, intervene, ignore)"
+    },
+    "line_keys": { "type": "array", "items": { "type": "string", "pattern": "^people\\.line\\.[a-z0-9_.]+$" } }
+  }
+}
