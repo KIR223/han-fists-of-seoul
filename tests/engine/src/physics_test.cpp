@@ -71,10 +71,10 @@ TEST_CASE("physics: overlapSphere находит тела и считает по
     const EntityId b = w->addStaticBox({1.5f, 1, 0}, {0.5f, 0.5f, 0.5f});
     w->step(1.f / 60.f);
     EntityId out[8] = {};
-    CHECK(w->overlapSphere({0.7f, 1, 0}, 1.f, out, 8) == 2);
+    CHECK(w->overlapSphere({0.75f, 1.5f, 0}, 0.8f, out, 8) == 2);
     CHECK(((out[0] == a && out[1] == b) || (out[0] == b && out[1] == a)));
     EntityId one[1] = {};
-    CHECK(w->overlapSphere({0.7f, 1, 0}, 1.f, one, 1) == 2);
+    CHECK(w->overlapSphere({0.75f, 1.5f, 0}, 0.8f, one, 1) == 2);
     CHECK(w->overlapSphere({30, 1, 30}, 0.5f, out, 8) == 0);
 }
 
