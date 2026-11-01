@@ -59,6 +59,8 @@ public:
     const std::vector<RoadEdge>& edges() const { return edges_; }
     int nearestNode(Vec2 p) const;
     float totalLength() const;  // сумма длин направленных дорог, м
+    // Кратчайший по времени путь между узлами: индексы дорог от from до to (пусто — пути нет или from == to).
+    std::vector<int> shortestPath(int fromNode, int toNode) const;
 
 private:
     std::vector<RoadNode> nodes_;

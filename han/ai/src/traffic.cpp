@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <map>
+#include <queue>
 #include <unordered_map>
 
 #include "han/world/city_builder.h"
@@ -225,6 +227,41 @@ int RoadGraph::nearestNode(Vec2 p) const {
         }
     }
     return best;
+}
+
+std::vector<int> RoadGraph::shortestPath(int fromNode, int toNode) const {
+    const std::size_t n = nodes_.size();
+    if (fromNode < 0 || toNode < 0 || static_cast<std::size_t>(fromNode) >= n || static_cast<std::size_t>(toNode) >= n || fromNode == toNode) return {};
+    std::vector<float> cost(n, 1e30f);
+    std::vector<int> viaEdge(n, -1);
+    using Item = std::pair<float, int>;
+    std::priority_queue<Item, std::vector<Item>, std::greater<Item>> open;
+    cost[static_cast<std::size_t>(fromNode)] = 0.f;
+    open.push({0.f, fromNode});
+    while (!open.empty()) {
+        const auto [c, u] = open.top();
+        open.pop();
+        if (c > cost[static_cast<std::size_t>(u)]) continue;
+        if (u == toNode) break;
+        for (int ei : nodes_[static_cast<std::size_t>(u)].out) {
+            const RoadEdge& e = edges_[static_cast<std::size_t>(ei)];
+            const float nc = c + e.length / std::max(1.f, e.speed);
+            if (nc < cost[static_cast<std::size_t>(e.to)]) {
+                cost[static_cast<std::size_t>(e.to)] = nc;
+                viaEdge[static_cast<std::size_t>(e.to)] = ei;
+                open.push({nc, e.to});
+            }
+        }
+    }
+    if (viaEdge[static_cast<std::size_t>(toNode)] < 0) return {};
+    std::vector<int> path;
+    for (int v = toNode; v != fromNode;) {
+        const int ei = viaEdge[static_cast<std::size_t>(v)];
+        path.push_back(ei);
+        v = edges_[static_cast<std::size_t>(ei)].from;
+    }
+    std::reverse(path.begin(), path.end());
+    return path;
 }
 
 float RoadGraph::totalLength() const {
