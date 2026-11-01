@@ -58,9 +58,22 @@ struct Mat4 {
         r.m[14] = nearZ * farZ / (nearZ - farZ);
         return r;
     }
+    // Ортографическая проекция под Vulkan: глубина 0..1 (от nearZ до farZ вдоль -Z), ось Y клипа НЕ переворачивается
+    // (для карты теней важна лишь согласованность записи и чтения).
+    static Mat4 orthographic(float left, float right, float bottom, float top, float nearZ, float farZ) {
+        Mat4 r;
+        r.m[0] = 2.0f / (right - left);
+        r.m[5] = 2.0f / (top - bottom);
+        r.m[10] = 1.0f / (nearZ - farZ);
+        r.m[12] = -(right + left) / (right - left);
+        r.m[13] = -(top + bottom) / (top - bottom);
+        r.m[14] = nearZ / (nearZ - farZ);
+        return r;
+    }
     // Вид из точки eye вдоль направления forward (единичный), world-up = +Y.
-    static Mat4 lookDirection(Vec3 eye, Vec3 forward) {
-        const Vec3 s = normalize(cross(forward, Vec3{0, 1, 0}));
+    // worldUp — опорная ось «вверх»; её нужно заменить, если forward почти параллелен ей (свет строго вниз).
+    static Mat4 lookDirection(Vec3 eye, Vec3 forward, Vec3 worldUp = Vec3{0, 1, 0}) {
+        const Vec3 s = normalize(cross(forward, worldUp));
         const Vec3 u = cross(s, forward);
         Mat4 r;
         r.m[0] = s.x;  r.m[4] = s.y;  r.m[8] = s.z;

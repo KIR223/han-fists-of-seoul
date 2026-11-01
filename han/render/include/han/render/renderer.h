@@ -11,6 +11,7 @@
 #include "han/render/lighting.h"
 #include "han/render/mesh.h"
 #include "han/render/overlay.h"
+#include "han/render/shadow.h"
 #include "han/render/texture.h"
 
 namespace han::render {
@@ -19,6 +20,7 @@ struct RendererDesc {
     std::vector<const char*> instanceExtensions;  // расширения для поверхности окна (от SDL)
     bool validation = true;                       // слой VK_LAYER_KHRONOS_validation, если установлен
     int width = 1280, height = 720;
+    int shadowMapSize = 2048;  // сторона карты теней каждого из трёх каскадов (1024 / 2048 / 4096 — пресеты качества)
     // Создаёт поверхность окна для VkInstance (void*) и возвращает VkSurfaceKHR как uint64; 0 — ошибка.
     std::function<std::uint64_t(void* vkInstance)> createSurface;
 };
@@ -37,6 +39,10 @@ struct FrameParams {
     core::Vec3 cameraPosition;
     SunLight sun;
     SkyColors sky;
+    float nearPlane = 0.1f, farPlane = 2000.0f;  // плоскости отсечения камеры, с которыми построена viewProjection (нужны каскадам теней)
+    bool shadows = true;            // тени от солнца (без солнечного света их всё равно нет)
+    ShadowSettings shadow;          // границы каскадов и дальность поиска отбрасывающих объектов; mapSize берётся из RendererDesc
+    bool debugCascades = false;     // подкрасить каскады: красный — ближний, зелёный — средний, синий — дальний
     float exposure = 1.0f;    // множитель яркости перед тонмаппингом
     float contrast = 1.2f;    // кривая AgX: степень контраста (1 — нейтрально)
     float saturation = 1.2f;  // насыщенность после AgX, который сам по себе заметно обесцвечивает яркие цвета (1 — нейтрально)

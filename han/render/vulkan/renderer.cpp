@@ -8,6 +8,7 @@
 #include "han/render/generated/mesh_frag.h"
 #include "han/render/generated/mesh_vert.h"
 #include "han/render/generated/post_vert.h"
+#include "han/render/generated/shadow_vert.h"
 #include "han/render/generated/sky_frag.h"
 #include "han/render/generated/sky_vert.h"
 #include "han/render/generated/tonemap_frag.h"
@@ -46,8 +47,18 @@ struct FrameUbo {
     float skyHorizon[4];
     float skyGround[4];
     float params[4];     // x — экспозиция
+    float lightViewProj[3][16];  // каскады теней: мир → клип карты теней
+    float cascadeSplits[4];      // xyz — дальние границы каскадов (м), w — 1, если тени включены
+    float cascadeTexel[4];       // xyz — размер текселя карты каждого каскада (м)
+    float shadowParams[4];       // x — 1 / размер карты, y — 1: подкрасить каскады
 };
-static_assert(sizeof(FrameUbo) == 240, "FrameUbo должен совпадать с std140-блоком Frame");
+static_assert(sizeof(FrameUbo) == 480, "FrameUbo должен совпадать с std140-блоком Frame");
+
+// Push constants теневого прохода (vertex): матрица модели и номер каскада.
+struct ShadowPush {
+    float model[16];
+    std::uint32_t cascade;
+};
 
 struct DebugCounters {
     std::uint32_t errors = 0, warnings = 0;
@@ -82,11 +93,13 @@ struct PipelineDesc {
     std::size_t fragBytes = 0;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     bool vertexInput = false;  // вершины из буфера (Vertex) или генерируются в шейдере
+    bool positionOnly = false; // из буфера читается только позиция (теневой проход): остальные атрибуты шейдер не потребляет
     VkFormat colorFormat = VK_FORMAT_UNDEFINED;
     VkFormat depthFormat = VK_FORMAT_UNDEFINED;  // UNDEFINED — без глубины
     bool depthTest = false, depthWrite = false;
     VkCompareOp depthOp = VK_COMPARE_OP_LESS;
     VkCullModeFlags cull = VK_CULL_MODE_NONE;
+    bool depthBias = false;  // динамическое смещение глубины (карта теней)
 };
 
 VkResult buildPipeline(VkDevice device, const PipelineDesc& d, VkPipeline& out) {
@@ -97,8 +110,9 @@ VkResult buildPipeline(VkDevice device, const PipelineDesc& d, VkPipeline& out) 
         return vkCreateShaderModule(device, &ci, nullptr, &module);
     };
     VkShaderModule vert = VK_NULL_HANDLE, frag = VK_NULL_HANDLE;
+    const bool hasFragment = d.frag != nullptr;  // теневой конвейер пишет только глубину
     VkResult r = makeModule(d.vert, d.vertBytes, vert);
-    if (r == VK_SUCCESS) r = makeModule(d.frag, d.fragBytes, frag);
+    if (r == VK_SUCCESS && hasFragment) r = makeModule(d.frag, d.fragBytes, frag);
     if (r != VK_SUCCESS) {
         if (vert) vkDestroyShaderModule(device, vert, nullptr);
         return r;
@@ -106,7 +120,8 @@ VkResult buildPipeline(VkDevice device, const PipelineDesc& d, VkPipeline& out) 
 
     std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
     stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vert, "main", nullptr};
-    stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag, "main", nullptr};
+    if (hasFragment)
+        stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag, "main", nullptr};
 
     const VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
     const std::array<VkVertexInputAttributeDescription, 4> attrs{{
@@ -119,7 +134,7 @@ VkResult buildPipeline(VkDevice device, const PipelineDesc& d, VkPipeline& out) 
     if (d.vertexInput) {
         vin.vertexBindingDescriptionCount = 1;
         vin.pVertexBindingDescriptions = &binding;
-        vin.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
+        vin.vertexAttributeDescriptionCount = d.positionOnly ? 1 : static_cast<std::uint32_t>(attrs.size());
         vin.pVertexAttributeDescriptions = attrs.data();
     }
 
@@ -134,6 +149,7 @@ VkResult buildPipeline(VkDevice device, const PipelineDesc& d, VkPipeline& out) 
     // Меши обходятся против часовой стрелки; перевёрнутая по Y проекция сохраняет видимую ориентацию (проверено на кадре).
     rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rs.lineWidth = 1.0f;
+    rs.depthBiasEnable = d.depthBias ? VK_TRUE : VK_FALSE;
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo dss{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
@@ -143,21 +159,22 @@ VkResult buildPipeline(VkDevice device, const PipelineDesc& d, VkPipeline& out) 
     VkPipelineColorBlendAttachmentState att{};
     att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = 1;
-    cb.pAttachments = &att;
-    const std::array<VkDynamicState, 2> dyn{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    const bool hasColor = d.colorFormat != VK_FORMAT_UNDEFINED;
+    cb.attachmentCount = hasColor ? 1 : 0;
+    cb.pAttachments = hasColor ? &att : nullptr;
+    std::array<VkDynamicState, 3> dyn{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS};
     VkPipelineDynamicStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    ds.dynamicStateCount = static_cast<std::uint32_t>(dyn.size());
+    ds.dynamicStateCount = d.depthBias ? 3 : 2;
     ds.pDynamicStates = dyn.data();
 
     VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rendering.colorAttachmentCount = 1;
-    rendering.pColorAttachmentFormats = &d.colorFormat;
+    rendering.colorAttachmentCount = hasColor ? 1 : 0;
+    rendering.pColorAttachmentFormats = hasColor ? &d.colorFormat : nullptr;
     rendering.depthAttachmentFormat = d.depthFormat;
 
     VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     pci.pNext = &rendering;
-    pci.stageCount = 2;
+    pci.stageCount = hasFragment ? 2 : 1;
     pci.pStages = stages.data();
     pci.pVertexInputState = &vin;
     pci.pInputAssemblyState = &ia;
@@ -171,7 +188,7 @@ VkResult buildPipeline(VkDevice device, const PipelineDesc& d, VkPipeline& out) 
     r = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pci, nullptr, &out);
 
     vkDestroyShaderModule(device, vert, nullptr);
-    vkDestroyShaderModule(device, frag, nullptr);
+    if (frag) vkDestroyShaderModule(device, frag, nullptr);
     return r;
 }
 
@@ -234,6 +251,16 @@ struct Renderer::Impl {
     std::array<VkDescriptorSet, kFramesInFlight> frameSets{};
     VkSampler clampSampler = VK_NULL_HANDLE;  // для чтения HDR: линейная фильтрация без повтора
 
+    // Каскадные карты теней: одно изображение-массив из kShadowCascades слоёв, по виду на слой для записи и общий вид для чтения.
+    int shadowMapSize = 2048;
+    VkImage shadowImage = VK_NULL_HANDLE;
+    VkDeviceMemory shadowMemory = VK_NULL_HANDLE;
+    VkImageView shadowArrayView = VK_NULL_HANDLE;
+    std::array<VkImageView, kShadowCascades> shadowLayerViews{};
+    VkSampler shadowSampler = VK_NULL_HANDLE;  // сравнивающий: аппаратный PCF
+    VkPipelineLayout shadowLayout = VK_NULL_HANDLE;
+    VkPipeline shadowPipeline = VK_NULL_HANDLE;
+
     VkCommandPool pool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, kFramesInFlight> cmds{};
     std::array<VkSemaphore, kFramesInFlight> imageAvailable{};
@@ -260,6 +287,7 @@ struct Renderer::Impl {
     void destroySwapchain();
     bool createPipeline(std::string& err);
     bool createFrameData(std::string& err);
+    bool createShadowMap(std::string& err);
     bool createFrameObjects(std::string& err);
     bool createBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory,
                       std::string& err);
@@ -657,6 +685,30 @@ bool Renderer::Impl::createPipeline(std::string& err) {
     r = buildPipeline(device, mesh, pipeline);
     if (r != VK_SUCCESS) return fail(err, "конвейер мешей", r);
 
+    // Тени: тот же набор дескрипторов (set 1 — данные кадра), push constants — модель и номер каскада; только вершинный шейдер.
+    const VkPushConstantRange shadowPush{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPush)};
+    VkPipelineLayoutCreateInfo sli{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    sli.setLayoutCount = static_cast<std::uint32_t>(sceneSets.size());
+    sli.pSetLayouts = sceneSets.data();
+    sli.pushConstantRangeCount = 1;
+    sli.pPushConstantRanges = &shadowPush;
+    r = vkCreatePipelineLayout(device, &sli, nullptr, &shadowLayout);
+    if (r != VK_SUCCESS) return fail(err, "vkCreatePipelineLayout (тени)", r);
+
+    PipelineDesc shadow;
+    shadow.vert = shaders::k_shadow_vert;
+    shadow.vertBytes = sizeof(shaders::k_shadow_vert);
+    shadow.layout = shadowLayout;
+    shadow.vertexInput = true;
+    shadow.positionOnly = true;
+    shadow.depthFormat = kDepthFormat;
+    shadow.depthTest = shadow.depthWrite = true;
+    shadow.depthOp = VK_COMPARE_OP_LESS;
+    shadow.cull = VK_CULL_MODE_BACK_BIT;
+    shadow.depthBias = true;
+    r = buildPipeline(device, shadow, shadowPipeline);
+    if (r != VK_SUCCESS) return fail(err, "конвейер теней", r);
+
     PipelineDesc sky;  // небо — на дальней плоскости, поэтому «меньше или равно» и без записи глубины
     sky.vert = shaders::k_sky_vert;
     sky.vertBytes = sizeof(shaders::k_sky_vert);
@@ -680,6 +732,60 @@ bool Renderer::Impl::createPipeline(std::string& err) {
     tonemap.colorFormat = format;
     r = buildPipeline(device, tonemap, tonemapPipeline);
     return r == VK_SUCCESS ? true : fail(err, "конвейер тонмаппинга", r);
+}
+
+// Карта теней: массив глубины kShadowCascades слоёв размером shadowMapSize; сэмплер со сравнением и белой рамкой (вне карты — свет).
+bool Renderer::Impl::createShadowMap(std::string& err) {
+    VkImageCreateInfo ii{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ii.imageType = VK_IMAGE_TYPE_2D;
+    ii.format = kDepthFormat;
+    ii.extent = {static_cast<std::uint32_t>(shadowMapSize), static_cast<std::uint32_t>(shadowMapSize), 1};
+    ii.mipLevels = 1;
+    ii.arrayLayers = kShadowCascades;
+    ii.samples = VK_SAMPLE_COUNT_1_BIT;
+    ii.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ii.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ii.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkResult r = vkCreateImage(device, &ii, nullptr, &shadowImage);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateImage (тени)", r);
+
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(device, shadowImage, &req);
+    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    ai.allocationSize = req.size;
+    if (!findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ai.memoryTypeIndex)) {
+        err = "нет памяти GPU для карт теней";
+        return false;
+    }
+    r = vkAllocateMemory(device, &ai, nullptr, &shadowMemory);
+    if (r != VK_SUCCESS) return fail(err, "vkAllocateMemory (тени)", r);
+    vkBindImageMemory(device, shadowImage, shadowMemory, 0);
+
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = shadowImage;
+    vi.format = kDepthFormat;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, kShadowCascades};
+    r = vkCreateImageView(device, &vi, nullptr, &shadowArrayView);
+    if (r != VK_SUCCESS) return fail(err, "vkCreateImageView (тени, массив)", r);
+    for (std::uint32_t layer = 0; layer < kShadowCascades; ++layer) {
+        vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vi.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, layer, 1};
+        r = vkCreateImageView(device, &vi, nullptr, &shadowLayerViews[layer]);
+        if (r != VK_SUCCESS) return fail(err, "vkCreateImageView (тени, слой)", r);
+    }
+
+    VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sci.magFilter = VK_FILTER_LINEAR;
+    sci.minFilter = VK_FILTER_LINEAR;
+    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    sci.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;  // за пределами карты глубина 1 — освещено
+    sci.compareEnable = VK_TRUE;
+    sci.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;  // результат 1, если глубина точки не больше записанной (то есть точка не в тени)
+    r = vkCreateSampler(device, &sci, nullptr, &shadowSampler);
+    return r == VK_SUCCESS ? true : fail(err, "vkCreateSampler (тени)", r);
 }
 
 // Буферы и наборы дескрипторов данных кадра (UBO, постоянно отображённый, по одному на кадр в полёте).
@@ -712,13 +818,21 @@ bool Renderer::Impl::createFrameData(std::string& err) {
         r = vkAllocateDescriptorSets(device, &dai, &frameSets[i]);
         if (r != VK_SUCCESS) return fail(err, "vkAllocateDescriptorSets (данные кадра)", r);
         VkDescriptorBufferInfo info{frameBuffers[i], 0, sizeof(FrameUbo)};
-        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        write.dstSet = frameSets[i];
-        write.dstBinding = 0;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.pBufferInfo = &info;
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        VkDescriptorImageInfo shadowInfo{shadowSampler, shadowArrayView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+        std::array<VkWriteDescriptorSet, 2> writes{};
+        writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[0].dstSet = frameSets[i];
+        writes[0].dstBinding = 0;
+        writes[0].descriptorCount = 1;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].pBufferInfo = &info;
+        writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[1].dstSet = frameSets[i];
+        writes[1].dstBinding = 1;
+        writes[1].descriptorCount = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].pImageInfo = &shadowInfo;
+        vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
     return true;
 }
@@ -778,9 +892,15 @@ bool Renderer::Impl::createTextureObjects(std::string& err) {
     frameBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     frameBinding.descriptorCount = 1;
     frameBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutBinding shadowBinding{};  // карта теней: массив глубины и сравнивающий сэмплер, только фрагментный шейдер
+    shadowBinding.binding = 1;
+    shadowBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    shadowBinding.descriptorCount = 1;
+    shadowBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    const std::array<VkDescriptorSetLayoutBinding, 2> frameBindings{frameBinding, shadowBinding};
     VkDescriptorSetLayoutCreateInfo fli{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    fli.bindingCount = 1;
-    fli.pBindings = &frameBinding;
+    fli.bindingCount = static_cast<std::uint32_t>(frameBindings.size());
+    fli.pBindings = frameBindings.data();
     r = vkCreateDescriptorSetLayout(device, &fli, nullptr, &frameLayout);
     if (r != VK_SUCCESS) return fail(err, "vkCreateDescriptorSetLayout (данные кадра)", r);
 
@@ -807,6 +927,8 @@ bool Renderer::Impl::createTextureObjects(std::string& err) {
     sci.maxLod = VK_LOD_CLAMP_NONE;
     r = vkCreateSampler(device, &sci, nullptr, &sampler);
     if (r != VK_SUCCESS) return fail(err, "vkCreateSampler", r);
+
+    if (!createShadowMap(err)) return false;
 
     VkSamplerCreateInfo csi{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};  // для HDR-цели: без повтора и без мипов
     csi.magFilter = VK_FILTER_LINEAR;
@@ -1021,6 +1143,14 @@ void Renderer::Impl::destroyAll() {
         if (sampler) vkDestroySampler(device, sampler, nullptr);
         if (clampSampler) vkDestroySampler(device, clampSampler, nullptr);
         if (pool) vkDestroyCommandPool(device, pool, nullptr);
+        if (shadowPipeline) vkDestroyPipeline(device, shadowPipeline, nullptr);
+        if (shadowLayout) vkDestroyPipelineLayout(device, shadowLayout, nullptr);
+        if (shadowSampler) vkDestroySampler(device, shadowSampler, nullptr);
+        for (const VkImageView view : shadowLayerViews)
+            if (view) vkDestroyImageView(device, view, nullptr);
+        if (shadowArrayView) vkDestroyImageView(device, shadowArrayView, nullptr);
+        if (shadowImage) vkDestroyImage(device, shadowImage, nullptr);
+        if (shadowMemory) vkFreeMemory(device, shadowMemory, nullptr);
         if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
         if (skyPipeline) vkDestroyPipeline(device, skyPipeline, nullptr);
         if (tonemapPipeline) vkDestroyPipeline(device, tonemapPipeline, nullptr);
@@ -1068,6 +1198,7 @@ void Renderer::setOverlay(IOverlay* overlay) {
 std::unique_ptr<Renderer> Renderer::create(const RendererDesc& desc, std::string& error) {
     std::unique_ptr<Renderer> r(new Renderer());
     Impl& s = *r->impl_;
+    s.shadowMapSize = std::clamp(desc.shadowMapSize, 256, 8192);
     if (!s.createInstance(desc, error)) return nullptr;
     s.surface = reinterpret_cast<VkSurfaceKHR>(desc.createSurface ? desc.createSurface(s.instance) : 0);
     if (!s.surface) {
@@ -1180,6 +1311,22 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     put3(ubo.skyHorizon, frame.sky.horizon);
     put3(ubo.skyGround, frame.sky.ground);
     ubo.params[0] = frame.exposure;
+
+    // Каскады теней. Без солнечного света (ночь) или при выключенных тенях шейдер получает «тени выключены», а карты просто очищаются.
+    ShadowSettings shadowSettings = frame.shadow;
+    shadowSettings.mapSize = s.shadowMapSize;
+    const ShadowCascades cascades =
+        computeShadowCascades(frame.viewProjection, frame.nearPlane, frame.farPlane, core::normalize(frame.sun.direction), shadowSettings);
+    const bool shadowsOn = frame.shadows && frame.sun.illuminance > 0.0f && cascades.cascade[0].radius > 0.0f;
+    for (int i = 0; i < kShadowCascades; ++i) {
+        const ShadowCascade& k = cascades.cascade[static_cast<std::size_t>(i)];
+        std::memcpy(ubo.lightViewProj[i], k.viewProjection.m, sizeof(ubo.lightViewProj[i]));
+        ubo.cascadeSplits[i] = k.splitDistance;
+        ubo.cascadeTexel[i] = k.texelWorldSize;
+    }
+    ubo.cascadeSplits[3] = shadowsOn ? 1.0f : 0.0f;
+    ubo.shadowParams[0] = 1.0f / static_cast<float>(s.shadowMapSize);
+    ubo.shadowParams[1] = frame.debugCascades ? 1.0f : 0.0f;
     std::memcpy(s.frameMapped[f], &ubo, sizeof(ubo));
 
     const VkCommandBuffer cmd = s.cmds[f];
@@ -1205,6 +1352,77 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
         dep.pImageMemoryBarriers = &b;
         vkCmdPipelineBarrier2(cmd, &dep);
     };
+
+    // --- Проход 0: карты теней — по одному проходу глубины на каскад. Проходы выполняются всегда (при выключенных тенях — только
+    // очистка), чтобы изображение карты оказывалось в правильной раскладке для чтения шейдером.
+    {
+        VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+        b.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        b.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;  // прошлое содержимое не нужно: карта перерисовывается целиком
+        b.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = s.shadowImage;
+        b.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, kShadowCascades};
+        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    }
+    const auto mapExtent = static_cast<std::uint32_t>(s.shadowMapSize);
+    const VkViewport shadowViewport{0, 0, static_cast<float>(mapExtent), static_cast<float>(mapExtent), 0, 1};
+    const VkRect2D shadowScissor{{0, 0}, {mapExtent, mapExtent}};
+    for (std::uint32_t cascade = 0; cascade < kShadowCascades; ++cascade) {
+        VkRenderingAttachmentInfo shadowDepth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        shadowDepth.imageView = s.shadowLayerViews[cascade];
+        shadowDepth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        shadowDepth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        shadowDepth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        shadowDepth.clearValue.depthStencil = {1.0f, 0};
+        VkRenderingInfo shadowInfo{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        shadowInfo.renderArea = shadowScissor;
+        shadowInfo.layerCount = 1;
+        shadowInfo.pDepthAttachment = &shadowDepth;
+        vkCmdBeginRendering(cmd, &shadowInfo);
+        if (shadowsOn) {
+            vkCmdSetViewport(cmd, 0, 1, &shadowViewport);
+            vkCmdSetScissor(cmd, 0, 1, &shadowScissor);
+            vkCmdSetDepthBias(cmd, 1.25f, 0.0f, 1.75f);  // постоянное и наклонное смещение против «лесенки»
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowPipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowLayout, 1, 1, &s.frameSets[f], 0, nullptr);
+            ShadowPush shadowPush{};
+            shadowPush.cascade = cascade;
+            for (const DrawItem& item : items) {
+                if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
+                const GpuMesh& mesh = s.meshes[item.mesh - 1];
+                if (mesh.indexCount == 0) continue;
+                std::memcpy(shadowPush.model, item.model.m, sizeof(shadowPush.model));
+                const VkDeviceSize offset = 0;
+                vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
+                vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+                vkCmdPushConstants(cmd, s.shadowLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(shadowPush), &shadowPush);
+                vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);  // материалы тени не нужны: весь меш одним вызовом
+            }
+        }
+        vkCmdEndRendering(cmd);
+    }
+    {
+        VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+        b.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        b.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        b.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = s.shadowImage;
+        b.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, kShadowCascades};
+        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    }
 
     // --- Проход 1: сцена в линейный HDR (меши, затем небо на дальней плоскости).
     // Предыдущий кадр в полёте мог ещё читать HDR в тонмаппинге и писать глубину — ждём обе стадии (содержимое не нужно).

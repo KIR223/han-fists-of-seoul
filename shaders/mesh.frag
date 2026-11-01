@@ -3,6 +3,7 @@
 // PBR (E4): Cook-Torrance с GGX, один направленный свет (солнце) и окружение из аналитического неба.
 // Выход — линейная HDR-яркость; тонмаппинг делает отдельный проход.
 #include "common.glsl"
+#include "shadow.glsl"
 
 layout(set = 0, binding = 0) uniform sampler2D uAlbedo;  // sRGB-формат: оборудование само переводит в линейный свет
 
@@ -14,6 +15,7 @@ layout(location = 0) in vec3 vWorldPos;
 layout(location = 1) in vec3 vNormal;
 layout(location = 2) in vec3 vColor;
 layout(location = 3) in vec2 vUV;
+layout(location = 4) in float vViewDepth;
 layout(location = 0) out vec4 outColor;
 
 float distributionGGX(float NoH, float a) {
@@ -49,6 +51,10 @@ void main() {
     vec3 L = normalize(frame.sunDir.xyz);
 
     vec3 albedo = texture(uAlbedo, vUV).rgb * vColor;
+    if (frame.shadowParams.y > 0.5) {  // отладка: каскады разными цветами
+        int c = cascadeIndex(vViewDepth);
+        albedo = mix(albedo, c == 0 ? vec3(1.0, 0.2, 0.2) : (c == 1 ? vec3(0.2, 1.0, 0.2) : (c == 2 ? vec3(0.2, 0.4, 1.0) : vec3(0.6))), 0.5);
+    }
     float metallic = clamp(fpc.material.x, 0.0, 1.0);
     float roughness = clamp(fpc.material.y, 0.045, 1.0);  // ниже 0,045 блик вырождается в точку
     float a = roughness * roughness;
@@ -69,7 +75,8 @@ void main() {
     vec3 diffuse = diffuseColor / PI;
 
     vec3 sunRadiance = frame.sunColor.rgb * frame.sunColor.a;
-    vec3 direct = (diffuse * (1.0 - F) + specular) * sunRadiance * NoL;
+    float visibility = shadowVisibility(vWorldPos, N, vViewDepth, L);
+    vec3 direct = (diffuse * (1.0 - F) + specular) * sunRadiance * NoL * visibility;
 
     // Окружение: рассеянная часть — полусфера неба по нормали, зеркальная — небо по отражённому лучу (размытое при шероховатости).
     float up = N.y * 0.5 + 0.5;
