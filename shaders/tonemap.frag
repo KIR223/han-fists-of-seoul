@@ -1,11 +1,13 @@
 #version 450
 // Тонмаппинг AgX (часть 34.4): HDR → экран. Запись идёт в sRGB-формат, оборудование само кодирует результат.
 layout(set = 0, binding = 0) uniform sampler2D uHdr;
+layout(set = 0, binding = 1) uniform sampler2D uBloom;  // свечение: нулевой (самый крупный) уровень bloom, половинное разрешение
 
 layout(push_constant) uniform Push {
     float exposure;
     float contrast;    // степень кривой (1 — без изменений, больше — контрастнее)
     float saturation;  // 1 — без изменений
+    float bloomIntensity;  // доля bloom, добавляемая к сцене до тонмаппинга (0 — выключено)
 } pc;
 
 layout(location = 0) in vec2 vUv;
@@ -52,7 +54,7 @@ float gradientNoise(vec2 p) {
 }
 
 void main() {
-    vec3 hdr = texture(uHdr, vUv).rgb * pc.exposure;
+    vec3 hdr = (texture(uHdr, vUv).rgb + texture(uBloom, vUv).rgb * pc.bloomIntensity) * pc.exposure;
     vec3 color = agxToLinear(agxLook(agx(hdr)));
     color += (gradientNoise(gl_FragCoord.xy) - 0.5) / 255.0;
     outColor = vec4(clamp(color, 0.0, 1.0), 1.0);

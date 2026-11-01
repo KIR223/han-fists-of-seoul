@@ -49,13 +49,16 @@ int main(int argc, char** argv) {
     bool captured = true, nullOverlay = false;
     float sunArgs[3] = {38.0f, 125.0f, 5200.0f};  // высота, азимут, кельвины; по умолчанию дневное солнце из таблицы 34.1 (10:00)
     float exposureArg = 1.0f;
-    bool shadowsArg = true, cascadesArg = false;
+    bool shadowsArg = true, cascadesArg = false, taaArg = true;
+    float bloomArg = 0.08f;
     float cameraArgs[5] = {0.0f, 2.6f, 9.5f, 0.0f, -8.0f};  // x y z, рыскание и тангаж в градусах
     std::filesystem::path meshPath;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--null-overlay")) nullOverlay = true;
         if (!std::strcmp(argv[i], "--no-shadows")) shadowsArg = false;
         if (!std::strcmp(argv[i], "--cascades")) cascadesArg = true;
+        if (!std::strcmp(argv[i], "--no-taa")) taaArg = false;
+        if (!std::strcmp(argv[i], "--bloom") && i + 1 < argc) bloomArg = static_cast<float>(std::atof(argv[i + 1]));
         if (!std::strcmp(argv[i], "--camera") && i + 5 < argc)  // --camera x y z рыскание тангаж
             for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
         if (!std::strcmp(argv[i], "--sun") && i + 3 < argc)  // --sun высота азимут кельвины
@@ -170,7 +173,8 @@ int main(int argc, char** argv) {
 
     // Свет: высота и азимут солнца в градусах, цветовая температура, экспозиция. Меняется командами sun и exposure.
     float sunElevation = sunArgs[0], sunAzimuth = sunArgs[1], sunKelvin = sunArgs[2], exposure = exposureArg;
-    bool shadowsEnabled = shadowsArg, debugCascades = cascadesArg;
+    bool shadowsEnabled = shadowsArg, debugCascades = cascadesArg, taaEnabled = taaArg;
+    float bloomIntensity = bloomArg;
 
     han::core::Console console;
     console.registerCommand("quit", "закрыть демо", [&](const std::vector<std::string>&) {
@@ -220,6 +224,12 @@ int main(int argc, char** argv) {
     console.registerCommand("shadows", "shadows on|off — тени от солнца", [&](const std::vector<std::string>& a) { return onOff(a, shadowsEnabled); });
     console.registerCommand("cascades", "cascades on|off — подкрасить каскады теней (красный, зелёный, синий)",
                             [&](const std::vector<std::string>& a) { return onOff(a, debugCascades); });
+    console.registerCommand("taa", "taa on|off — временное сглаживание", [&](const std::vector<std::string>& a) { return onOff(a, taaEnabled); });
+    console.registerCommand("bloom", "bloom число — сила свечения (0 — выключено, по умолчанию 0,08)", [&](const std::vector<std::string>& a) {
+        if (a.size() != 1) return fmt("свечение: %.3f", bloomIntensity);
+        bloomIntensity = std::clamp(static_cast<float>(std::atof(a[0].c_str())), 0.0f, 2.0f);
+        return std::string("готово");
+    });
     console.registerCommand("echo", "echo текст", [](const std::vector<std::string>& a) {
         std::string out;
         for (const auto& s : a) out += (out.empty() ? "" : " ") + s;
@@ -265,7 +275,7 @@ int main(int argc, char** argv) {
         ui.drawStats({fmt("FPS: %.0f", fps), "GPU: " + renderer->deviceName(),
                       fmt("ошибок валидации: %.0f", renderer->validationErrors()),
                       fmt("камера: %.1f %.1f %.1f", camera.position.x, camera.position.y, camera.position.z),
-                      shadowsEnabled ? "тени: вкл" : "тени: выкл",
+                      std::string(shadowsEnabled ? "тени: вкл" : "тени: выкл") + (taaEnabled ? ", TAA: вкл" : ", TAA: выкл"),
                       consoleOpen ? "` — закрыть консоль" : "` — консоль"});
         ui.drawConsole(console, consoleOpen);
 #endif
@@ -312,6 +322,8 @@ int main(int argc, char** argv) {
         params.farPlane = camera.farZ;
         params.shadows = shadowsEnabled;
         params.debugCascades = debugCascades;
+        params.taa = taaEnabled;
+        params.bloomIntensity = bloomIntensity;
         renderer->drawFrame(params, items, w, h);
     }
     const auto errors = renderer->validationErrors();
