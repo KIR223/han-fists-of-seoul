@@ -15,6 +15,16 @@ if(Vulkan_FOUND)
     if(SDL3_FOUND)
         add_executable(han_scene_demo apps/scene_demo.cpp)
         target_link_libraries(han_scene_demo PRIVATE han_render han_ui)  # han_ui даёт ImGui, если он найден
+
+        # Демо физики E5: нужен ещё Jolt (vcpkg-функция physics). Это приложение, поэтому оно может зависеть и от рендера, и от физики.
+        find_package(Jolt CONFIG QUIET)
+        if(Jolt_FOUND)
+            add_executable(han_physics_demo apps/physics_demo.cpp)
+            target_link_libraries(han_physics_demo PRIVATE han_render han_ui han_physics)
+            if(MSVC)
+                target_compile_options(han_physics_demo PRIVATE /W4 /permissive- /utf-8)
+            endif()
+        endif()
     endif()
 else()
     message(STATUS "Vulkan SDK не найден: рендерер не собирается")

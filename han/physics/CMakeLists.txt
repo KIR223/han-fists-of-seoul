@@ -1,1 +1,15 @@
 han_module(physics DEPENDS han_platform)
+
+# Jolt приходит из vcpkg (функция physics). Без него модуль собирается без физического мира (hasJolt() == false).
+find_package(Jolt CONFIG QUIET)
+get_target_property(han_physics_sources han_physics SOURCES)
+if(Jolt_FOUND)
+    list(FILTER han_physics_sources EXCLUDE REGEX "no_jolt\\.cpp$")
+    set_property(TARGET han_physics PROPERTY SOURCES ${han_physics_sources})
+    target_link_libraries(han_physics PUBLIC Jolt::Jolt)
+    target_compile_definitions(han_physics PUBLIC HAN_HAS_JOLT=1)
+else()
+    list(FILTER han_physics_sources EXCLUDE REGEX "jolt_world\\.cpp$")
+    set_property(TARGET han_physics PROPERTY SOURCES ${han_physics_sources})
+    message(STATUS "Jolt не найден (нужна vcpkg-функция physics): физический мир не собирается")
+endif()

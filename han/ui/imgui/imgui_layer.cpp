@@ -162,4 +162,27 @@ void ImGuiLayer::drawStats(const std::vector<std::string>& lines) {
     ImGui::End();
 }
 
+void ImGuiLayer::drawLines(const std::vector<Line3D>& lines, const core::Mat4& viewProjection, int width, int height) {
+    if (!impl_->frameStarted || width <= 0 || height <= 0) return;
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    constexpr float kNearW = 0.05f;
+    for (const Line3D& line : lines) {
+        core::Vec4 p = core::transform(viewProjection, line.a);
+        core::Vec4 q = core::transform(viewProjection, line.b);
+        if (p.w < kNearW && q.w < kNearW) continue;
+        // Обрезка по ближней плоскости: отрезок укорачивается до w = kNearW.
+        if (p.w < kNearW) {
+            const float k = (kNearW - p.w) / (q.w - p.w);
+            p = {p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k, p.z + (q.z - p.z) * k, kNearW};
+        } else if (q.w < kNearW) {
+            const float k = (kNearW - q.w) / (p.w - q.w);
+            q = {q.x + (p.x - q.x) * k, q.y + (p.y - q.y) * k, q.z + (p.z - q.z) * k, kNearW};
+        }
+        const auto toScreen = [&](const core::Vec4& v) {
+            return ImVec2((v.x / v.w * 0.5f + 0.5f) * static_cast<float>(width), (v.y / v.w * 0.5f + 0.5f) * static_cast<float>(height));
+        };
+        draw->AddLine(toScreen(p), toScreen(q), line.color, 1.5f);
+    }
+}
+
 }  // namespace han::ui
