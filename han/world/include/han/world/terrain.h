@@ -48,5 +48,9 @@ struct TerrainSettings {
 // Сетка земли для одной ячейки (материал Terrain). Пустая, если ячейка вне рельефа.
 GeoMesh buildTerrainCell(const Heightmap& map, CellCoord cell, const TerrainSettings& settings = {});
 
+// Дальний план (E17): вся карта одной грубой сеткой (шаг 128 м), опущенной на sink метров, чтобы не торчать сквозь ближнюю землю и город.
+// Рисуется всегда (отсекается по кадру); за радиусом загрузки ячеек именно она показывает холмы и горы у горизонта.
+GeoMesh buildFarTerrain(const Heightmap& map, float spacing = 128.f, float sink = 6.f, float uvTile = 64.f);
+
 }  // namespace han::world
 // Пример: Heightmap h; h.load("assets_bin/terrain/seoul.hht", err); float y = h.heightAt(x, z); GeoMesh m = buildTerrainCell(h, {2, 1});

@@ -215,6 +215,8 @@ int main(int argc, char** argv) {
     CityLoader loader;
     loader.renderer = renderer.get();
     loader.textureIds = han::render::citytex::load(*renderer);
+    han::render::MeshId farTerrain = 0;  // дальний план рельефа (вся карта грубой сеткой)
+    if (haveTerrain) farTerrain = renderer->uploadMesh(han::render::citytex::toMesh(world::buildFarTerrain(terrain), loader.textureIds, 0.95f), loader.textureIds);
     loader.chunks = &chunks;
     world::StreamingManager streaming(ss, loader);
     loader.manager = &streaming;
@@ -343,6 +345,7 @@ int main(int argc, char** argv) {
                 if (dx * dx + dz * dz < 600.f * 600.f) items.push_back({metroEntrance, Mat4::translation({st.pos.x, 1.75f + (haveTerrain ? terrain.heightAt(st.pos.x, st.pos.z) : 0.f), st.pos.z})});
             }
         }
+        if (farTerrain) items.push_back({farTerrain, Mat4::identity()});
         items.push_back({ground, Mat4::translation({0.f, haveTerrain ? terrain.minHeight() - 2.f : -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
         for (const auto& [cell, g] : loader.gpu) {
             if (g.ground) items.push_back({g.ground, Mat4::identity()});

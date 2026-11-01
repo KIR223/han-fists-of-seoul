@@ -97,4 +97,31 @@ GeoMesh buildTerrainCell(const Heightmap& map, CellCoord cell, const TerrainSett
     return mesh;
 }
 
+GeoMesh buildFarTerrain(const Heightmap& map, float spacing, float sink, float uvTile) {
+    GeoMesh mesh;
+    if (!map.valid() || spacing < 1.f) return mesh;
+    const int nx = std::max(1, static_cast<int>(std::ceil((map.maxX() - map.minX()) / spacing))), nz = std::max(1, static_cast<int>(std::ceil((map.maxZ() - map.minZ()) / spacing)));
+    const float sx = (map.maxX() - map.minX()) / static_cast<float>(nx), sz = (map.maxZ() - map.minZ()) / static_cast<float>(nz);
+    for (int j = 0; j <= nz; ++j)
+        for (int i = 0; i <= nx; ++i) {
+            const float x = map.minX() + static_cast<float>(i) * sx, z = map.minZ() + static_cast<float>(j) * sz;
+            GeoVertex v{};
+            v.position[0] = x;
+            v.position[1] = map.heightAt(x, z) - sink;
+            v.position[2] = z;
+            map.normalAt(x, z, v.normal[0], v.normal[1], v.normal[2]);
+            v.color[0] = v.color[1] = v.color[2] = 0.75f;  // дальняя земля чуть темнее: дымка и так «съедает» контраст
+            v.uv[0] = x / uvTile;
+            v.uv[1] = z / uvTile;
+            mesh.vertices.push_back(v);
+        }
+    for (int j = 0; j < nz; ++j)
+        for (int i = 0; i < nx; ++i) {
+            const auto a = static_cast<std::uint32_t>(j * (nx + 1) + i), b = a + 1, c = a + static_cast<std::uint32_t>(nx + 1), d = c + 1;
+            mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
+        }
+    mesh.tag(GeoMaterial::Terrain, 0);
+    return mesh;
+}
+
 }  // namespace han::world

@@ -34,6 +34,10 @@ public:
     contracts::EntityId addStaticBox(contracts::Vec3 center, contracts::Vec3 halfExtents,
                                      contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Concrete,
                                      contracts::Quat rotation = {});
+    // Рельеф (E17): квадратная сетка высот sampleCount x sampleCount (чётное, до 256) с углом (minX, minZ), шагом cell метров, строки по z, высоты абсолютные.
+    // Для больших карт создаётся по плитке рядом с игроком и убирается через destroy().
+    contracts::EntityId addStaticHeightfield(float minX, float minZ, float cell, int sampleCount, const std::vector<float>& heights,
+                                             contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Concrete);
     contracts::EntityId addDynamicSphere(contracts::Vec3 center, float radius, float mass = 1.f,
                                          contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Unknown);
     contracts::EntityId addDynamicBox(contracts::Vec3 center, contracts::Vec3 halfExtents, float mass = 1.f,
@@ -86,6 +90,8 @@ public:
     };
     contracts::EntityId createVehicle(const VehicleDesc& desc, contracts::Vec3 position, contracts::Quat rotation = {});
     void destroyVehicle(contracts::EntityId id);
+    // Убирает обычное тело (статику, ящик, шар, плитку рельефа); персонажей убирает destroy(), машины — destroyVehicle().
+    void destroyBody(contracts::EntityId id);
     void setVehicleInput(contracts::EntityId id, const VehicleInput& input);
     VehicleState vehicleState(contracts::EntityId id) const;
 

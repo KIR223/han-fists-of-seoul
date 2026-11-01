@@ -163,3 +163,69 @@ TEST_CASE("terrain: реальный рельеф Сеула (если скач�
     std::ofstream(bad, std::ios::binary) << "NOPE";
     CHECK_FALSE(Heightmap().load(bad.string(), error));
 }
+
+#include "han/physics/physics_world.h"
+#include "han/world/terrain_physics.h"
+
+TEST_CASE("terrain physics: луч сверху попадает в склон на высоте рельефа, швы между плитками не заметны, дальние плитки убираются") {
+    auto world = han::physics::PhysicsWorld::create();
+    if (!world) {
+        MESSAGE("физика собрана без Jolt — пропуск");
+        return;
+    }
+    // Большой склон: 120 x 60 узлов с шагом 25 м (3 км x 1,5 км), высота растёт к востоку и немного к югу
+    std::vector<float> h;
+    for (int j = 0; j < 60; ++j)
+        for (int i = 0; i < 120; ++i) h.push_back(static_cast<float>(i) * 1.5f + static_cast<float>(j) * 0.5f);
+    const Heightmap map = Heightmap::fromGrid(0.f, 0.f, 25.f, 120, 60, h);
+    TerrainPhysics terrain(*world, map);
+    CHECK(terrain.tileCount() == 0);
+    CHECK(terrain.update(400.f, 300.f) > 0);
+    const std::size_t afterFirst = terrain.tileCount();
+    CHECK(afterFirst >= 2);
+    CHECK(terrain.update(400.f, 300.f) == 0);  // повторно ничего нового
+    // Лучи через весь диапазон x, включая стык плиток (787,5 м): высота совпадает с рельефом до сантиметров
+    for (float x = 20.f; x < 1500.f; x += 37.5f) {
+        const float z = 300.f;
+        const auto hit = world->raycast({x, 500.f, z}, {x, -100.f, z});
+        REQUIRE_MESSAGE(hit.hit, "нет попадания на x=" << x);
+        CHECK_MESSAGE(hit.point.y == doctest::Approx(map.heightAt(x, z)).epsilon(0.002), "x=" << x);
+        CHECK(hit.normal.y > 0.9f);
+    }
+    // Игрок уехал на 2,5 км на восток: старые плитки убраны, новые созданы
+    CHECK(terrain.update(2900.f, 300.f) > 0);
+    CHECK_FALSE(world->raycast({100.f, 500.f, 300.f}, {100.f, -100.f, 300.f}).hit);
+    CHECK(world->raycast({2900.f, 500.f, 300.f}, {2900.f, -100.f, 300.f}).hit);
+    terrain.clear();
+    CHECK(terrain.tileCount() == 0);
+    CHECK_FALSE(world->raycast({2900.f, 500.f, 300.f}, {2900.f, -100.f, 300.f}).hit);
+    // Неверные параметры сетки отклоняются
+    CHECK(world->addStaticHeightfield(0.f, 0.f, 10.f, 5, std::vector<float>(25, 0.f)) == han::contracts::kNoEntity);   // нечётное число отсчётов
+    CHECK(world->addStaticHeightfield(0.f, 0.f, 10.f, 8, std::vector<float>(10, 0.f)) == han::contracts::kNoEntity);  // размер не сходится
+}
+
+TEST_CASE("terrain: дальний план — одна грубая сетка на всю карту, ниже ближней земли на sink, края совпадают с рельефом, грани вверх") {
+    const Heightmap m = slope();  // 1000 x 500 м
+    const GeoMesh far = buildFarTerrain(m, 100.f, 6.f);
+    REQUIRE_FALSE(far.empty());
+    CHECK(far.vertices.size() == static_cast<std::size_t>((10 + 1) * (5 + 1)));  // 1000/100 x 500/100
+    CHECK(far.indices.size() == 10u * 5u * 6u);
+    float minX = 1e9f, maxX = -1e9f;
+    for (const GeoVertex& v : far.vertices) {
+        minX = std::min(minX, v.position[0]);
+        maxX = std::max(maxX, v.position[0]);
+        CHECK(v.position[1] == doctest::Approx(m.heightAt(v.position[0], v.position[2]) - 6.f));
+        CHECK(v.normal[1] > 0.9f);
+    }
+    CHECK(minX == doctest::Approx(m.minX()));
+    CHECK(maxX == doctest::Approx(m.maxX()));
+    int down = 0;
+    for (std::size_t i = 0; i < far.indices.size(); i += 3) {
+        const GeoVertex &a = far.vertices[far.indices[i]], &b = far.vertices[far.indices[i + 1]], &c = far.vertices[far.indices[i + 2]];
+        const float gy = (b.position[2] - a.position[2]) * (c.position[0] - a.position[0]) - (b.position[0] - a.position[0]) * (c.position[2] - a.position[2]);
+        down += gy <= 0.f ? 1 : 0;
+    }
+    CHECK(down == 0);
+    CHECK(buildFarTerrain(Heightmap(), 100.f).empty());
+    CHECK(far.ranges.size() == 1);
+}
