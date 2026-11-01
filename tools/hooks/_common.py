@@ -31,6 +31,8 @@ def effective_role():
     role = hz.role_from_local()
     if not role:
         return None, None
+    if "SOLO" in role.upper().split("+"):
+        return role, role  # соло-режим: все зоны независимо от префикса ветки
     br = hz.role_from_branch(branch())
     return (br if br in hz.held(role) else role), role
 
