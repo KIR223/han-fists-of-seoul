@@ -115,6 +115,48 @@ int addRoad(GeoMesh& mesh, const std::vector<Vec2>& line, float halfWidth, float
     return segments;
 }
 
+// Полоса разметки вдоль отрезка a-b на расстоянии offset от оси (влево от направления a→b), шириной w, высотой y.
+// dash > 0 — штрих длиной dash через gap; концы отрезка отступают на trim (перекрёстки остаются чистыми).
+int addStripe(GeoMesh& mesh, Vec2 a, Vec2 b, float offset, float w, float y, Color color, float dash, float gap, float trim) {
+    const float dx = b.x - a.x, dz = b.y - a.y, len = std::sqrt(dx * dx + dz * dz);
+    if (len < 2.f * trim + 1.f) return 0;
+    const float ux = dx / len, uz = dz / len, nx = -uz, nz = ux;
+    int quads = 0;
+    float t = trim;
+    const float end = len - trim;
+    while (t < end) {
+        const float t1 = dash > 0.f ? std::min(end, t + dash) : end;
+        const float cx0 = a.x + ux * t + nx * offset, cz0 = a.y + uz * t + nz * offset;
+        const float cx1 = a.x + ux * t1 + nx * offset, cz1 = a.y + uz * t1 + nz * offset;
+        const float hx = nx * w * 0.5f, hz = nz * w * 0.5f;
+        const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
+        pushVertex(mesh, cx0 + hx, y, cz0 + hz, 0, 1, 0, color);
+        pushVertex(mesh, cx0 - hx, y, cz0 - hz, 0, 1, 0, color);
+        pushVertex(mesh, cx1 - hx, y, cz1 - hz, 0, 1, 0, color);
+        pushVertex(mesh, cx1 + hx, y, cz1 + hz, 0, 1, 0, color);
+        mesh.indices.insert(mesh.indices.end(), {base, base + 2, base + 1, base, base + 3, base + 2});
+        ++quads;
+        if (dash <= 0.f) break;
+        t += dash + gap;
+    }
+    return quads;
+}
+
+// Разметка по классу дороги: широкие — жёлтая сплошная осевая и белые краевые; магистрали — ещё белые пунктиры полос.
+void addRoadMarkings(GeoMesh& mesh, Vec2 a, Vec2 b, float width, std::string_view highway, float roadY) {
+    if (width < 8.f || highway == "footway" || highway == "pedestrian" || highway == "path" || highway == "steps" || highway == "cycleway") return;
+    const float y = roadY + 0.06f;
+    const Color yellow{0.95f, 0.78f, 0.12f}, white{0.92f, 0.92f, 0.90f};
+    const float half = width * 0.5f;
+    addStripe(mesh, a, b, 0.f, 0.18f, y, yellow, 0.f, 0.f, 3.5f);
+    addStripe(mesh, a, b, half - 0.3f, 0.14f, y, white, 0.f, 0.f, 3.5f);
+    addStripe(mesh, a, b, -(half - 0.3f), 0.14f, y, white, 0.f, 0.f, 3.5f);
+    if (width >= 10.f) {  // полосы: пунктир на четвертях ширины
+        addStripe(mesh, a, b, half * 0.5f, 0.12f, y, white, 3.f, 6.f, 3.5f);
+        addStripe(mesh, a, b, -half * 0.5f, 0.12f, y, white, 3.f, 6.f, 3.5f);
+    }
+}
+
 // Здание: стены (наружу) + плоская крыша. Контур — любого направления обхода.
 bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color wall, Color roof, GeoMaterial wallMat = GeoMaterial::None) {
     if (footprint.size() >= 2 && footprint.front().x == footprint.back().x && footprint.front().y == footprint.back().y) footprint.pop_back();
@@ -296,6 +338,9 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                     chunk.ground.indices.insert(chunk.ground.indices.end(), {base, base + 1 + static_cast<std::uint32_t>((k + 1) % sides), base + 1 + static_cast<std::uint32_t>(k)});
                 planarUv(chunk.ground, vertsBefore, kRoadTile);
                 chunk.ground.tag(GeoMaterial::Road, indexBefore);
+                const auto markFirst = static_cast<std::uint32_t>(chunk.ground.indices.size());
+                addRoadMarkings(chunk.ground, pts[i], pts[i + 1], width, highway, lift);
+                chunk.ground.tag(GeoMaterial::Marking, markFirst);
                 grow(pts[i].x, pts[i].y);
                 grow(pts[i + 1].x, pts[i + 1].y);
             }

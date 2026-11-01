@@ -95,7 +95,7 @@ void GeoMesh::groupByMaterial() {
     std::vector<std::uint32_t> sorted;
     sorted.reserve(indices.size());
     std::vector<GeoRange> grouped;
-    for (int m = 0; m < 8; ++m) {
+    for (int m = 0; m < kGeoMaterialCount; ++m) {
         const auto material = static_cast<GeoMaterial>(m);
         const auto first = static_cast<std::uint32_t>(sorted.size());
         for (const GeoRange& r : ranges)

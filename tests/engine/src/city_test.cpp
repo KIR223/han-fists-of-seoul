@@ -396,7 +396,7 @@ TEST_CASE("city: части сетки по материалам — дорог�
             if (mesh->empty()) continue;
             REQUIRE_FALSE(mesh->ranges.empty());
             std::uint32_t expected = 0;
-            std::vector<int> seen(8, 0);
+            std::vector<int> seen(static_cast<std::size_t>(kGeoMaterialCount), 0);
             for (const GeoRange& r : mesh->ranges) {
                 CHECK(r.firstIndex == expected);  // подряд, без дыр
                 CHECK(r.indexCount % 3 == 0);
@@ -469,4 +469,26 @@ TEST_CASE("geometry: tag сливает соседние части, append сд
     CHECK(c.ranges[1].indexCount == 6);
     CHECK(c.indices.size() == 9);
     CHECK(c.indices[0] == 3);  // кирпичные треугольники теперь первые
+}
+
+TEST_CASE("city: разметка только на широких дорогах — жёлтая осевая и белые краевые; узкие и пешеходные без неё; материал Marking выше дороги") {
+    const OsmData d = parseFixture();
+    const auto chunks = buildCity(d, GeoProjection(37.5, 127.0), {});
+    int markingIndices = 0;
+    float roadTop = -1.f, markTop = -1.f;
+    for (const auto& [cell, chunk] : chunks) {
+        for (const GeoRange& r : chunk.ground.ranges) {
+            for (std::uint32_t i = 0; i < r.indexCount; ++i) {
+                const float y = chunk.ground.vertices[chunk.ground.indices[r.firstIndex + i]].position[1];
+                if (r.material == GeoMaterial::Marking) {
+                    markTop = std::max(markTop, y);
+                    ++markingIndices;
+                } else if (r.material == GeoMaterial::Road) {
+                    roadTop = std::max(roadTop, y);
+                }
+            }
+        }
+    }
+    CHECK(markingIndices % 3 == 0);
+    if (markingIndices > 0) CHECK(markTop > roadTop - 1e-4f);  // разметка не ниже верха дороги
 }

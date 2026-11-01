@@ -189,6 +189,7 @@ int main(int argc, char** argv) {
     camera.yaw = cameraArgs[3] * 0.01745329f;
     camera.pitch = cameraArgs[4] * 0.01745329f;
     camera.farZ = 4000.f;
+    camera.nearZ = 0.2f;
     float exposure = exposureArg, speed = 40.f, sunElevation = sunArgs[0], sunAzimuth = sunArgs[1], sunKelvin = sunArgs[2];
     bool quit = false, consoleOpen = false;
 
@@ -272,7 +273,7 @@ int main(int argc, char** argv) {
 #endif
 
         std::vector<han::render::DrawItem> items;
-        items.push_back({ground, Mat4::identity()});
+        items.push_back({ground, Mat4::translation({0.f, -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
         for (const auto& [cell, g] : loader.gpu) {
             if (g.ground) items.push_back({g.ground, Mat4::identity()});
             if (g.buildings) items.push_back({g.buildings, Mat4::identity()});
