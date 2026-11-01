@@ -11,6 +11,7 @@
 #include <fstream>
 #include <thread>
 
+#include "han/core/repo_root.h"
 #include "han/audio/audio_system.h"
 
 namespace {
@@ -43,6 +44,7 @@ void writeTone(const std::filesystem::path& path, float freq, float seconds, flo
 }  // namespace
 
 int main(int argc, char** argv) {
+    han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
     float seconds = 8.f;
     for (int i = 1; i < argc; ++i)
         if (!std::strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = std::max(2.f, static_cast<float>(std::atof(argv[i + 1])));

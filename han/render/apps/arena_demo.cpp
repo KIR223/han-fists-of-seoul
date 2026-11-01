@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "han/core/repo_root.h"
 #include "han/combat/ai.h"
 #include "han/combat/input_scheme.h"
 #include "han/combat/scenario.h"
@@ -92,6 +93,7 @@ Mat4 modelAt(float x, float y, float z, float headingRad) { return Mat4::transla
 }  // namespace
 
 int main(int argc, char** argv) {
+    han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
     long maxFrames = -1;
     bool captured = true, noUi = false, deterministic = false, debugDraw = false, autoPlay = false;
     int windowSize[2] = {1280, 720};

@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "han/core/repo_root.h"
 #include "han/core/console.h"
 #include "han/physics/physics_world.h"
 #include "han/platform/window.h"
@@ -61,6 +62,7 @@ Mat4 quatMatrix(contracts::Vec3 p, contracts::Quat q) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
     long maxFrames = -1;
     bool captured = true, noUi = false, deterministic = false, debugDraw = false, autoRun = false;
     int windowSize[2] = {1280, 720};
