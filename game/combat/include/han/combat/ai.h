@@ -43,6 +43,7 @@ public:
 
 private:
     float rand01();
+    float flankSide(const CombatSim& sim, int self) const;
     int reactionDelay();
     bool chooseDefense(const Fighter& me, const MoveData& threat, int untilHit, FighterInput& out);
     const MoveData* chooseAttack(const CombatSim& sim, const Fighter& me, const Fighter& foe, float dist);

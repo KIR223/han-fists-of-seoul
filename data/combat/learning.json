@@ -1,0 +1,10 @@
+{
+  "observations_to_remember": 3,
+  "learn_xp": 40,
+  "star_xp": [100, 250, 500],
+  "training_xp": [4, 8, 14, 22, 30],
+  "fight_xp_use": 1.0,
+  "fight_xp_hit": 2.5,
+  "observation_bonus": 0.5,
+  "daily_training_cap": 120
+}

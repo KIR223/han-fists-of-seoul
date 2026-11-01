@@ -1,0 +1,20 @@
+{
+  "id": "pads_first",
+  "bpm": 80,
+  "lead_in_beats": 2,
+  "windows": {"perfect": 3, "good": 7, "ok": 13},
+  "points": {"perfect": 1.0, "good": 0.7, "ok": 0.4},
+  "rating": {"S": 0.92, "A": 0.8, "B": 0.65, "C": 0.5},
+  "calls": [
+    {"beat": 0, "action": "jab"},
+    {"beat": 1, "action": "jab"},
+    {"beat": 2, "action": "cross"},
+    {"beat": 4, "action": "jab"},
+    {"beat": 5, "action": "cross"},
+    {"beat": 6, "action": "jab"},
+    {"beat": 7, "action": "cross"},
+    {"beat": 9, "action": "duck"},
+    {"beat": 10, "action": "jab"},
+    {"beat": 11, "action": "cross"}
+  ]
+}

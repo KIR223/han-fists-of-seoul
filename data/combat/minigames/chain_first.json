@@ -1,0 +1,10 @@
+{
+  "id": "chain_first",
+  "start_length": 4,
+  "max_length": 8,
+  "show_frames": 30,
+  "input_frames": 90,
+  "max_mistakes": 6,
+  "alphabet": ["jab", "cross", "left_hook", "right_hook", "duck", "evade"],
+  "rating_mistakes": {"S": 0, "A": 1, "B": 2, "C": 4}
+}

@@ -143,6 +143,20 @@ const MoveData* FightAI::chooseAttack(const CombatSim& sim, const Fighter& me, c
     return options.back().first;
 }
 
+// Сторона обхода при групповой драке: среди живых бойцов, бьющих ту же цель, ранг 0 идёт прямо, нечётные — вправо, чётные — влево.
+float FightAI::flankSide(const CombatSim& sim, int self) const {
+    const int target = sim.fighter(self).target;
+    if (target < 0) return 0.f;
+    int rank = 0, others = 0;
+    for (int i = 0; i < sim.fighterCount(); ++i) {
+        if (i == self || i == target || !sim.fighter(i).alive() || sim.fighter(i).target != target) continue;
+        ++others;
+        if (i < self) ++rank;
+    }
+    if (others == 0 || rank == 0) return 0.f;
+    return rank % 2 == 1 ? 1.f : -1.f;
+}
+
 FighterInput FightAI::decide(const CombatSim& sim, int self) {
     FighterInput out;
     const Fighter& me = sim.fighter(self);
@@ -257,11 +271,14 @@ FighterInput FightAI::decide(const CombatSim& sim, int self) {
         } else if (dist > ideal) {
             out.forward = 1.f;
             intent_ = Intent::Approach;
+            // Группа на одну цель: нечётные заходят слева, чётные справа, первый — прямо (окружение вместо колонны).
+            if (dist > ideal + 0.5f) out.right = flankSide(sim, self) * 0.8f;
         } else if (dist < ideal - 0.35f) {
             out.forward = -1.f;
             intent_ = Intent::Retreat;
         } else if (frame < circleUntil_) {
-            out.right = circleDir_;
+            const float side = flankSide(sim, self);
+            out.right = side != 0.f ? side : circleDir_;
             intent_ = Intent::Circle;
         }
     }
