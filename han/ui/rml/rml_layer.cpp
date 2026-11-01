@@ -165,6 +165,7 @@ struct RmlLayer::Impl {
     bool initialised = false;
     bool leftWasDown = false;
     std::string clicked;
+    Rml::Element* focus = nullptr;  // кнопка в фокусе при управлении без мыши
 };
 
 namespace {
@@ -268,6 +269,89 @@ bool RmlLayer::setText(const std::string& elementId, const std::string& text) {
     }
     return false;
 }
+
+namespace {
+std::string escapeRml(const std::string& s) {
+    std::string out;
+    for (char c : s) {
+        if (c == '&') out += "&amp;";
+        else if (c == '<') out += "&lt;";
+        else if (c == '>') out += "&gt;";
+        else out += c;
+    }
+    return out;
+}
+
+// Видимые кнопки всех документов в порядке документа: сверху вниз, слева направо (порядок обхода дерева).
+std::vector<Rml::Element*> navigableButtons(const std::vector<Rml::ElementDocument*>& docs) {
+    std::vector<Rml::Element*> out;
+    for (Rml::ElementDocument* d : docs) {
+        Rml::ElementList list;
+        d->QuerySelectorAll(list, ".button");
+        for (Rml::Element* e : list)
+            if (e->IsVisible(true)) out.push_back(e);
+    }
+    return out;
+}
+}  // namespace
+
+bool RmlLayer::setVisible(const std::string& elementId, bool visible) {
+    for (Rml::ElementDocument* d : impl_->documents)
+        if (Rml::Element* e = d->GetElementById(elementId)) {
+            e->SetProperty("display", visible ? "block" : "none");
+            if (!visible && impl_->focus && (impl_->focus == e || e->Contains(impl_->focus))) {
+                impl_->focus->SetPseudoClass("focus", false);
+                impl_->focus = nullptr;
+            }
+            return true;
+        }
+    return false;
+}
+
+int RmlLayer::applyLocalization(const Localization& loc) {
+    int n = 0;
+    for (Rml::ElementDocument* d : impl_->documents) {
+        Rml::ElementList list;
+        d->QuerySelectorAll(list, "[data-loc]");
+        for (Rml::Element* e : list) {
+            e->SetInnerRML(escapeRml(loc.get(e->GetAttribute<Rml::String>("data-loc", ""))));
+            ++n;
+        }
+    }
+    return n;
+}
+
+bool RmlLayer::navigate(NavKey key) {
+    Impl& s = *impl_;
+    const auto buttons = navigableButtons(s.documents);
+    if (buttons.empty()) return false;
+    std::size_t index = buttons.size();
+    for (std::size_t i = 0; i < buttons.size(); ++i)
+        if (buttons[i] == s.focus) index = i;
+    const auto setFocus = [&](Rml::Element* e) {
+        if (s.focus) s.focus->SetPseudoClass("focus", false);
+        s.focus = e;
+        if (e) e->SetPseudoClass("focus", true);
+    };
+    switch (key) {
+        case NavKey::Down:
+        case NavKey::Right: setFocus(buttons[index >= buttons.size() ? 0 : (index + 1) % buttons.size()]); return true;
+        case NavKey::Up:
+        case NavKey::Left: setFocus(buttons[index >= buttons.size() ? buttons.size() - 1 : (index + buttons.size() - 1) % buttons.size()]); return true;
+        case NavKey::Accept:
+            if (index >= buttons.size()) return false;
+            for (Rml::Element* e = buttons[index]; e; e = e->GetParentNode())
+                if (e->GetId().rfind("btn-", 0) == 0) {
+                    s.clicked = e->GetId();
+                    break;
+                }
+            return true;
+        case NavKey::Back: s.clicked = "ui:back"; return true;
+    }
+    return false;
+}
+
+std::string RmlLayer::focusedId() const { return impl_->focus ? impl_->focus->GetId() : std::string(); }
 
 void RmlLayer::injectMouse(int x, int y, bool leftDown) {
     Impl& s = *impl_;

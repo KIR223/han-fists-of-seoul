@@ -81,3 +81,6 @@ body {
 .button:hover { background-color: #3f6fb0; border-color: #9cc4ff; }
 .button:active { background-color: #2e5384; }
 .button.danger:hover { background-color: #b03f3f; border-color: #ff9c9c; }
+.button:focus { background-color: #3f6fb0; border-color: #ffd34d; }
+.langs { margin-top: 8dp; overflow: hidden; }
+.button.lang { float: left; width: 28%; margin: 0 2% 0 2%; padding: 8dp 4dp; font-size: 18dp; }

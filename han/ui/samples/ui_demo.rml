@@ -6,24 +6,29 @@
 <body>
     <div id="hud">
         <div class="panel hero">
-            <div class="name">ТЫ · 한 (Хан)</div>
+            <div class="name" data-loc="demo.hero"></div>
             <div class="bar"><div id="health-bar" class="fill health" style="width: 68%;"></div><span class="value" id="health-value">68</span></div>
             <div class="bar small"><div class="fill stamina" style="width: 92%;"></div></div>
             <div class="bar small"><div class="fill balance" style="width: 74%;"></div></div>
-            <div class="hint">здоровье · стамина · баланс</div>
+            <div class="hint" data-loc="demo.bars"></div>
         </div>
         <div class="panel foe">
-            <div class="name">ВРАГ · 양아치 (Ян-а-чхи)</div>
+            <div class="name" data-loc="demo.foe"></div>
             <div class="bar"><div class="fill foehealth" style="width: 41%;"></div><span class="value">41</span></div>
         </div>
-        <div class="combo">КОМБО: Раз-два-три · 원투쓰리</div>
+        <div class="combo" data-loc="demo.combo"></div>
     </div>
-    <div id="menu">
-        <div class="title">Пауза · 일시정지</div>
-        <div id="btn-resume" class="button">Продолжить · 계속하기</div>
-        <div id="btn-settings" class="button">Настройки · 설정</div>
-        <div id="btn-quit" class="button danger">Выйти · 나가기</div>
+    <div id="menu" style="display: none;">
+        <div class="title" data-loc="demo.pause"></div>
+        <div id="btn-resume" class="button" data-loc="demo.resume"></div>
+        <div id="btn-settings" class="button" data-loc="demo.settings"></div>
+        <div id="btn-quit" class="button danger" data-loc="demo.quit"></div>
+        <div class="langs">
+            <div id="btn-lang-ru" class="button lang">RU</div>
+            <div id="btn-lang-ko" class="button lang">한국어</div>
+            <div id="btn-lang-en" class="button lang">EN</div>
+        </div>
     </div>
-    <div class="keys">ЛКМ — удары · ПКМ — блок · Space — уклон · Q — шолдер-ролл · Enter — пауза</div>
+    <div class="keys" data-loc="demo.keys"></div>
 </body>
 </rml>

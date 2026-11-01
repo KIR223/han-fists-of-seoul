@@ -9,6 +9,7 @@
 #include <string>
 
 #include "han/platform/window.h"
+#include "han/ui/localization.h"
 
 namespace han::ui {
 
@@ -40,6 +41,18 @@ public:
     bool setText(const std::string& elementId, const std::string& text);
     // Число видимых элементов с классом/тегом (для тестов).
     int count(const std::string& cssSelector) const;
+    // Показать/скрыть элемент (и его содержимое) по id: display: block / none. false — элемента нет.
+    bool setVisible(const std::string& elementId, bool visible);
+    // Подставляет тексты: каждому элементу с атрибутом data-loc="ключ" ставится перевод на текущий язык (вызывать после loadDocument и при смене языка).
+    int applyLocalization(const Localization& loc);
+
+    // Управление без мыши (клавиатура, геймпад): фокус ходит по элементам с классом «button» в видимых документах.
+    enum class NavKey { Up, Down, Left, Right, Accept, Back };
+    // true — нажатие поглощено интерфейсом. Accept даёт takeClicked() == id кнопки в фокусе; Back — «ui:back».
+    bool navigate(NavKey key);
+    // id кнопки в фокусе (пусто — фокуса нет).
+    std::string focusedId() const;
+
     // Мышь без SDL (тесты, скрипты, автодемо): позиция в пикселях и состояние левой кнопки; сразу пересчитывает раскладку.
     void injectMouse(int x, int y, bool leftDown);
     // Центр элемента по id в пикселях окна; false — элемента нет.

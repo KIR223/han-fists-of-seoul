@@ -1,0 +1,10 @@
+key,ru,ko,en,context
+demo.hero,ТЫ · 한 (Хан),나 · 한,YOU · Han,имя героя на HUD
+demo.foe,ВРАГ · 양아치 (Ян-а-чхи),적 · 양아치,FOE · Yangachi,имя врага на HUD
+demo.bars,здоровье · стамина · баланс,체력 · 스태미나 · 균형,health · stamina · balance,подсказка под полосками
+demo.combo,КОМБО: Раз-два-три · 원투쓰리,콤보: 원투쓰리,COMBO: One-two-three,баннер комбо
+demo.pause,Пауза,일시정지,Paused,заголовок меню паузы
+demo.resume,Продолжить,계속하기,Resume,кнопка меню
+demo.settings,Настройки,설정,Settings,кнопка меню
+demo.quit,Выйти,나가기,Quit,кнопка меню
+demo.keys,ЛКМ — удары · ПКМ — блок · Space — уклон · Q — шолдер-ролл · Esc — пауза,좌클릭 — 공격 · 우클릭 — 방어 · Space — 회피 · Q — 숄더 롤 · Esc — 일시정지,LMB — strikes · RMB — block · Space — evade · Q — shoulder roll · Esc — pause,подсказка по клавишам
