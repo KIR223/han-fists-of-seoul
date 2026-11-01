@@ -1,10 +1,13 @@
 // han_cooker v1 (E3): превращает исходную модель в готовый меш .hmesh.
 //   han_cooker [--no-optimize] <вход.gltf|glb|fbx> <выход.hmesh>
 //   han_cooker --info <файл.hmesh>
+//   han_cooker --texture [--linear] <картинка.jpg|png|tga|bmp> <выход.ktx2>   (текстура с цепочкой мипов; --linear — нормали и шероховатость)
 // FBX переводится в GLB через Blender (han/tools/blender/fbx_to_glb.py). Коды выхода: 0 — готово, 1 — ошибка, 2 — неверный запуск.
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -13,6 +16,7 @@
 #include "han/tools/blender.h"
 #include "han/tools/cook.h"
 #include "han/tools/gltf_import.h"
+#include "han/tools/image_decode.h"
 #include "han/tools/mesh_tools.h"
 
 namespace fs = std::filesystem;
@@ -51,14 +55,56 @@ int info(const fs::path& path) {
     return 0;
 }
 
+#ifdef HAN_WITH_STB
+// Картинка → .ktx2 с полной цепочкой мипов. sRGB для альбедо, линейная для нормалей, шероховатости и AO.
+int cookTexture(const fs::path& input, const fs::path& output, bool srgb) {
+    std::ifstream in(input, std::ios::binary);
+    if (!in) {
+        std::fprintf(stderr, "не удалось открыть %s\n", input.string().c_str());
+        return 1;
+    }
+    const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    tools::DecodedImage image;
+    std::string error;
+    if (!tools::decodeImage(bytes.data(), bytes.size(), image, error)) {
+        std::fprintf(stderr, "%s: %s\n", input.string().c_str(), error.c_str());
+        return 1;
+    }
+    render::TextureData texture = render::makeTexture(image.width, image.height, std::move(image.rgba), srgb);
+    render::generateMips(texture);
+    std::error_code ec;
+    if (!output.parent_path().empty()) fs::create_directories(output.parent_path(), ec);
+    if (!render::saveKtx2File(output, texture, error)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return 1;
+    }
+    std::printf("текстура: %s (%ux%u, %zu мипов, %s)\n", output.string().c_str(), texture.width, texture.height, texture.mips.size(), srgb ? "sRGB" : "линейная");
+    return 0;
+}
+#endif
+
 }  // namespace
 
 int main(int argc, char** argv) {
-    bool optimize = true;
+    bool optimize = true, textureMode = false, linear = false;
     std::vector<std::string> args;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--no-optimize")) optimize = false;
+        else if (!std::strcmp(argv[i], "--texture")) textureMode = true;
+        else if (!std::strcmp(argv[i], "--linear")) linear = true;
         else args.emplace_back(argv[i]);
+    }
+    if (textureMode) {
+#ifdef HAN_WITH_STB
+        if (args.size() != 2) {
+            std::fprintf(stderr, "использование: han_cooker --texture [--linear] <картинка> <выход.ktx2>\n");
+            return 2;
+        }
+        return cookTexture(args[0], args[1], !linear);
+#else
+        std::fprintf(stderr, "han_cooker собран без stb_image (включите vcpkg-функцию assets)\n");
+        return 1;
+#endif
     }
     if (args.size() == 2 && args[0] == "--info") return info(args[1]);
     if (args.size() != 2) {

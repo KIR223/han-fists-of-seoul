@@ -13,7 +13,13 @@ struct Color {
     float r, g, b;
 };
 
+// Текстуры города несут цвет сами: вершинный цвет остаётся лёгким оттенком (множитель), чтобы фасады различались.
 Color roadColor(std::string_view highway) {
+    if (highway == "footway" || highway == "pedestrian" || highway == "path" || highway == "steps" || highway == "cycleway") return {1.f, 0.97f, 0.93f};
+    if (highway == "motorway" || highway == "trunk" || highway == "primary") return {0.80f, 0.80f, 0.82f};
+    return {1.f, 1.f, 1.f};
+}
+[[maybe_unused]] Color roadColorFlat(std::string_view highway) {
     if (highway == "footway" || highway == "pedestrian" || highway == "path" || highway == "steps" || highway == "cycleway") return {0.55f, 0.50f, 0.46f};
     if (highway == "motorway" || highway == "trunk" || highway == "primary") return {0.16f, 0.16f, 0.17f};
     return {0.22f, 0.22f, 0.23f};
@@ -26,18 +32,47 @@ Color buildingColor(std::int64_t id) {
     return palette[static_cast<std::size_t>(id < 0 ? -id : id) % (sizeof(palette) / sizeof(palette[0]))];
 }
 
-void pushVertex(GeoMesh& m, float x, float y, float z, float nx, float ny, float nz, Color c) {
-    m.vertices.push_back({{x, y, z}, {nx, ny, nz}, {c.r, c.g, c.b}});
+// Оттенок фасада: светлее и теплее/холоднее по номеру дома, в диапазоне 0.78..1.0 (текстура остаётся главной).
+Color wallTint(std::int64_t id) {
+    const Color p = buildingColor(id);
+    const float k = 0.78f + 0.22f * ((p.r + p.g + p.b) / 3.f - 0.5f) / 0.3f;
+    return {std::clamp(k + (p.r - p.b) * 0.3f, 0.6f, 1.f), std::clamp(k, 0.6f, 1.f), std::clamp(k - (p.r - p.b) * 0.3f, 0.6f, 1.f)};
+}
+
+// Материал стен: высокие — бетон, низкие — кирпич и штукатурка (виллы Сеула), середина вперемешку; стабильно по номеру дома.
+GeoMaterial wallMaterial(std::int64_t id, float height) {
+    const std::uint32_t h = static_cast<std::uint32_t>((id < 0 ? -id : id) * 2654435761u) >> 8;
+    if (height >= 24.f) return GeoMaterial::WallConcrete;
+    if (height >= 12.f) return h % 2 == 0 ? GeoMaterial::WallConcrete : GeoMaterial::WallPlaster;
+    return h % 5 < 2 ? GeoMaterial::WallBrick : GeoMaterial::WallPlaster;
+}
+
+// Планарные UV для горизонтальных вершин, добавленных после from: метры карты / размер плитки.
+void planarUv(GeoMesh& m, std::size_t from, float tile) {
+    for (std::size_t i = from; i < m.vertices.size(); ++i) {
+        m.vertices[i].uv[0] = m.vertices[i].position[0] / tile;
+        m.vertices[i].uv[1] = m.vertices[i].position[2] / tile;
+    }
+}
+
+// Размер плитки текстуры в метрах (одна плитка Poly Haven 1k ≈ 2–4 м в жизни; берём крупнее для города).
+constexpr float kRoadTile = 6.f, kParkTile = 8.f, kWallTile = 5.f, kRoofTile = 5.f;
+
+void pushVertex(GeoMesh& m, float x, float y, float z, float nx, float ny, float nz, Color c, float u = 0.f, float v = 0.f) {
+    GeoVertex g{{x, y, z}, {nx, ny, nz}, {c.r, c.g, c.b}};
+    g.uv[0] = u;
+    g.uv[1] = v;
+    m.vertices.push_back(g);
 }
 
 // Горизонтальный многоугольник на высоте y, нормаль вверх. Возвращает false, если не удалось разбить.
-bool addFlatPolygon(GeoMesh& mesh, const std::vector<Vec2>& poly, float y, Color color, bool faceUp = true) {
+bool addFlatPolygon(GeoMesh& mesh, const std::vector<Vec2>& poly, float y, Color color, float tile = kParkTile, bool faceUp = true) {
     const auto tri = triangulate(poly);
     if (tri.empty()) return false;
     std::vector<Vec2> p = poly;
     if (p.size() >= 2 && p.front().x == p.back().x && p.front().y == p.back().y) p.pop_back();
     const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
-    for (const Vec2& v : p) pushVertex(mesh, v.x, y, v.y, 0.f, faceUp ? 1.f : -1.f, 0.f, color);
+    for (const Vec2& v : p) pushVertex(mesh, v.x, y, v.y, 0.f, faceUp ? 1.f : -1.f, 0.f, color, v.x / tile, v.y / tile);
     // triangulate даёт обход против часовой в осях (x, z-как-y). Если смотреть сверху (+Y вниз на карту) с осью z на юг, нужно перевернуть.
     for (std::size_t i = 0; i < tri.size(); i += 3) {
         mesh.indices.push_back(base + tri[i]);
@@ -81,7 +116,7 @@ int addRoad(GeoMesh& mesh, const std::vector<Vec2>& line, float halfWidth, float
 }
 
 // Здание: стены (наружу) + плоская крыша. Контур — любого направления обхода.
-bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color wall, Color roof) {
+bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color wall, Color roof, GeoMaterial wallMat = GeoMaterial::None) {
     if (footprint.size() >= 2 && footprint.front().x == footprint.back().x && footprint.front().y == footprint.back().y) footprint.pop_back();
     if (footprint.size() < 3) return false;
     const auto roofTri = triangulate(footprint);
@@ -90,6 +125,8 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
     if (signedArea(footprint) < 0) std::reverse(footprint.begin(), footprint.end());
     const auto roofTriOriented = triangulate(footprint);  // после разворота индексы другие
     const std::size_t n = footprint.size();
+    const auto wallFirst = static_cast<std::uint32_t>(mesh.indices.size());
+    float along = 0.f;  // пройденная длина периметра: u текстуры идёт непрерывно вдоль стены
     for (std::size_t i = 0; i < n; ++i) {
         const Vec2 a = footprint[i], b = footprint[(i + 1) % n];
         const float dx = b.x - a.x, dz = b.y - a.y, len = std::sqrt(dx * dx + dz * dz);
@@ -97,19 +134,25 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
         // Контур (x, z) с signedArea > 0: внешняя нормаль ребра — (dz, -dx)/len.
         const float nx = dz / len, nz = -dx / len;
         const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
-        pushVertex(mesh, a.x, 0.f, a.y, nx, 0, nz, wall);
-        pushVertex(mesh, b.x, 0.f, b.y, nx, 0, nz, wall);
-        pushVertex(mesh, b.x, height, b.y, nx, 0, nz, wall);
-        pushVertex(mesh, a.x, height, a.y, nx, 0, nz, wall);
+        const float u0 = along / kWallTile, u1 = (along + len) / kWallTile;
+        const float v1 = height / kWallTile;
+        pushVertex(mesh, a.x, 0.f, a.y, nx, 0, nz, wall, u0, v1);
+        pushVertex(mesh, b.x, 0.f, b.y, nx, 0, nz, wall, u1, v1);
+        pushVertex(mesh, b.x, height, b.y, nx, 0, nz, wall, u1, 0.f);
+        pushVertex(mesh, a.x, height, a.y, nx, 0, nz, wall, u0, 0.f);
         mesh.indices.insert(mesh.indices.end(), {base, base + 2, base + 1, base, base + 3, base + 2});
+        along += len;
     }
+    mesh.tag(wallMat, wallFirst);
+    const auto roofFirst = static_cast<std::uint32_t>(mesh.indices.size());
     const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
-    for (const Vec2& v : footprint) pushVertex(mesh, v.x, height, v.y, 0, 1, 0, roof);
+    for (const Vec2& v : footprint) pushVertex(mesh, v.x, height, v.y, 0, 1, 0, roof, v.x / kRoofTile, v.y / kRoofTile);
     for (std::size_t i = 0; i < roofTriOriented.size(); i += 3) {
         mesh.indices.push_back(base + roofTriOriented[i]);
         mesh.indices.push_back(base + roofTriOriented[i + 2]);
         mesh.indices.push_back(base + roofTriOriented[i + 1]);
     }
+    mesh.tag(wallMat == GeoMaterial::None ? GeoMaterial::None : GeoMaterial::Roof, roofFirst);
     return true;
 }
 
@@ -218,7 +261,8 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 continue;
             }
             CityChunk& chunk = chunkAt(centroid(pts));
-            if (addBuilding(chunk.buildings, pts, buildingHeight(way, settings), buildingColor(way.id), {0.30f, 0.30f, 0.32f})) {
+            const float height = buildingHeight(way, settings);
+            if (addBuilding(chunk.buildings, pts, height, wallTint(way.id), {1.f, 1.f, 1.f}, wallMaterial(way.id, height))) {
                 ++chunk.buildingCount;
                 ++st.buildings;
                 for (const Vec2& p : pts) grow(p.x, p.y);
@@ -237,6 +281,8 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 const std::vector<Vec2> seg = {pts[i], pts[i + 1]};
                 const Vec2 mid{(pts[i].x + pts[i + 1].x) * 0.5f, (pts[i].y + pts[i + 1].y) * 0.5f};
                 CityChunk& chunk = chunkAt(mid);
+                const auto vertsBefore = chunk.ground.vertices.size();
+                const auto indexBefore = static_cast<std::uint32_t>(chunk.ground.indices.size());
                 chunk.roadSegments += addRoad(chunk.ground, seg, width * 0.5f, lift, color, static_cast<int>(settings.junctionSides));
                 // Диск в конце сегмента, чтобы поворот не оставлял щелей (концы дороги тоже получают круглую «шапку»).
                 const auto base = static_cast<std::uint32_t>(chunk.ground.vertices.size());
@@ -248,6 +294,8 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 }
                 for (int k = 0; k < sides; ++k)
                     chunk.ground.indices.insert(chunk.ground.indices.end(), {base, base + 1 + static_cast<std::uint32_t>((k + 1) % sides), base + 1 + static_cast<std::uint32_t>(k)});
+                planarUv(chunk.ground, vertsBefore, kRoadTile);
+                chunk.ground.tag(GeoMaterial::Road, indexBefore);
                 grow(pts[i].x, pts[i].y);
                 grow(pts[i + 1].x, pts[i + 1].y);
             }
@@ -259,8 +307,10 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 continue;
             }
             CityChunk& chunk = chunkAt(centroid(pts));
-            const Color color = isWater ? Color{0.16f, 0.30f, 0.42f} : Color{0.30f, 0.46f, 0.26f};
-            if (addFlatPolygon(chunk.ground, pts, isWater ? 0.02f : 0.03f, color)) {
+            const Color color = isWater ? Color{0.16f, 0.30f, 0.42f} : Color{1.f, 1.f, 1.f};
+            const auto indexBefore = static_cast<std::uint32_t>(chunk.ground.indices.size());
+            if (addFlatPolygon(chunk.ground, pts, isWater ? 0.02f : 0.03f, color, kParkTile)) {
+                chunk.ground.tag(isWater ? GeoMaterial::Water : GeoMaterial::Park, indexBefore);
                 ++chunk.areaCount;
                 ++(isWater ? st.waters : st.parks);
                 for (const Vec2& p : pts) grow(p.x, p.y);
@@ -268,6 +318,10 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 ++st.skipped;
             }
         }
+    }
+    for (auto& [cell, chunk] : chunks) {
+        chunk.ground.groupByMaterial();
+        chunk.buildings.groupByMaterial();
     }
     if (stats) *stats = st;
     return chunks;

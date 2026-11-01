@@ -124,9 +124,45 @@ class ProcessWithFakesTests(unittest.TestCase):
         self.assertIn("плохой файл", str(ctx.exception))
         self.assertFalse(credits.has_row(self.paths.credits, self.asset))
 
-    def test_only_models_are_processed(self):
+    def test_unsupported_kinds_are_refused(self):
         with self.assertRaises(han_fetch.PipelineError):
-            han_fetch.process_asset(dict(self.asset, kind="texture"), self.paths, "blender", self.cooker)
+            han_fetch.process_asset(dict(self.asset, kind="font"), self.paths, "blender", self.cooker)
+
+    def texture_cooker(self):
+        script = self.root / "tex_cooker.py"
+        script.write_text("import sys\nargs = sys.argv[1:]\nopen(args[-1], 'wb').write(('|'.join(args)).encode())\n", encoding="utf-8")
+        return [sys.executable, str(script)]
+
+    def test_texture_is_cooked_to_ktx2_with_linear_flag_for_data_maps(self):
+        for name in ("diff.jpg", "nor.jpg"):
+            (self.root / "inbox" / name).write_bytes(b"JPG")
+        asset = dict(self.asset, id="tx_test", name="TX_test", kind="texture", source={"type": "local", "file": "inbox/diff.jpg"})
+        han_fetch.process_asset(asset, self.paths, None, self.texture_cooker())  # Blender для текстур не нужен
+        out = self.paths.cooked / "tx_test" / "diff.ktx2"
+        self.assertTrue(out.is_file())
+        self.assertNotIn("--linear", out.read_text())      # альбедо — sRGB
+        self.assertIn("--texture", out.read_text())
+        self.assertTrue(credits.has_row(self.paths.credits, asset))
+        # Нормали грузим вручную в ту же загрузку: линейный режим
+        shutil_copy = self.paths.downloads / "tx_test" / "nor.jpg"
+        shutil_copy.write_bytes(b"JPG")
+        han_fetch.process_asset(asset, self.paths, None, self.texture_cooker(), write_credits=False)
+        self.assertIn("--linear", (self.paths.cooked / "tx_test" / "nor.ktx2").read_text())
+
+    def test_texture_without_albedo_is_an_error(self):
+        (self.root / "inbox" / "nor.jpg").write_bytes(b"JPG")
+        asset = dict(self.asset, id="tx_bad", name="TX_bad", kind="texture", source={"type": "local", "file": "inbox/nor.jpg"})
+        with self.assertRaises(han_fetch.PipelineError) as ctx:
+            han_fetch.process_asset(asset, self.paths, None, self.texture_cooker())
+        self.assertIn("альбедо", str(ctx.exception))
+        self.assertFalse(credits.has_row(self.paths.credits, asset))
+
+    def test_texture_needs_cooker(self):
+        (self.root / "inbox" / "diff.jpg").write_bytes(b"JPG")
+        asset = dict(self.asset, id="tx_nc", name="TX_nc", kind="texture", source={"type": "local", "file": "inbox/diff.jpg"})
+        with self.assertRaises(han_fetch.PipelineError) as ctx:
+            han_fetch.process_asset(asset, self.paths, None, None)
+        self.assertIn("han_cooker", str(ctx.exception))
 
     def test_add_command_validates_and_saves(self):
         argv = ["--root", str(self.root), "add", "--id", "pr_new", "--name", "PR_New", "--zone", "A", "--source", "local", "--file", "inbox/b.glb",

@@ -190,6 +190,26 @@ def resolve_polyhaven(asset_id: str, resolution: str = "1k", api: str = POLYHAVE
     return resolved
 
 
+def resolve_polyhaven_texture(asset_id: str, resolution: str = "1k", api: str = POLYHAVEN_API) -> Resolved:
+    """Текстура Poly Haven (CC0): альбедо, нормали OpenGL и шероховатость в JPG нужного разрешения."""
+    quoted = urllib.parse.quote(asset_id, safe="")
+    info = get_json(f"{api}/info/{quoted}")
+    files = get_json(f"{api}/files/{quoted}")
+    resolved = Resolved(meta={
+        "author": ", ".join((info.get("authors") or {}).keys()),
+        "license": "CC0",
+        "page": f"https://polyhaven.com/a/{asset_id}",
+    })
+    for key, role in (("Diffuse", "diff"), ("nor_gl", "nor"), ("Rough", "rough")):
+        item = ((files.get(key) or {}).get(resolution) or {}).get("jpg")
+        if not item:
+            if role == "diff":
+                raise FetchError(f"Poly Haven: у текстуры «{asset_id}» нет альбедо {resolution} в JPG")
+            continue
+        resolved.files.append((item["url"], f"{role}.jpg"))
+    return resolved
+
+
 def resolve_sketchfab(uid: str, token: str, api: str = SKETCHFAB_API) -> Resolved:
     """Модель Sketchfab: нужен личный токен (SKETCHFAB_TOKEN); качается zip с glTF. Лицензия берётся из карточки модели."""
     from license_rules import from_sketchfab_slug
