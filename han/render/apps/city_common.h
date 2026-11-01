@@ -71,9 +71,16 @@ inline void addWindows(TextureData& t) {
 
 // Загружает альбедо материалов в GPU. Возвращает id текстур по номерам slots() (0 — нет файла).
 inline std::vector<TextureId> load(Renderer& renderer, bool windows = true, const std::filesystem::path& cooked = "assets_bin/cooked") {
-    std::vector<TextureId> ids(slots().size(), 0);
+    // Номера: 0..5 — альбедо, 6..11 — нормали, 12..17 — шероховатость (по порядку slots()).
+    const std::size_t n = slots().size();
+    std::vector<TextureId> ids(n * 3, 0);
     int loaded = 0;
-    for (std::size_t i = 0; i < slots().size(); ++i) {
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t kind = 1; kind <= 2; ++kind) {
+            TextureData map;
+            std::string mapError;
+            if (loadKtx2File(cooked / slots()[i].folder / (kind == 1 ? "nor.ktx2" : "rough.ktx2"), map, mapError)) ids[i + kind * n] = renderer.uploadTexture(map);
+        }
         TextureData texture;
         std::string error;
         if (!loadKtx2File(cooked / slots()[i].folder / "diff.ktx2", texture, error)) continue;
@@ -84,6 +91,23 @@ inline std::vector<TextureId> load(Renderer& renderer, bool windows = true, cons
     }
     std::printf("текстуры города: %d из %zu (python han/tools/pipeline/han_fetch.py process <id> — если 0)\n", loaded, slots().size());
     return ids;
+}
+
+// Земля между дорогами и домами: мощёная плитка (тротуар) с картой нормалей и шероховатости; нет текстур — плоский цвет.
+inline MeshId uploadGround(Renderer& renderer, float halfSize = 4000.f, const std::filesystem::path& cooked = "assets_bin/cooked") {
+    TextureId ids[3] = {0, 0, 0};
+    const char* files[3] = {"diff.ktx2", "nor.ktx2", "rough.ktx2"};
+    for (int i = 0; i < 3; ++i) {
+        TextureData t;
+        std::string error;
+        if (loadKtx2File(cooked / "tx_sidewalk_brick" / files[i], t, error)) ids[i] = renderer.uploadTexture(t);
+    }
+    const bool textured = ids[0] != 0;
+    constexpr float kTile = 4.f;  // метров на плитку
+    MeshData g = makePlane(halfSize, textured ? core::Vec3{0.8f, 0.8f, 0.8f} : core::Vec3{0.20f, 0.23f, 0.18f}, textured ? halfSize * 2.f / kTile : 1.f);
+    g.textures = {"ground_albedo", "ground_normal", "ground_rough"};
+    g.submeshes = {{0, static_cast<std::uint32_t>(g.indices.size()), textured ? 0 : -1, 0.0f, 0.9f, ids[1] ? 1 : -1, ids[2] ? 2 : -1}};
+    return renderer.uploadMesh(g, ids);
 }
 
 inline int slotOf(world::GeoMaterial m) {
@@ -106,19 +130,25 @@ inline MeshData toMesh(const world::GeoMesh& g, const std::vector<TextureId>& te
         m.vertices[i].uv[1] = g.vertices[i].uv[1];
     }
     m.indices = g.indices;
-    for (const std::string_view name : {"road", "park", "plaster", "brick", "concrete", "roof"}) m.textures.emplace_back(name);
+    for (const std::string_view kind : {"albedo", "normal", "rough"})
+        for (const std::string_view name : {"road", "park", "plaster", "brick", "concrete", "roof"}) m.textures.push_back(std::string(kind) + "_" + std::string(name));
     if (g.ranges.empty()) {
         m.submeshes = {{0, static_cast<std::uint32_t>(m.indices.size()), -1, 0.0f, defaultRoughness}};
         return m;
     }
     for (const world::GeoRange& r : g.ranges) {
         const int slot = slotOf(r.material);
-        std::int32_t texture = -1;
+        std::int32_t texture = -1, normal = -1, rough = -1;
         float roughness = defaultRoughness;
         if (slot >= 0) {
             roughness = slots()[static_cast<std::size_t>(slot)].roughness;
             if (static_cast<std::size_t>(slot) < textureIds.size() && textureIds[static_cast<std::size_t>(slot)] != 0) {
                 texture = slot;
+                const std::size_t n = slots().size();
+                if (textureIds.size() >= 3 * n) {
+                    if (textureIds[static_cast<std::size_t>(slot) + n] != 0) normal = static_cast<std::int32_t>(static_cast<std::size_t>(slot) + n);
+                    if (textureIds[static_cast<std::size_t>(slot) + 2 * n] != 0) rough = static_cast<std::int32_t>(static_cast<std::size_t>(slot) + 2 * n);
+                }
             } else {  // нет текстуры: цвет-запас вместо белого
                 for (std::uint32_t k = 0; k < r.indexCount; ++k) {
                     Vertex& v = m.vertices[m.indices[r.firstIndex + k]];
@@ -126,7 +156,7 @@ inline MeshData toMesh(const world::GeoMesh& g, const std::vector<TextureId>& te
                 }
             }
         }
-        m.submeshes.push_back({r.firstIndex, r.indexCount, texture, 0.0f, roughness});
+        m.submeshes.push_back({r.firstIndex, r.indexCount, texture, 0.0f, roughness, normal, rough});
     }
     return m;
 }

@@ -148,9 +148,7 @@ int main(int argc, char** argv) {
     std::printf("GPU: %s; слой валидации: %s\n", renderer->deviceName().c_str(), renderer->validationEnabled() ? "включён" : "НЕ найден");
 
     // Земля вокруг: большая плоскость под городом (дороги и дома лежат выше неё).
-    auto groundData = han::render::makePlane(4000.f, {0.20f, 0.23f, 0.18f});
-    groundData.submeshes = {{0, static_cast<std::uint32_t>(groundData.indices.size()), -1, 0.0f, 0.95f}};
-    const auto ground = renderer->uploadMesh(groundData);
+    const auto ground = han::render::citytex::uploadGround(*renderer);
     if (!ground) {
         std::fprintf(stderr, "не удалось загрузить землю\n");
         return 1;
@@ -285,6 +283,7 @@ int main(int argc, char** argv) {
         params.sun = han::render::makeSun(sunElevation, sunAzimuth, sunKelvin);
         params.sky = han::render::skyFromSun(params.sun);
         params.exposure = exposure;
+        params.fogDensity = 0.0006f;
         params.nearPlane = camera.nearZ;
         params.farPlane = camera.farZ;
         params.shadows = true;

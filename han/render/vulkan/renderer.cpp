@@ -29,7 +29,7 @@ constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 constexpr VkFormat kHdrFormat = VK_FORMAT_R16G16B16A16_SFLOAT;  // сцена рисуется в линейном HDR, затем тонмаппинг в экран
 
-// Push constants мешей: матрица модели (vertex, 0..64) и материал (fragment, 64..80): x — металличность, y — шероховатость.
+// Push constants мешей: матрица модели (vertex, 0..64) и материал (fragment, 64..80): x — металличность, y — шероховатость, z — 1: есть карта нормалей, w — 1: есть карта шероховатости.
 struct VertexPush {
     float model[16];
 };
@@ -48,7 +48,7 @@ struct FrameUbo {
     float skyZenith[4];
     float skyHorizon[4];
     float skyGround[4];
-    float params[4];     // x — экспозиция
+    float params[4];     // x — экспозиция, y — плотность воздушной дымки
     float lightViewProj[3][16];  // каскады теней: мир → клип карты теней
     float cascadeSplits[4];      // xyz — дальние границы каскадов (м), w — 1, если тени включены
     float cascadeTexel[4];       // xyz — размер текселя карты каждого каскада (м)
@@ -80,6 +80,7 @@ struct GpuSubmesh {
     std::uint32_t firstIndex = 0, indexCount = 0;
     TextureId texture = 0;  // 0 — белая текстура
     float metallic = 0.0f, roughness = 0.5f;
+    TextureId normalTexture = 0, roughnessTexture = 0;  // 0 — нет карты
 };
 
 
@@ -546,7 +547,8 @@ bool Renderer::Impl::createSwapchain(int width, int height, std::string& err) {
 
 bool Renderer::Impl::createPipeline(std::string& err) {
     // Меши и небо: set 0 — текстура материала, set 1 — данные кадра; push constants — матрица модели и материал.
-    const std::array<VkDescriptorSetLayout, 2> sceneSets{setLayout, frameLayout};
+    // set 2 — карта нормалей, set 3 — карта шероховатости (тот же layout: одна комбинированная текстура).
+    const std::array<VkDescriptorSetLayout, 4> sceneSets{setLayout, frameLayout, setLayout, setLayout};
     const std::array<VkPushConstantRange, 2> scenePush{{
         {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VertexPush)},
         {VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(FragmentPush)},
@@ -993,7 +995,10 @@ bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId>
     for (const Submesh& s : effectiveSubmeshes(mesh)) {
         TextureId tex = 0;
         if (s.texture >= 0 && static_cast<std::size_t>(s.texture) < textureIds.size()) tex = textureIds[static_cast<std::size_t>(s.texture)];
-        out.submeshes.push_back({s.firstIndex, s.indexCount, tex, s.metallic, s.roughness});
+        const auto pick = [&](std::int32_t index) -> TextureId {
+            return index >= 0 && static_cast<std::size_t>(index) < textureIds.size() ? textureIds[static_cast<std::size_t>(index)] : 0;
+        };
+        out.submeshes.push_back({s.firstIndex, s.indexCount, tex, s.metallic, s.roughness, pick(s.normalTexture), pick(s.roughnessTexture)});
     }
     const bool ok = createBuffer(mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                  out.vertexBuffer, out.vertexMemory, err) &&
@@ -1220,6 +1225,7 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     put3(ubo.skyHorizon, frame.sky.horizon);
     put3(ubo.skyGround, frame.sky.ground);
     ubo.params[0] = frame.exposure;
+    ubo.params[1] = frame.fogDensity;
 
     // Каскады теней. Без солнечного света (ночь) или при выключенных тенях шейдер получает «тени выключены», а карты просто очищаются.
     ShadowSettings shadowSettings = frame.shadow;
@@ -1389,7 +1395,10 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 0, 1, &set, 0, nullptr);
                 boundSet = set;
             }
-            const FragmentPush material{{part.metallic, part.roughness, 0.0f, 0.0f}};
+            const VkDescriptorSet normalSet = s.descriptorFor(part.normalTexture), roughSet = s.descriptorFor(part.roughnessTexture);
+            const VkDescriptorSet extra[2] = {normalSet, roughSet};
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 2, 2, extra, 0, nullptr);
+            const FragmentPush material{{part.metallic, part.roughness, part.normalTexture != 0 ? 1.0f : 0.0f, part.roughnessTexture != 0 ? 1.0f : 0.0f}};
             vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(material), &material);
             vkCmdDrawIndexed(cmd, part.indexCount, 1, part.firstIndex, 0, 0);
         }

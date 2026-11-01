@@ -217,9 +217,7 @@ int main(int argc, char** argv) {
 #endif
     std::printf("GPU: %s; слой валидации: %s\n", renderer->deviceName().c_str(), renderer->validationEnabled() ? "включён" : "НЕ найден");
 
-    auto groundData = han::render::makePlane(4000.f, {0.40f, 0.42f, 0.38f});
-    groundData.submeshes = {{0, static_cast<std::uint32_t>(groundData.indices.size()), -1, 0.0f, 0.95f}};
-    const auto ground = renderer->uploadMesh(groundData);
+    const auto ground = han::render::citytex::uploadGround(*renderer);
     std::map<std::uint32_t, han::render::MeshId> bodyMeshes;
     for (const ai::Archetype& a : library.all()) {
         auto body = han::render::makeBox({0.28f, 0.85f, 0.2f}, archetypeColor(a.numericId));
@@ -422,6 +420,7 @@ int main(int argc, char** argv) {
         params.sun = han::render::makeSun(std::max(sunHeight, -10.f), 100.f + hour * 7.5f, sunHeight > 15.f ? sunKelvin : 3200.f);
         params.sky = han::render::skyFromSun(params.sun);
         params.exposure = sunHeight < 0.f ? exposure * 4.f : exposure;
+        params.fogDensity = 0.0006f;
         params.nearPlane = camera.nearZ;
         params.farPlane = camera.farZ;
         params.shadows = true;

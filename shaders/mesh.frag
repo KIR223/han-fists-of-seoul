@@ -6,9 +6,11 @@
 #include "shadow.glsl"
 
 layout(set = 0, binding = 0) uniform sampler2D uAlbedo;  // sRGB-формат: оборудование само переводит в линейный свет
+layout(set = 2, binding = 0) uniform sampler2D uNormalMap;     // линейная, нормали OpenGL (+Y вверх), 0..1 → -1..1
+layout(set = 3, binding = 0) uniform sampler2D uRoughMap;      // линейная, шероховатость в канале R
 
 layout(push_constant) uniform FragmentPush {
-    layout(offset = 64) vec4 material;  // x — металличность, y — шероховатость
+    layout(offset = 64) vec4 material;  // x — металличность, y — шероховатость, z — есть карта нормалей, w — есть карта шероховатости
 } fpc;
 
 layout(location = 0) in vec3 vWorldPos;
@@ -45,8 +47,26 @@ vec3 envBrdfApprox(vec3 f0, float roughness, float NoV) {
     return f0 * ab.x + ab.y;
 }
 
+// Касательный базис по производным позиции и UV (без хранимых касательных): Schüler, «Normal Mapping Without Precomputed Tangents».
+mat3 cotangentFrame(vec3 N, vec3 p, vec2 uv) {
+    vec3 dp1 = dFdx(p), dp2 = dFdy(p);
+    vec2 duv1 = dFdx(uv), duv2 = dFdy(uv);
+    vec3 dp2perp = cross(dp2, N);
+    vec3 dp1perp = cross(N, dp1);
+    vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+    float invmax = inversesqrt(max(dot(T, T), dot(B, B)) + 1e-12);
+    // В текстуре v растёт вниз, у нормалей OpenGL зелёный канал — вверх: переворачиваем B.
+    return mat3(T * invmax, -B * invmax, N);
+}
+
 void main() {
     vec3 N = normalize(vNormal);
+    if (fpc.material.z > 0.5) {
+        vec3 tn = texture(uNormalMap, vUV).xyz * 2.0 - 1.0;
+        tn.xy *= 1.0;  // сила рельефа (1 — как нарисовано)
+        N = normalize(cotangentFrame(N, vWorldPos, vUV) * normalize(tn));
+    }
     vec3 V = normalize(frame.cameraPos.xyz - vWorldPos);
     vec3 L = normalize(frame.sunDir.xyz);
 
@@ -56,7 +76,8 @@ void main() {
         albedo = mix(albedo, c == 0 ? vec3(1.0, 0.2, 0.2) : (c == 1 ? vec3(0.2, 1.0, 0.2) : (c == 2 ? vec3(0.2, 0.4, 1.0) : vec3(0.6))), 0.5);
     }
     float metallic = clamp(fpc.material.x, 0.0, 1.0);
-    float roughness = clamp(fpc.material.y, 0.045, 1.0);  // ниже 0,045 блик вырождается в точку
+    float roughness = fpc.material.w > 0.5 ? texture(uRoughMap, vUV).r : fpc.material.y;  // карта задаёт шероховатость как нарисована; без неё — число материала
+    roughness = clamp(roughness, 0.045, 1.0);  // ниже 0,045 блик вырождается в точку
     float a = roughness * roughness;
 
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
@@ -85,5 +106,11 @@ void main() {
     vec3 envSpecular = mix(skyGradient(R), ambientIrradiance, roughness * roughness);
     vec3 ambient = diffuseColor * ambientIrradiance + envSpecular * envBrdfApprox(f0, roughness, NoV);
 
-    outColor = vec4(direct + ambient, 1.0);
+    vec3 color = direct + ambient;
+    // Воздушная дымка: дальние объекты тонут в цвете горизонта, глубина города читается (при плотности 0 — без изменений).
+    float dist = length(frame.cameraPos.xyz - vWorldPos);
+    float fog = 1.0 - exp(-dist * frame.params.y);
+    vec3 fogColor = frame.skyHorizon.rgb * 0.9 + frame.sunColor.rgb * frame.sunColor.a * 0.02;
+    color = mix(color, fogColor, clamp(fog, 0.0, 0.85));
+    outColor = vec4(color, 1.0);
 }
