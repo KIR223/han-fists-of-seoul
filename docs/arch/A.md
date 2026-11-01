@@ -51,3 +51,23 @@ assets_src/manifest.json (в Git) ──► han_fetch.py fetch ──► assets_
 - Материал части меша (металличность, шероховатость) идёт push constants фрагментного шейдера; цвет — множитель из вершин и текстура (set 0).
 - Свет и небо: `makeSun`/`skyFromSun` (CPU). Это стартовая модель; таблица времени суток из части 34.1 переедет в `data/render/*.json`.
 - Шейдеры собираются `shaders/compile_shaders.py` (glslc из Vulkan SDK, `#include "common.glsl"`), SPIR-V лежит в `han/render/generated/`.
+
+## Как собрать и подключить свой модуль (для B)
+**Сборка с нуля** (нужны Visual Studio с C++, CMake, Git LFS и vcpkg в `C:\vcpkg`; `JOIN_HAN.ps1` ставит всё сам):
+```
+cmake --preset windows-release            # Visual Studio 2026; с Visual Studio 2022 — пресет vs2022-release
+cmake --build --preset windows-release
+ctest --preset windows-release
+```
+Первая конфигурация долгая (vcpkg собирает SDL3, ImGui, fastgltf и др.), дальше берётся из кэша. Пресеты: `windows-*` (VS 2026) и `vs2022-*` (VS 2022).
+
+**Новый модуль** в своей зоне (например, боевой модуль игры или анимация движка): корень CMake подхватывает его сам, если в папке модуля есть `CMakeLists.txt`.
+Пример для модуля `combat` (так же устроены все модули зоны A, см. `han/core`):
+```
+game/combat/CMakeLists.txt        han_module(combat DEPENDS han_core)   # цель han_combat; исходники src/*.cpp, заголовки include/han/combat/
+tests/combat/CMakeLists.txt       find_package(doctest CONFIG); add_executable(han_tests_combat …); add_test(NAME combat COMMAND han_tests_combat)
+```
+Зависимости: игра зависит от движка, движок — не от игры (`han_core`, `han_platform` и др. из зоны A). С зоной A общаетесь только через `contracts/`:
+заголовки, заглушки в `contracts/stubs/`, список — `contracts/registry.md`. Нужна библиотека из vcpkg — Issue для A (корневой `vcpkg.json` ведёт A).
+
+**Проверка кода:** CI (`build`) собирает и гоняет тесты на каждый PR; слияние в `main` — автоматически, если всё зелёное.
