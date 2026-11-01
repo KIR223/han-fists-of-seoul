@@ -1,0 +1,29 @@
+{
+  "id": "drunk_bruiser",
+  "archetype": "docker",
+  "experience": 4,
+  "striking": 7,
+  "grappling": 4,
+  "defense": 2,
+  "cardio": 3,
+  "courage": 9,
+  "aggression": 8,
+  "sobriety": "drunk",
+  "personality": "aggressor",
+  "action_weights": {
+    "power": 0.4,
+    "hook": 0.4,
+    "straight": 0.2
+  },
+  "technique_quality": 0.3,
+  "mistakes": [
+    "drops_hands",
+    "telegraphs"
+  ],
+  "background": [
+    "port_work"
+  ],
+  "clothing": {
+    "top": "work_vest"
+  }
+}

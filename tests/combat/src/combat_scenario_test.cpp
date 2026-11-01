@@ -14,20 +14,22 @@ std::string repo(const char* sub) { return (std::filesystem::path(HAN_REPO_DIR) 
 struct World {
     CombatRules rules;
     MoveLibrary moves;
+    ProfileLibrary profiles;
     World() {
         std::string error;
         REQUIRE_MESSAGE(rules.load(repo("data/combat/combat_rules.json"), error), error);
         REQUIRE_MESSAGE(moves.loadDirectory(repo("data/combat/moves"), error), error);
+        REQUIRE_MESSAGE(profiles.loadDirectory(repo("data/combat/profiles"), error), error);
     }
     bool run(const std::string& text, ScenarioResult& out, std::string& error) const {
         han::core::Json j;
         REQUIRE_MESSAGE(han::core::parseJson(text, j, error), error);
-        return runScenario(j, rules, moves, out, error);
+        return runScenario(j, rules, moves, out, error, &profiles);
     }
     bool runFile(const char* name, ScenarioResult& out, std::string& error) const {
         han::core::Json j;
         REQUIRE_MESSAGE(han::core::loadJsonFile(repo((std::string("data/combat/scenarios/") + name).c_str()), j, error), error);
-        return runScenario(j, rules, moves, out, error);
+        return runScenario(j, rules, moves, out, error, &profiles);
     }
 };
 }  // namespace
@@ -123,4 +125,29 @@ TEST_CASE("scenario: блок держится заданное число ка�
     CHECK(r.hits == 1);
     CHECK(r.health[0] < 100.f);   // третий бьёт первого
     CHECK(r.health[1] == doctest::Approx(100.f));
+}
+
+TEST_CASE("scenario: дуэль двух ИИ — бой заканчивается нокаутом, события читаются, результат воспроизводим") {
+    World w;
+    ScenarioResult a, b;
+    std::string error;
+    REQUIRE_MESSAGE(w.runFile("ai_duel.json", a, error), error);
+    REQUIRE_MESSAGE(w.runFile("ai_duel.json", b, error), error);
+    CHECK(a.log == b.log);
+    CHECK(a.hits >= 3);
+    CHECK(a.knockouts == 1);
+    CHECK(a.winner >= 0);
+    CHECK(a.frames < 2400);
+}
+
+TEST_CASE("scenario: ИИ в сценарии — ошибки: нет профиля или нет библиотеки профилей") {
+    World w;
+    ScenarioResult r;
+    std::string error;
+    CHECK_FALSE(w.run(R"({"fighters":[{"x":0,"z":0,"ai":"нет_такого"},{"x":0,"z":-1.2}]})", r, error));
+    CHECK(error.find("профиль") != std::string::npos);
+    han::core::Json j;
+    REQUIRE(han::core::parseJson(R"({"fighters":[{"x":0,"z":0,"ai":"boxer_veteran"},{"x":0,"z":-1.2}]})", j, error));
+    CHECK_FALSE(runScenario(j, w.rules, w.moves, r, error));  // профили не переданы
+    CHECK(error.find("библиотека профилей") != std::string::npos);
 }

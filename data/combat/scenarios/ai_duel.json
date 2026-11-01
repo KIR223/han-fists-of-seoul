@@ -1,0 +1,8 @@
+{
+  "frames": 2400,
+  "seed": 7,
+  "fighters": [
+    { "name": "Ветеран", "x": 0, "z": 0, "ai": "boxer_veteran" },
+    { "name": "Буян", "x": 0, "z": -3.0, "ai": "street_brawler" }
+  ]
+}

@@ -1,5 +1,5 @@
 // Консольный симулятор боя (G1): combat_sim сценарий.json → лог кадров и итог.
-//   combat_sim data/combat/scenarios/jab_vs_slip.json [--rules файл] [--moves папка] [--quiet]
+//   combat_sim data/combat/scenarios/jab_vs_slip.json [--rules файл] [--moves папка] [--profiles папка] [--quiet]
 // Запускать из корня репозитория. Код выхода: 0 — сценарий прошёл, 1 — ошибка данных или сценария.
 #include <cstdio>
 #include <cstring>
@@ -8,11 +8,12 @@
 #include "han/combat/scenario.h"
 
 int main(int argc, char** argv) {
-    std::string scenarioPath, rulesPath = "data/combat/combat_rules.json", movesDir = "data/combat/moves";
+    std::string scenarioPath, rulesPath = "data/combat/combat_rules.json", movesDir = "data/combat/moves", profilesDir = "data/combat/profiles";
     bool quiet = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--rules") && i + 1 < argc) rulesPath = argv[++i];
         else if (!std::strcmp(argv[i], "--moves") && i + 1 < argc) movesDir = argv[++i];
+        else if (!std::strcmp(argv[i], "--profiles") && i + 1 < argc) profilesDir = argv[++i];
         else if (!std::strcmp(argv[i], "--quiet")) quiet = true;
         else scenarioPath = argv[i];
     }
@@ -23,13 +24,14 @@ int main(int argc, char** argv) {
     std::string error;
     han::combat::CombatRules rules;
     han::combat::MoveLibrary moves;
+    han::combat::ProfileLibrary profiles;
     han::core::Json scenario;
-    if (!rules.load(rulesPath, error) || !moves.loadDirectory(movesDir, error) || !han::core::loadJsonFile(scenarioPath, scenario, error)) {
+    if (!rules.load(rulesPath, error) || !moves.loadDirectory(movesDir, error) || !profiles.loadDirectory(profilesDir, error) || !han::core::loadJsonFile(scenarioPath, scenario, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 1;
     }
     han::combat::ScenarioResult result;
-    if (!han::combat::runScenario(scenario, rules, moves, result, error)) {
+    if (!han::combat::runScenario(scenario, rules, moves, result, error, &profiles)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 1;
     }

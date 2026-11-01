@@ -1,0 +1,23 @@
+{
+  "id": "counter_puncher",
+  "archetype": "boxer",
+  "experience": 7,
+  "striking": 6,
+  "grappling": 2,
+  "defense": 9,
+  "cardio": 7,
+  "courage": 7,
+  "aggression": 3,
+  "sobriety": "sober",
+  "personality": "counter",
+  "action_weights": {
+    "counter": 0.4,
+    "jab": 0.3,
+    "straight": 0.3
+  },
+  "technique_quality": 0.85,
+  "mistakes": [],
+  "background": [
+    "gym_boxing"
+  ]
+}

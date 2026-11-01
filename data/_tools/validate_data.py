@@ -7,6 +7,7 @@
 Что проверяется:
   • data/combat/moves/*.json       — схема move.schema.json, id совпадает с именем файла, ключи name_key есть в локализации;
   • data/people/archetypes/*.json  — схема npc_archetype.schema.json, id совпадает с именем файла;
+  • data/combat/profiles/*.json    — схема fighter_profile.schema.json (боевые профили NPC), id совпадает с именем файла;
   • data/combat/combat_rules.json  — структура правил (разбор делает движок; здесь проверка обязательных разделов);
   • data/combat/scenarios/*.json   — это сценарии: должен быть разбор JSON и хотя бы два бойца.
 Код выхода: 0 — всё хорошо, 1 — есть ошибки в данных, 2 — не хватает пакета jsonschema (pip install jsonschema).
@@ -26,6 +27,7 @@ SCHEMAS = ROOT / "contracts" / "schemas"
 SETS = [
     ("data/combat/moves", "move.schema.json", "name_key"),
     ("data/people/archetypes", "npc_archetype.schema.json", "name_key"),
+    ("data/combat/profiles", "fighter_profile.schema.json", None),
 ]
 RULES_SECTIONS = ["damage", "stamina", "balance", "knockdown", "movement", "block_by_angle", "defenses"]
 

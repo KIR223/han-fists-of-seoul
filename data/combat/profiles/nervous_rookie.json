@@ -1,0 +1,25 @@
+{
+  "id": "nervous_rookie",
+  "archetype": "student",
+  "experience": 1,
+  "striking": 3,
+  "grappling": 1,
+  "defense": 3,
+  "cardio": 5,
+  "courage": 3,
+  "aggression": 3,
+  "sobriety": "sober",
+  "personality": "defensive",
+  "action_weights": {
+    "jab": 0.6,
+    "straight": 0.3,
+    "hook": 0.1
+  },
+  "technique_quality": 0.4,
+  "mistakes": [
+    "telegraphs"
+  ],
+  "background": [
+    "school_club"
+  ]
+}

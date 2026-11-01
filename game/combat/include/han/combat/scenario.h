@@ -5,11 +5,13 @@
 //               {"frame": 4, "fighter": 1, "defense": "slip_left"},
 //               {"frame": 1, "fighter": 1, "block": 30}]}
 // Защиты: parry, slip_left, slip_right, duck, bob_left, bob_right, lean_back, sidestep_left, sidestep_right, step_back.
+// «ai»: у бойца — id боевого профиля (data/combat/profiles): им управляет FightAI, статы берутся из профиля (если нет «stats»); «seed_ai» — сид его решений.
 // «block»: сколько кадров держать блок с указанного кадра. «forward», «right», «dash» действуют один кадр (держите несколькими записями).
 #pragma once
 #include <string>
 #include <vector>
 
+#include "han/combat/ai.h"
 #include "han/combat/sim.h"
 
 namespace han::combat {
@@ -24,5 +26,5 @@ struct ScenarioResult {
 bool defenseFromName(const std::string& name, DefenseAction& out);
 
 // Прогоняет сценарий. false — ошибка в сценарии (неизвестный приём, боец, защита) с описанием в error.
-bool runScenario(const core::Json& scenario, const CombatRules& rules, const MoveLibrary& moves, ScenarioResult& out, std::string& error);
+bool runScenario(const core::Json& scenario, const CombatRules& rules, const MoveLibrary& moves, ScenarioResult& out, std::string& error, const ProfileLibrary* profiles = nullptr);
 }  // namespace han::combat
