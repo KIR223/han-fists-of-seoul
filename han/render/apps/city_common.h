@@ -234,6 +234,7 @@ inline MeshData toMesh(const world::GeoMesh& g, const std::vector<TextureId>& te
         const int slot = slotOf(r.material);
         std::int32_t texture = -1, normal = -1, rough = -1;
         float roughness = defaultRoughness;
+        if (r.material == world::GeoMaterial::Water) roughness = 0.06f;  // вода: почти зеркало неба
         if (slot >= 0) {
             roughness = slots()[static_cast<std::size_t>(slot)].roughness;
             if (static_cast<std::size_t>(slot) < textureIds.size() && textureIds[static_cast<std::size_t>(slot)] != 0) {

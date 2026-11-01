@@ -555,7 +555,18 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             CityChunk& chunk = chunkAt(centroid(pts));
             const Color color = isWater ? Color{0.16f, 0.30f, 0.42f} : Color{1.f, 1.f, 1.f};
             const auto indexBefore = static_cast<std::uint32_t>(chunk.ground.indices.size());
-            if (addFlatPolygon(chunk.ground, pts, isWater ? 0.02f : 0.03f, color, kParkTile)) {
+            // Вода лежит ровной плоскостью на отметке берегов (самые низкие точки контура), чуть ниже земли; парки идут по рельефу.
+            const bool savedFixed = gFixed;
+            if (isWater && gTerrain) {
+                float level = 1e9f;
+                for (const Vec2& p : pts) level = std::min(level, groundAt(p.x, p.y));
+                gFixed = true;
+                gFixedBase = level - 0.4f;
+            }
+            const bool built = addFlatPolygon(chunk.ground, pts, isWater ? 0.02f : 0.03f, color, kParkTile);
+            gFixed = savedFixed;
+            gFixedBase = 0.f;
+            if (built) {
                 chunk.ground.tag(isWater ? GeoMaterial::Water : GeoMaterial::Park, indexBefore);
                 ++chunk.areaCount;
                 ++(isWater ? st.waters : st.parks);

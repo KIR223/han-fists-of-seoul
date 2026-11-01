@@ -229,3 +229,37 @@ TEST_CASE("terrain: дальний план — одна грубая сетка
     CHECK(buildFarTerrain(Heightmap(), 100.f).empty());
     CHECK(far.ranges.size() == 1);
 }
+
+TEST_CASE("terrain: водоём на склоне — плоская вода на отметке самого низкого берега, парк рядом идёт по склону") {
+    const Heightmap m = slope();
+    OsmData d;
+    std::string error;
+    REQUIRE(parseOsmXml(R"(<osm><node id="1" lat="37.5000" lon="127.0000"/><node id="2" lat="37.5000" lon="127.0006"/>
+        <node id="3" lat="37.5003" lon="127.0006"/><node id="4" lat="37.5003" lon="127.0000"/>
+        <node id="5" lat="37.4990" lon="127.0000"/><node id="6" lat="37.4990" lon="127.0006"/>
+        <node id="7" lat="37.4993" lon="127.0006"/><node id="8" lat="37.4993" lon="127.0000"/>
+        <way id="20"><nd ref="1"/><nd ref="2"/><nd ref="3"/><nd ref="4"/><nd ref="1"/><tag k="natural" v="water"/></way>
+        <way id="21"><nd ref="5"/><nd ref="6"/><nd ref="7"/><nd ref="8"/><nd ref="5"/><tag k="leisure" v="park"/></way></osm>)", d, error));
+    const GeoProjection proj(37.4995, 126.9990);
+    CityBuildSettings s;
+    s.terrain = &m;
+    s.terrainMesh = false;
+    s.streetProps = false;
+    const auto chunks = buildCity(d, proj, s);
+    float waterMin = 1e9f, waterMax = -1e9f, parkMin = 1e9f, parkMax = -1e9f;
+    for (const auto& [cell, c] : chunks)
+        for (const GeoRange& r : c.ground.ranges)
+            for (std::uint32_t i = 0; i < r.indexCount; ++i) {
+                const float y = c.ground.vertices[c.ground.indices[r.firstIndex + i]].position[1];
+                if (r.material == GeoMaterial::Water) {
+                    waterMin = std::min(waterMin, y);
+                    waterMax = std::max(waterMax, y);
+                } else if (r.material == GeoMaterial::Park) {
+                    parkMin = std::min(parkMin, y);
+                    parkMax = std::max(parkMax, y);
+                }
+            }
+    REQUIRE(waterMax > -1e8f);
+    CHECK(waterMax - waterMin < 1e-3f);   // вода плоская
+    CHECK(parkMax - parkMin > 1.f);       // парк повторяет склон
+}
