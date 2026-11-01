@@ -1,0 +1,15 @@
+{
+  "id": "shadow_first",
+  "bpm": 90,
+  "lead_in_beats": 2,
+  "lead_frames": 6,
+  "windows": {"perfect": 3, "good": 7, "ok": 12},
+  "calls": [
+    {"beat": 0, "action": "jab"},
+    {"beat": 1, "action": "cross"},
+    {"beat": 2, "action": "left_hook"},
+    {"beat": 4, "action": "duck"},
+    {"beat": 5, "action": "right_hook"},
+    {"beat": 6, "action": "uppercut"}
+  ]
+}

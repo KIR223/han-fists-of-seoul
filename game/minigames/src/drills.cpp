@@ -1,6 +1,7 @@
 #include "han/minigames/drills.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 namespace han::minigames {
@@ -277,6 +278,86 @@ bool parseChainConfig(const Json& json, ChainConfig& out, std::string& error) {
     }
     if (c.startLength < 1 || c.maxLength < c.startLength || c.showFramesPerItem < 1 || c.inputFramesPerItem < 1) {
         error = c.id + ": неверные длины или тайминги";
+        return false;
+    }
+    out = std::move(c);
+    return true;
+}
+
+// ---------------------------------------------------------------- Тень
+
+bool parseShadowConfig(const Json& json, ShadowConfig& out, std::string& error) {
+    ShadowConfig c;
+    if (!parsePadConfig(json, c.pads, error)) return false;
+    c.leadFrames = static_cast<int>(json["lead_frames"].asNumber(6));
+    if (c.leadFrames < 0 || c.leadFrames > c.pads.okFrames) {
+        error = c.pads.id + ": lead_frames должен быть от 0 до окна ok";
+        return false;
+    }
+    out = std::move(c);
+    return true;
+}
+
+// ---------------------------------------------------------------- Тяжёлый мешок
+
+float HeavyBag::meter(int framesHeld) const {
+    const int period = std::max(2, cfg_.chargeFrames);
+    const float t = static_cast<float>(framesHeld % (2 * period)) / static_cast<float>(period);
+    return t <= 1.f ? t : 2.f - t;
+}
+
+BagStrike HeavyBag::release(int framesHeld, float aimError) {
+    BagStrike s;
+    s.power = meter(framesHeld);
+    s.green = s.power >= cfg_.greenLow && s.power <= cfg_.greenHigh;
+    s.missed = aimError > cfg_.aimTolerance;
+    const float mid = 0.5f * (cfg_.greenLow + cfg_.greenHigh);
+    const float half = 0.5f * (cfg_.greenHigh - cfg_.greenLow);
+    const float off = std::fabs(s.power - mid);
+    // В зелёной зоне сила идеальна; за её краем качество падает линейно до нуля на расстоянии в две ширины зоны.
+    const float powerQ = off <= half ? 1.f : std::max(0.f, 1.f - (off - half) / std::max(0.05f, 2.f * half));
+    const float aimQ = s.missed ? 0.f : 1.f - 0.5f * std::min(1.f, aimError / std::max(0.01f, cfg_.aimTolerance));
+    s.quality = powerQ * aimQ;
+    if (!finished()) {
+        ++done_;
+        total_ += s.quality;
+        greens_ += s.green && !s.missed ? 1 : 0;
+    }
+    return s;
+}
+
+Rating HeavyBag::rating() const {
+    const float a = average();
+    if (a >= cfg_.ratingS) return Rating::S;
+    if (a >= cfg_.ratingA) return Rating::A;
+    if (a >= cfg_.ratingB) return Rating::B;
+    if (a >= cfg_.ratingC) return Rating::C;
+    return Rating::D;
+}
+
+bool parseBagConfig(const Json& json, BagConfig& out, std::string& error) {
+    if (!json.isObject()) {
+        error = "мешок: ожидался объект";
+        return false;
+    }
+    BagConfig c;
+    c.id = json["id"].asString();
+    if (c.id.empty()) {
+        error = "мешок: нет id";
+        return false;
+    }
+    c.chargeFrames = static_cast<int>(json["charge_frames"].asNumber(60));
+    c.greenLow = static_cast<float>(json["green"].at(0).asNumber(0.7));
+    c.greenHigh = static_cast<float>(json["green"].at(1).asNumber(0.85));
+    c.aimTolerance = static_cast<float>(json["aim_tolerance"].asNumber(0.25));
+    c.strikes = static_cast<int>(json["strikes"].asNumber(8));
+    const Json& r = json["rating"];
+    c.ratingS = static_cast<float>(r["S"].asNumber(0.85));
+    c.ratingA = static_cast<float>(r["A"].asNumber(0.7));
+    c.ratingB = static_cast<float>(r["B"].asNumber(0.5));
+    c.ratingC = static_cast<float>(r["C"].asNumber(0.3));
+    if (c.chargeFrames < 10 || c.strikes < 1 || !(0.f <= c.greenLow && c.greenLow < c.greenHigh && c.greenHigh <= 1.f) || c.aimTolerance <= 0.f) {
+        error = c.id + ": неверные параметры шкалы";
         return false;
     }
     out = std::move(c);

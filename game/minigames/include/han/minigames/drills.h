@@ -115,5 +115,70 @@ private:
 };
 
 bool parseChainConfig(const core::Json& json, ChainConfig& out, std::string& error);
+
+// ---------------------------------------------------------------- Тень
+
+// Силуэт мастера выполняет связку, игрок повторяет синхронно с небольшим опережением: ожидаемое время нажатия сдвинуто
+// на leadFrames раньше такта мастера. Остальное — как в «Лапах».
+struct ShadowConfig {
+    PadConfig pads;
+    int leadFrames = 6;
+};
+
+class ShadowDrill {
+public:
+    explicit ShadowDrill(ShadowConfig c) : lead_(c.leadFrames), drill_(std::move(c.pads)) {}
+    Judgement press(Action a, int frame) { return drill_.press(a, frame + lead_); }
+    void update(int frame) { drill_.update(frame + lead_); }
+    const PadDrill& drill() const { return drill_; }
+    int endFrame() const { return drill_.endFrame() - lead_; }
+
+private:
+    int lead_;
+    PadDrill drill_;
+};
+
+bool parseShadowConfig(const core::Json& json, ShadowConfig& out, std::string& error);
+
+// ---------------------------------------------------------------- Тяжёлый мешок
+
+struct BagConfig {
+    std::string id;
+    int chargeFrames = 60;                     // шкала силы: 0 → 1 за это число кадров, затем обратно
+    float greenLow = 0.7f, greenHigh = 0.85f;  // зелёная зона шкалы
+    float aimTolerance = 0.25f;                // допустимое отклонение метки от точки удара (0..1); дальше — промах
+    int strikes = 8;
+    float ratingS = 0.85f, ratingA = 0.7f, ratingB = 0.5f, ratingC = 0.3f;
+};
+
+struct BagStrike {
+    float power = 0.f;    // значение шкалы в момент отпускания, 0..1
+    float quality = 0.f;  // 0..1: точность силы и прицела
+    bool green = false;   // сила в зелёной зоне
+    bool missed = false;  // метка слишком далеко от точки удара
+};
+
+class HeavyBag {
+public:
+    explicit HeavyBag(BagConfig c) : cfg_(std::move(c)) {}
+    float meter(int framesHeld) const;  // треугольная волна
+    // Игрок отпустил кнопку: framesHeld — сколько кадров удерживал; aimError — отклонение метки от точки удара, 0..1.
+    BagStrike release(int framesHeld, float aimError);
+    bool finished() const { return done_ >= cfg_.strikes; }
+    int strikesDone() const { return done_; }
+    float average() const { return done_ ? total_ / static_cast<float>(done_) : 0.f; }
+    int greenCount() const { return greens_; }
+    Rating rating() const;
+    // Размах мешка от силы удара (для физики груши): 0..1.
+    float swingOf(const BagStrike& s) const { return s.missed ? 0.1f : 0.3f + 0.7f * s.power; }
+    const BagConfig& config() const { return cfg_; }
+
+private:
+    BagConfig cfg_;
+    int done_ = 0, greens_ = 0;
+    float total_ = 0.f;
+};
+
+bool parseBagConfig(const core::Json& json, BagConfig& out, std::string& error);
 }  // namespace han::minigames
 // Пример: PadDrill d(cfg); d.press(Action::Jab, 62); d.update(200); auto r = d.rating();

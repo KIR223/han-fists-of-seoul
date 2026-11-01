@@ -96,6 +96,70 @@ TEST_CASE("pads: плохие данные отклоняются с понят�
     CHECK(error.find("неизвестное действие") != std::string::npos);
 }
 
+TEST_CASE("shadow: нажатие чуть раньше такта точное, с опозданием на тот же срок — хуже") {
+    ShadowConfig c;
+    std::string error;
+    REQUIRE_MESSAGE(parseShadowConfig(load("data/combat/minigames/shadow_first.json"), c, error), error);
+    ShadowDrill early(c);
+    CHECK(early.press(Action::Jab, early.drill().callFrame(0) - c.leadFrames) == Judgement::Perfect);
+    ShadowDrill late(c);
+    CHECK(late.press(Action::Jab, late.drill().callFrame(0) + c.leadFrames) != Judgement::Perfect);
+    ShadowDrill all(c);
+    for (std::size_t i = 0; i < c.pads.calls.size(); ++i) all.press(c.pads.calls[i].action, all.drill().callFrame(i) - c.leadFrames);
+    all.update(all.endFrame() + 30);
+    CHECK(all.drill().rating() == Rating::S);
+}
+
+TEST_CASE("bag: шкала — треугольная волна, зелёная зона даёт полное качество, промах мимо метки обнуляет удар") {
+    BagConfig c;
+    std::string error;
+    REQUIRE_MESSAGE(parseBagConfig(load("data/combat/minigames/bag_first.json"), c, error), error);
+    HeavyBag bag(c);
+    CHECK(bag.meter(0) == doctest::Approx(0.f));
+    CHECK(bag.meter(30) == doctest::Approx(0.5f));
+    CHECK(bag.meter(60) == doctest::Approx(1.f));
+    CHECK(bag.meter(90) == doctest::Approx(0.5f));
+    CHECK(bag.meter(120) == doctest::Approx(0.f));
+    const BagStrike perfect = bag.release(47, 0.f);  // 47/60 = 0.78 — в зелёной зоне
+    CHECK(perfect.green);
+    CHECK(perfect.quality == doctest::Approx(1.f));
+    const BagStrike weak = bag.release(12, 0.f);
+    CHECK_FALSE(weak.green);
+    CHECK(weak.quality < 0.1f);
+    const BagStrike off = bag.release(47, 0.6f);
+    CHECK(off.missed);
+    CHECK(off.quality == doctest::Approx(0.f));
+    CHECK(bag.swingOf(perfect) > bag.swingOf(weak));
+    CHECK(bag.swingOf(off) < 0.2f);
+}
+
+TEST_CASE("bag: серия точных ударов — S, серия слабых — D, лишние удары после конца не считаются") {
+    BagConfig c;
+    std::string error;
+    REQUIRE_MESSAGE(parseBagConfig(load("data/combat/minigames/bag_first.json"), c, error), error);
+    HeavyBag good(c), bad(c);
+    for (int i = 0; i < c.strikes; ++i) {
+        good.release(47, 0.02f);
+        bad.release(8, 0.f);
+    }
+    CHECK(good.finished());
+    CHECK(good.rating() == Rating::S);
+    CHECK(good.greenCount() == c.strikes);
+    CHECK(bad.rating() == Rating::D);
+    good.release(8, 0.f);
+    CHECK(good.strikesDone() == c.strikes);
+    CHECK(good.rating() == Rating::S);
+}
+
+TEST_CASE("bag: неверные параметры шкалы отклоняются") {
+    BagConfig c;
+    std::string error;
+    han::core::Json j;
+    REQUIRE(han::core::parseJson(R"({"id":"x","green":[0.9,0.8]})", j, error));
+    CHECK_FALSE(parseBagConfig(j, c, error));
+    CHECK(error.find("шкалы") != std::string::npos);
+}
+
 namespace {
 // Проигрывает связку: ждёт конца показа и вводит верную последовательность.
 void playCorrect(ChainDrill& d) {

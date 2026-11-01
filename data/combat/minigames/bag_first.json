@@ -1,0 +1,8 @@
+{
+  "id": "bag_first",
+  "charge_frames": 60,
+  "green": [0.7, 0.85],
+  "aim_tolerance": 0.25,
+  "strikes": 8,
+  "rating": {"S": 0.85, "A": 0.7, "B": 0.5, "C": 0.3}
+}
