@@ -157,6 +157,25 @@ float buildingHeight(const OsmWay& way, const CityBuildSettings& s) {
     return std::clamp(h, 2.5f, s.maxBuildingHeight);
 }
 
+std::vector<std::vector<Vec2>> buildingFootprints(const OsmData& data, const GeoProjection& projection, float minArea) {
+    std::vector<std::vector<Vec2>> out;
+    for (const OsmWay& way : data.ways) {
+        const std::string_view building = way.tag("building");
+        if (building.empty() || building == "no" || !way.closed()) continue;
+        std::vector<Vec2> pts;
+        for (std::int64_t id : way.nodes) {
+            const auto it = data.nodes.find(id);
+            if (it == data.nodes.end()) continue;
+            Vec2 p;
+            projection.toLocal(it->second.lat, it->second.lon, p.x, p.y);
+            pts.push_back(p);
+        }
+        if (pts.size() >= 2 && pts.front().x == pts.back().x && pts.front().y == pts.back().y) pts.pop_back();
+        if (pts.size() >= 3 && std::fabs(signedArea(pts)) >= minArea) out.push_back(std::move(pts));
+    }
+    return out;
+}
+
 std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjection& projection, const CityBuildSettings& settings, CityStats* stats) {
     std::map<CellCoord, CityChunk> chunks;
     CityStats st;
