@@ -299,4 +299,63 @@ TEST_CASE("audio: разброс громкости воспроизводим �
     CHECK(level(7) == doctest::Approx(level(7)).epsilon(0.001));
     CHECK(level(7) != doctest::Approx(level(12345)).epsilon(0.01));
 }
+
+namespace {
+// Число пересечений нуля левым каналом за seconds секунд микширования: оценка частоты звука (для синуса — 2 на период).
+int zeroCrossings(audio::AudioSystem& a, float seconds) {
+    const std::uint32_t total = static_cast<std::uint32_t>(seconds * static_cast<float>(a.sampleRate()));
+    std::vector<float> buf(2 * 480);
+    int crossings = 0;
+    float previous = 0.f;
+    std::uint32_t done = 0;
+    while (done < total) {
+        const std::uint32_t got = a.renderFrames(buf.data(), 480);
+        if (got == 0) break;
+        for (std::uint32_t i = 0; i < got; ++i) {
+            const float v = buf[2 * i];
+            if ((previous < 0.f && v >= 0.f) || (previous > 0.f && v <= 0.f)) ++crossings;
+            if (v != 0.f) previous = v;
+        }
+        a.update(0.01f);
+        done += got;
+    }
+    return crossings;
+}
+}  // namespace
+
+TEST_CASE("audio E12: управляемый голос — высота и громкость меняются на лету (двигатель машины)") {
+    Fixture f;
+    f.add("engine", "tone.wav", Bus::Sfx, true, true);  // 440 Гц, зациклен
+    const auto voice = f.sys->playLoop("engine", {0, 0, -3});
+    REQUIRE(voice != 0);
+    CHECK(f.sys->voiceAlive(voice));
+    render(*f.sys, 0.2f);  // разгон сглаживания громкости
+    const int base = zeroCrossings(*f.sys, 0.5f);
+    f.sys->setVoice(voice, {0, 0, -3}, 1.f, 2.f);
+    render(*f.sys, 0.1f);
+    const int high = zeroCrossings(*f.sys, 0.5f);
+    CHECK(base > 300);   // ~440 Гц за 0,5 с: около 440 пересечений
+    CHECK(high > base * 1.8);
+    CHECK(high < base * 2.2);
+    f.sys->setVoice(voice, {0, 0, -3}, 0.f, 1.f);
+    render(*f.sys, 0.3f);
+    CHECK(render(*f.sys, 0.1f).left < 0.001f);  // нулевая громкость — тишина
+    // Зацикленный голос переживает конец файла (1 с) и лимит голосов; stopVoice его убирает.
+    for (int i = 0; i < 100; ++i) f.sys->playEvent("short", {0, 0, -3});
+    render(*f.sys, 1.5f);
+    CHECK(f.sys->voiceAlive(voice));
+    f.sys->stopVoice(voice);
+    CHECK_FALSE(f.sys->voiceAlive(voice));
+    f.sys->setVoice(voice, {0, 0, 0}, 1.f, 1.f);  // после остановки безопасно
+    f.sys->stopVoice(voice);
+    f.sys->stopVoice(0);
+}
+
+TEST_CASE("audio E12: playLoop отказывает для незацикленного и неизвестного события") {
+    Fixture f;
+    CHECK(f.sys->playLoop("tone", {0, 0, 0}) == 0);  // не зациклен
+    CHECK(f.sys->playLoop("нет_такого", {0, 0, 0}) == 0);
+    CHECK(f.sys->failedPlays() == 2);
+    CHECK(f.sys->activeVoices() == 0);
+}
 #endif

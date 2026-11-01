@@ -29,6 +29,8 @@ struct AudioSystem::Impl {
         bool music = false;
         bool loop = false;
         std::string id;
+        std::uint32_t handle = 0;  // номер управляемого голоса (0 — обычный звук)
+        float eventVolume = 1.f;
         // Плавное изменение громкости музыки.
         float fadeFrom = 1.f, fadeTo = 1.f, fadeTime = 0.f, fadeDuration = 0.f;
         bool stopWhenFaded = false;
@@ -47,6 +49,7 @@ struct AudioSystem::Impl {
     std::uint32_t failed = 0;
     std::string problem;
     std::uint32_t rng = 1;
+    std::uint32_t nextHandle = 1;
 
     float rand01() {
         rng ^= rng << 13;
@@ -69,7 +72,8 @@ struct AudioSystem::Impl {
     // Освобождает место: вытесняется самый старый немузыкальный звук.
     void makeRoom() {
         while (voices.size() >= settings.maxVoices) {
-            auto victim = std::find_if(voices.begin(), voices.end(), [](const auto& v) { return !v->music; });
+            // Управляемые голоса и музыку не вытесняем.
+            auto victim = std::find_if(voices.begin(), voices.end(), [](const auto& v) { return !v->music && v->handle == 0; });
             if (victim == voices.end()) return;
             dropVoice(victim);
         }
@@ -259,6 +263,49 @@ void AudioSystem::update(float dt) {
             ++it;
         }
     }
+}
+
+AudioSystem::VoiceId AudioSystem::playLoop(std::string_view eventId, Vec3 position) {
+    const auto it = impl_->events.find(eventId);
+    if (it == impl_->events.end()) {
+        impl_->fail("нет события «" + std::string(eventId) + "»");
+        return 0;
+    }
+    if (!it->second.loop) {
+        impl_->fail("событие «" + std::string(eventId) + "» не зациклено: playLoop нужен loop = true");
+        return 0;
+    }
+    Impl::Voice* v = impl_->start(it->second, false, true, position);
+    if (!v) return 0;
+    v->handle = impl_->nextHandle++;
+    v->eventVolume = v->baseVolume;
+    return v->handle;
+}
+
+void AudioSystem::setVoice(VoiceId id, Vec3 position, float volume, float pitch) {
+    for (auto& v : impl_->voices)
+        if (v->handle == id && id != 0) {
+            ma_sound_set_position(&v->sound, position.x, position.y, position.z);
+            ma_sound_set_volume(&v->sound, v->eventVolume * std::clamp(volume, 0.f, 2.f));
+            ma_sound_set_pitch(&v->sound, std::clamp(pitch, 0.1f, 4.f));
+            return;
+        }
+}
+
+void AudioSystem::stopVoice(VoiceId id) {
+    if (id == 0) return;
+    for (auto it = impl_->voices.begin(); it != impl_->voices.end(); ++it)
+        if ((*it)->handle == id) {
+            impl_->dropVoice(it);
+            return;
+        }
+}
+
+bool AudioSystem::voiceAlive(VoiceId id) const {
+    if (id == 0) return false;
+    for (const auto& v : impl_->voices)
+        if (v->handle == id) return true;
+    return false;
 }
 
 std::uint32_t AudioSystem::activeVoices() const { return static_cast<std::uint32_t>(impl_->voices.size()); }
