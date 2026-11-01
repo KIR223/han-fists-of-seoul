@@ -1,6 +1,15 @@
 #!/bin/sh
 # Хук commit-msg: сообщение коммита должно быть на русском. Включается python tools/setup_local.py
-PY=$(command -v python3 || command -v python || command -v py)
+# Python ищем среди python3, python, py и берём первый, который действительно запускается: на Windows «python3» часто оказывается
+# заглушкой Microsoft Store (она существует, но падает), и тогда проверка молча ломала бы каждый коммит.
+PY=""
+for candidate in python3 python py; do
+  path=$(command -v "$candidate") || continue
+  if "$path" -c "import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)" >/dev/null 2>&1; then
+    PY="$path"
+    break
+  fi
+done
 [ -z "$PY" ] && exit 0
 ROOT=$(git rev-parse --show-toplevel)
 exec "$PY" "$ROOT/tools/commit_msg_check.py" "$1"

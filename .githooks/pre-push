@@ -1,10 +1,26 @@
 #!/bin/sh
-# Хук pre-push: защита main, запрет force push, проверка зон владения.
+# Хук pre-push: загрузка файлов Git LFS, защита main, запрет force push, проверка зон владения.
 # Включается командой: python tools/setup_local.py  (git config core.hooksPath .githooks)
-PY=$(command -v python3 || command -v python || command -v py)
+#
+# core.hooksPath заменяет стандартные хуки, в том числе хук git-lfs, поэтому LFS-файлы (.glb, .png, .ktx2 …) без него на сервер
+# не уходят, а CI потом не может их скачать. Вызываем git lfs сами.
+INPUT=$(cat)
+if command -v git-lfs >/dev/null 2>&1; then
+  printf '%s\n' "$INPUT" | git lfs pre-push "$@" || exit $?
+fi
+
+# Python: первый из python3, python, py, который действительно запускается (на Windows «python3» бывает заглушкой Microsoft Store).
+PY=""
+for candidate in python3 python py; do
+  path=$(command -v "$candidate") || continue
+  if "$path" -c "import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)" >/dev/null 2>&1; then
+    PY="$path"
+    break
+  fi
+done
 if [ -z "$PY" ]; then
   echo "⚠ Python не найден — проверка зон пропущена. Поставь Python 3 (см. docs/team/SETUP.md)." >&2
   exit 0
 fi
 ROOT=$(git rev-parse --show-toplevel)
-exec "$PY" "$ROOT/tools/han_zones.py" pre-push "$@"
+printf '%s\n' "$INPUT" | "$PY" "$ROOT/tools/han_zones.py" pre-push "$@"
