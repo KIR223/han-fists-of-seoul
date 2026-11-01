@@ -1,0 +1,36 @@
+{
+  "id": "boxing_liver_hook",
+  "style": "boxing",
+  "name_key": "move.boxing.liver_hook",
+  "unlock_level": 3,
+  "type": "body",
+  "trajectory": "arc_left",
+  "limb": "left_hand",
+  "height": "torso",
+  "movement_variant": "static",
+  "frames": {
+    "startup": 10,
+    "active": 3,
+    "recovery": 16
+  },
+  "cancel_window": [
+    13,
+    21
+  ],
+  "range": 1.0,
+  "damage": 8,
+  "stamina": 6,
+  "balance": 9,
+  "on_block_frames": -4,
+  "on_hit_frames": 2,
+  "armor": false,
+  "unblockable": false,
+  "power": false,
+  "impulse": 100,
+  "fx": {
+    "hitstop_ms": 75,
+    "shake": 0.4,
+    "sound": "impact_body"
+  },
+  "anim": "anims/boxing/liver_hook.ozz"
+}

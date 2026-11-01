@@ -1,0 +1,12 @@
+{
+  "frames": 80,
+  "fighters": [
+    { "name": "Боксёр", "x": 0, "z": 0 },
+    { "name": "Манекен", "x": 0, "z": -1.2 }
+  ],
+  "inputs": [
+    { "frame": 1, "fighter": 0, "attack": "boxing_jab" },
+    { "frame": 4, "fighter": 1, "defense": "slip_left" },
+    { "frame": 30, "fighter": 1, "attack": "boxing_cross" }
+  ]
+}

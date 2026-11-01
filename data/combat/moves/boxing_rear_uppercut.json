@@ -1,0 +1,36 @@
+{
+  "id": "boxing_rear_uppercut",
+  "style": "boxing",
+  "name_key": "move.boxing.rear_uppercut",
+  "unlock_level": 4,
+  "type": "uppercut",
+  "trajectory": "up",
+  "limb": "right_hand",
+  "height": "head",
+  "movement_variant": "static",
+  "frames": {
+    "startup": 12,
+    "active": 3,
+    "recovery": 18
+  },
+  "cancel_window": [
+    15,
+    24
+  ],
+  "range": 1.0,
+  "damage": 11,
+  "stamina": 7,
+  "balance": 12,
+  "on_block_frames": -7,
+  "on_hit_frames": 0,
+  "armor": false,
+  "unblockable": false,
+  "power": false,
+  "impulse": 120,
+  "fx": {
+    "hitstop_ms": 80,
+    "shake": 0.5,
+    "sound": "impact_heavy_chin"
+  },
+  "anim": "anims/boxing/rear_uppercut.ozz"
+}

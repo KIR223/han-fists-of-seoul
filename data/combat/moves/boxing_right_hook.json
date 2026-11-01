@@ -1,0 +1,36 @@
+{
+  "id": "boxing_right_hook",
+  "style": "boxing",
+  "name_key": "move.boxing.right_hook",
+  "unlock_level": 2,
+  "type": "hook",
+  "trajectory": "arc_right",
+  "limb": "right_hand",
+  "height": "head",
+  "movement_variant": "static",
+  "frames": {
+    "startup": 11,
+    "active": 3,
+    "recovery": 16
+  },
+  "cancel_window": [
+    14,
+    22
+  ],
+  "range": 1.1,
+  "damage": 10,
+  "stamina": 6,
+  "balance": 10,
+  "on_block_frames": -4,
+  "on_hit_frames": 2,
+  "armor": false,
+  "unblockable": false,
+  "power": false,
+  "impulse": 140,
+  "fx": {
+    "hitstop_ms": 85,
+    "shake": 0.5,
+    "sound": "impact_heavy_face"
+  },
+  "anim": "anims/boxing/right_hook.ozz"
+}

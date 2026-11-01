@@ -1,0 +1,37 @@
+{
+  "id": "boxing_dempsey_roll",
+  "style": "boxing",
+  "name_key": "move.boxing.dempsey_roll",
+  "unlock_level": 8,
+  "type": "special",
+  "trajectory": "arc_left",
+  "limb": "left_hand",
+  "height": "head",
+  "movement_variant": "static",
+  "frames": {
+    "startup": 18,
+    "active": 6,
+    "recovery": 30
+  },
+  "cancel_window": [
+    24,
+    39
+  ],
+  "range": 1.2,
+  "damage": 25,
+  "stamina": 10,
+  "balance": 30,
+  "on_block_frames": -12,
+  "on_hit_frames": -4,
+  "armor": false,
+  "unblockable": false,
+  "power": true,
+  "impulse": 320,
+  "fx": {
+    "hitstop_ms": 140,
+    "shake": 1.0,
+    "sound": "impact_finisher"
+  },
+  "anim": "anims/boxing/dempsey_roll.ozz",
+  "focus": 40
+}

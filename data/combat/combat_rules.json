@@ -1,0 +1,93 @@
+{
+  "fps": 60,
+  "damage": {
+    "strength_per_point": 0.05,
+    "toughness_per_point": 0.03,
+    "star": [1.0, 1.1, 1.2],
+    "zone": { "head": 1.15, "torso": 1.0, "legs": 0.85 },
+    "counter": 1.5,
+    "perfect_parry_counter": 2.0,
+    "back": 1.25,
+    "downed": 0.6,
+    "crit": 1.5,
+    "flow": 1.3,
+    "block_taken": 0.7,
+    "block_taken_power": 0.4,
+    "partial_taken": 0.5
+  },
+  "crit": { "base_chance": 0.03, "technique_per_point": 0.02 },
+  "stamina": {
+    "endurance_per_point": 0.04,
+    "star_discount": 0.1,
+    "regen_per_second": 18.0,
+    "regen_block_per_second": 6.0,
+    "retreat_regen_multiplier": 1.5
+  },
+  "balance": { "max": 100.0, "regen_per_second": 12.0, "strength_per_point": 0.04 },
+  "knockdown": {
+    "head_damage_window_seconds": 3.0,
+    "base_threshold": 25.0,
+    "toughness_per_point": 3.0,
+    "down_frames": 120,
+    "getup_frames": 40,
+    "knockdowns_to_ko": 3
+  },
+  "movement": {
+    "walk_speed": 1.8,
+    "dash_speed": 3.6,
+    "step_in": { "range_bonus": 0.4, "damage": 1.1, "stamina": 1.15 },
+    "retreat": { "damage": 0.8 },
+    "sidestep": { "block_effect": 0.7 },
+    "body_radius": 0.3
+  },
+  "hit_arc_degrees": { "straight": 22.0, "arc": 45.0, "up": 30.0, "down": 30.0, "spin": 180.0, "low": 30.0, "push": 30.0 },
+  "block_by_angle": [
+    { "max_degrees": 30.0, "factor": 1.0 },
+    { "max_degrees": 70.0, "factor": 0.7 },
+    { "max_degrees": 120.0, "factor": 0.4 },
+    { "max_degrees": 180.0, "factor": 0.0 }
+  ],
+  "input_buffer_frames": 8,
+  "defenses": {
+    "high_block": {
+      "covers": ["head"], "hold": true, "startup": 3, "cost": 0.0,
+      "outcomes": { "straight": "block", "arc_same": "block", "arc_other": "block", "up": "partial", "down": "block", "low": "hit" }
+    },
+    "closed_block": {
+      "covers": ["torso"], "hold": true, "startup": 3, "cost": 0.0,
+      "outcomes": { "straight": "block", "arc_same": "block", "arc_other": "block", "up": "block", "down": "block", "low": "hit" }
+    },
+    "check": {
+      "covers": ["legs"], "hold": true, "startup": 4, "cost": 0.0,
+      "outcomes": { "straight": "hit", "arc_same": "hit", "arc_other": "hit", "up": "hit", "down": "hit", "low": "block" }
+    },
+    "parry": {
+      "covers": ["head", "torso"], "total": 18, "window": [0, 9], "perfect_until": 3, "cost": 3.0,
+      "outcomes": { "straight": "perfect", "arc_same": "hit", "arc_other": "hit", "up": "hit", "down": "partial", "low": "hit" }
+    },
+    "slip": {
+      "covers": ["head", "torso"], "total": 14, "window": [1, 8], "cost": 2.0, "sided": true, "shift": 0.35,
+      "outcomes": { "straight": "evade_angle", "arc_same": "hit*1.3", "arc_other": "evade", "up": "evade", "down": "evade", "low": "hit" }
+    },
+    "duck": {
+      "covers": ["head", "torso"], "total": 16, "window": [1, 9], "cost": 3.0,
+      "outcomes": { "straight": "evade", "arc_same": "evade", "arc_other": "evade", "up": "hit*1.5", "down": "hit", "low": "hit" }
+    },
+    "bob_weave": {
+      "covers": ["head", "torso"], "total": 20, "window": [1, 11], "cost": 5.0, "sided": true, "shift": 0.45,
+      "outcomes": { "straight": "evade_angle", "arc_same": "evade_angle", "arc_other": "evade_angle", "up": "hit*1.5", "down": "hit", "low": "hit" }
+    },
+    "lean_back": {
+      "covers": ["head", "torso"], "total": 14, "window": [1, 7], "cost": 3.0,
+      "outcomes": { "straight": "evade", "arc_same": "evade", "arc_other": "evade", "up": "evade", "down": "partial", "low": "hit" }
+    },
+    "sidestep": {
+      "covers": ["head", "torso", "legs"], "total": 14, "window": [1, 7], "cost": 4.0, "sided": true, "shift": 0.6,
+      "outcomes": { "straight": "evade_angle", "arc_same": "hit*1.3", "arc_other": "evade", "up": "evade", "down": "evade", "low": "evade" }
+    },
+    "step_back": {
+      "covers": ["head", "torso", "legs"], "total": 12, "window": [1, 8], "cost": 1.0, "shift": 0.55,
+      "outcomes": { "straight": "evade", "arc_same": "evade", "arc_other": "evade", "up": "evade", "down": "evade", "low": "partial" }
+    }
+  }
+}
