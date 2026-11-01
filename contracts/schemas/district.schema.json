@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "han/district.schema.json",
+  "title": "Район города или область (data/world/districts/*.json)",
+  "description": "Поставщик: A. Потребители: B (миссии, бой, телефон). Названия — только ключи локализации.",
+  "type": "object",
+  "required": ["id", "name_key", "kind", "bounds", "sacred_allowed"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,40}$" },
+    "numeric_id": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "DistrictId из world_services.h" },
+    "name_key": { "type": "string", "pattern": "^world\\.[a-z0-9_.]+$" },
+    "kind": { "enum": ["city_district", "suburb", "village", "coast", "mountain", "island", "industrial", "border"] },
+    "bounds": {
+      "type": "array", "minItems": 3, "items": {
+        "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" }
+      },
+      "description": "Многоугольник в метрах карты [x, z]"
+    },
+    "sacred_allowed": { "type": "boolean", "description": "Есть ли в районе места с флагом sacred (храмы, церкви, мечеть)" },
+    "danger": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Уровень опасности 0–5" },
+    "tags": { "type": "array", "items": { "type": "string" } }
+  }
+}

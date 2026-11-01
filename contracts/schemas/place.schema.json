@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "han/place.schema.json",
+  "title": "Место на карте: общественное, храм, святыня (data/world/places/*.json)",
+  "description": "Поставщик: A. Святые места (sacred) — драка невозможна. Названия вымышленные или описательные, только ключи локализации.",
+  "type": "object",
+  "required": ["id", "name_key", "category", "district", "position", "sacred"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,48}$" },
+    "name_key": { "type": "string", "pattern": "^world\\.[a-z0-9_.]+$" },
+    "category": { "enum": ["temple", "church", "mosque", "shrine", "bathhouse", "hospital", "wedding_hall", "senior_club", "market", "park", "shop", "restaurant", "gym", "station", "viewpoint", "other"] },
+    "district": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,40}$" },
+    "position": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "x, y, z в метрах" },
+    "radius": { "type": "number", "exclusiveMinimum": 0, "description": "Радиус зоны для sacred, м" },
+    "sacred": { "type": "boolean" },
+    "opening_hours": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 24 }, "minItems": 2, "maxItems": 2 },
+    "brand": { "type": "string", "description": "id из brands.json (вымышленный бренд)" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "category": { "enum": ["temple", "church", "mosque", "shrine"] } }, "required": ["category"] },
+      "then": { "properties": { "sacred": { "const": true } }, "required": ["radius"] }
+    }
+  ]
+}

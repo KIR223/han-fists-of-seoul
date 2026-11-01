@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "han/brand.schema.json",
+  "title": "Вымышленный бренд (data/city/brands.json — массив таких объектов)",
+  "description": "Поставщик: A. Реальные бренды и логотипы запрещены; проверка — han/tools/pipeline/real_brands.txt.",
+  "type": "object",
+  "required": ["id", "name_key", "sector", "colors", "logo", "fictional"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,32}$" },
+    "name_key": { "type": "string", "pattern": "^city\\.brand\\.[a-z0-9_]+$" },
+    "sector": { "enum": ["food", "coffee", "convenience", "telecom", "bank", "fashion", "electronics", "transport", "media", "gym", "beer", "other"] },
+    "slogan_key": { "type": "string", "pattern": "^city\\.brand\\.[a-z0-9_.]+$" },
+    "colors": { "type": "array", "minItems": 1, "maxItems": 4, "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" } },
+    "logo": { "type": "string", "pattern": "^[A-Za-z0-9_/.-]+\\.svg$", "description": "Свой SVG, путь относительно assets_src/" },
+    "appears_in": { "type": "array", "items": { "type": "string" }, "description": "Где встречается: id районов или категорий" },
+    "fictional": { "const": true }
+  }
+}
