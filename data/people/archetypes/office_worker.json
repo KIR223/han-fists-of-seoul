@@ -1,0 +1,79 @@
+{
+  "id": "office_worker",
+  "numeric_id": 1,
+  "name_key": "people.archetype.office_worker",
+  "age_range": [
+    25,
+    55
+  ],
+  "money_range": [
+    20000,
+    300000
+  ],
+  "walk_speed": 1.5,
+  "courage": 0.4,
+  "fights_back": 0.1,
+  "schedule": [
+    {
+      "from": 0,
+      "to": 6,
+      "activity": "sleep",
+      "place_category": "home"
+    },
+    {
+      "from": 6,
+      "to": 7.5,
+      "activity": "home",
+      "place_category": "home"
+    },
+    {
+      "from": 7.5,
+      "to": 9,
+      "activity": "commute"
+    },
+    {
+      "from": 9,
+      "to": 12,
+      "activity": "work",
+      "place_category": "work"
+    },
+    {
+      "from": 12,
+      "to": 13,
+      "activity": "eat",
+      "place_category": "eat"
+    },
+    {
+      "from": 13,
+      "to": 18,
+      "activity": "work",
+      "place_category": "work"
+    },
+    {
+      "from": 18,
+      "to": 19.5,
+      "activity": "cafe",
+      "place_category": "cafe"
+    },
+    {
+      "from": 19.5,
+      "to": 22,
+      "activity": "walk"
+    },
+    {
+      "from": 22,
+      "to": 24,
+      "activity": "home",
+      "place_category": "home"
+    }
+  ],
+  "reactions": {
+    "fight": "watch",
+    "gunshot": "flee",
+    "siren": "ignore"
+  },
+  "line_keys": [
+    "people.line.office_worker_office_tired",
+    "people.line.office_worker_office_deadline"
+  ]
+}

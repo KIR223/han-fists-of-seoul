@@ -37,6 +37,9 @@ float roadWidth(std::string_view highway);
 // Высота здания по тегам (height, building:levels) или значению по умолчанию.
 float buildingHeight(const OsmWay& way, const CityBuildSettings& settings);
 
+// Контуры зданий в метрах карты (x, y = z карты) без повторяющейся замыкающей вершины: непроходимые области для навигации.
+std::vector<std::vector<Vec2>> buildingFootprints(const OsmData& data, const GeoProjection& projection, float minArea = 6.f);
+
 // Строит все ячейки. Объект попадает в ячейку своего центра (дорога — по сегментам, поэтому длинная дорога делится между ячейками).
 std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjection& projection, const CityBuildSettings& settings, CityStats* stats = nullptr);
 }  // namespace han::world

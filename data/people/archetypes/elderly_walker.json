@@ -1,0 +1,68 @@
+{
+  "id": "elderly_walker",
+  "numeric_id": 5,
+  "name_key": "people.archetype.elderly_walker",
+  "age_range": [
+    62,
+    85
+  ],
+  "money_range": [
+    5000,
+    150000
+  ],
+  "walk_speed": 0.9,
+  "courage": 0.3,
+  "fights_back": 0.02,
+  "schedule": [
+    {
+      "from": 0,
+      "to": 5,
+      "activity": "sleep",
+      "place_category": "home"
+    },
+    {
+      "from": 5,
+      "to": 8,
+      "activity": "exercise",
+      "place_category": "park"
+    },
+    {
+      "from": 8,
+      "to": 12,
+      "activity": "home",
+      "place_category": "home"
+    },
+    {
+      "from": 12,
+      "to": 13,
+      "activity": "eat",
+      "place_category": "eat"
+    },
+    {
+      "from": 13,
+      "to": 16,
+      "activity": "walk"
+    },
+    {
+      "from": 16,
+      "to": 18,
+      "activity": "cafe",
+      "place_category": "cafe"
+    },
+    {
+      "from": 18,
+      "to": 24,
+      "activity": "home",
+      "place_category": "home"
+    }
+  ],
+  "reactions": {
+    "fight": "watch",
+    "gunshot": "flee",
+    "siren": "watch"
+  },
+  "line_keys": [
+    "people.line.elderly_walker_elder_knees",
+    "people.line.elderly_walker_elder_old_days"
+  ]
+}

@@ -23,6 +23,13 @@ if(Vulkan_FOUND)
             target_compile_options(han_city_demo PRIVATE /W4 /permissive- /utf-8)
         endif()
 
+        # Демо толпы E11: реальный район, прохожие по расписанию, реакции на драку и выстрелы.
+        add_executable(han_crowd_demo apps/crowd_demo.cpp)
+        target_link_libraries(han_crowd_demo PRIVATE han_render han_ui han_world han_ai)
+        if(MSVC)
+            target_compile_options(han_crowd_demo PRIVATE /W4 /permissive- /utf-8)
+        endif()
+
         # Демо физики E5: нужен ещё Jolt (vcpkg-функция physics). Это приложение, поэтому оно может зависеть и от рендера, и от физики.
         find_package(Jolt CONFIG QUIET)
         if(Jolt_FOUND)

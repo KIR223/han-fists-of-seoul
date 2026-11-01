@@ -27,3 +27,12 @@ else()
     message(STATUS "miniaudio не найден (нужна vcpkg-функция audio): звуковой движок не собирается")
 endif()
 set_property(TARGET han_audio PROPERTY SOURCES ${han_audio_sources})
+
+# Демо звука на настоящем устройстве (E7): тон облетает слушателя. Нужен miniaudio.
+if(han_audio_have_ma)
+    add_executable(han_audio_demo apps/audio_demo.cpp)
+    target_link_libraries(han_audio_demo PRIVATE han_audio)
+    if(MSVC)
+        target_compile_options(han_audio_demo PRIVATE /W4 /permissive- /utf-8)
+    endif()
+endif()

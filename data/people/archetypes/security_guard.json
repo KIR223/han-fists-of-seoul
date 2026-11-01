@@ -1,0 +1,56 @@
+{
+  "id": "security_guard",
+  "numeric_id": 8,
+  "name_key": "people.archetype.security_guard",
+  "age_range": [
+    28,
+    55
+  ],
+  "money_range": [
+    20000,
+    150000
+  ],
+  "walk_speed": 1.4,
+  "courage": 0.85,
+  "fights_back": 0.5,
+  "schedule": [
+    {
+      "from": 0,
+      "to": 6,
+      "activity": "work",
+      "place_category": "security"
+    },
+    {
+      "from": 6,
+      "to": 14,
+      "activity": "sleep",
+      "place_category": "home"
+    },
+    {
+      "from": 14,
+      "to": 18,
+      "activity": "home",
+      "place_category": "home"
+    },
+    {
+      "from": 18,
+      "to": 22,
+      "activity": "eat",
+      "place_category": "eat"
+    },
+    {
+      "from": 22,
+      "to": 24,
+      "activity": "work",
+      "place_category": "security"
+    }
+  ],
+  "reactions": {
+    "fight": "intervene",
+    "gunshot": "call_police"
+  },
+  "line_keys": [
+    "people.line.security_guard_guard_round",
+    "people.line.security_guard_guard_quiet"
+  ]
+}

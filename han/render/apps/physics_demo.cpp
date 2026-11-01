@@ -1,7 +1,7 @@
 // Демо E5: капсула бегает по полигону (ступени, рампа, стена, платформа), на полигон падают коробки и шары (Jolt).
 // Управление: мышь — камера, W/A/S/D — бег, Shift — быстрее, Space — прыжок, F — бросить коробку, G — бросить шар,
 // R — вернуть персонажа на старт, F1 — отладочные контуры физики, Tab — захват мыши, ` — консоль, Esc — выход.
-// Запуск: han_physics_demo.exe [--frames N] [--no-capture] [--no-ui] [--deterministic] [--size W H] [--screenshot файл.png]
+// Запуск: han_physics_demo.exe [--auto] [--frames N] [--no-capture] [--no-ui] [--deterministic] [--size W H] [--screenshot файл.png]
 #include <SDL3/SDL_timer.h>
 
 #include <algorithm>
@@ -63,11 +63,12 @@ contracts::Quat aroundZ(float degrees) {
 
 int main(int argc, char** argv) {
     long maxFrames = -1;
-    bool captured = true, noUi = false, deterministic = false, debugDraw = true;
+    bool captured = true, noUi = false, deterministic = false, debugDraw = true, autoWalk = false;
     int windowSize[2] = {1280, 720};
     std::filesystem::path screenshotPath;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--no-capture")) captured = false;
+        if (!std::strcmp(argv[i], "--auto")) autoWalk = true;
         if (!std::strcmp(argv[i], "--no-ui")) noUi = true;
         if (!std::strcmp(argv[i], "--deterministic")) deterministic = true;
         if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atol(argv[i + 1]);
@@ -153,18 +154,29 @@ int main(int argc, char** argv) {
     addStatic({10.f, 1.f, -6.f}, {1.5f, 1.f, 2.f}, {0.6f, 0.62f, 0.7f});              // платформа (2 м: на неё нужно прыгать с рампы)
     addStatic({0.f, 1.5f, -14.f}, {8.f, 1.5f, 0.4f}, {0.8f, 0.8f, 0.82f});            // стена 3 м
     addStatic({-14.f, 0.5f, 4.f}, {0.5f, 0.5f, 0.5f}, {0.85f, 0.6f, 0.5f});           // низкий блок: можно перепрыгнуть
-    for (int i = 0; i < 3; ++i)                                                       // пирамида из коробок
-        for (int j = 0; j < 3 - i; ++j) world->addDynamicBox({-3.f + static_cast<float>(j) * 1.05f + static_cast<float>(i) * 0.52f, 0.5f + static_cast<float>(i) * 1.01f, 6.f}, {0.5f, 0.5f, 0.5f}, 5.f);
-
-    const contracts::Vec3 spawn{0.f, 0.1f, 8.f};
-    contracts::EntityId hero = world->create({}, spawn);
-
-    // Динамические тела, брошенные игроком (коробки и шары): запоминаем, чтобы рисовать.
+    // Динамические тела (пирамида и брошенные игроком коробки и шары): запоминаем, чтобы рисовать.
     struct Thrown {
         contracts::EntityId id;
         bool ball;
     };
     std::vector<Thrown> thrown;
+    for (int i = 0; i < 3; ++i)  // пирамида из коробок
+        for (int j = 0; j < 3 - i; ++j) {
+            const auto id = world->addDynamicBox({-3.f + static_cast<float>(j) * 1.05f + static_cast<float>(i) * 0.52f, 0.5f + static_cast<float>(i) * 1.01f, 6.f}, {0.5f, 0.5f, 0.5f}, 5.f);
+            if (id) thrown.push_back({id, false});
+        }
+
+    const contracts::Vec3 spawn{0.f, 0.1f, 8.f};
+    contracts::EntityId hero = world->create({}, spawn);
+
+    // Автопрогулка (--auto): персонаж сам идёт по маршруту ступени → рампа → платформа с прыжком; нужна для проверки без клавиатуры.
+    struct Waypoint {
+        float x, z;
+        bool jumpNear;
+    };
+    const std::vector<Waypoint> route = {{-11.f, -6.f, false}, {-3.f, -6.f, false}, {7.5f, -6.f, true}, {10.f, -6.f, false}};
+    std::size_t routeIndex = 0;
+    float maxHeroY = 0.f;
 
     han::platform::InputMap input;
     input.bind("forward", kW);
@@ -250,7 +262,21 @@ int main(int argc, char** argv) {
         const float mlen = std::sqrt(mx * mx + mz * mz);
         if (mlen > 1.f) { mx /= mlen; mz /= mlen; }
         const float runSpeed = input.held("fast") && !uiKeys ? 8.f : 4.5f;
+        if (autoWalk && routeIndex < route.size()) {
+            const auto pos = world->positionOf(hero);
+            const Waypoint& wp = route[routeIndex];
+            const float dx = wp.x - pos.x, dz = wp.z - pos.z, dist = std::sqrt(dx * dx + dz * dz);
+            if (dist < 0.6f) {
+                ++routeIndex;
+            } else {
+                mx = dx / dist;
+                mz = dz / dist;
+                if (wp.jumpNear && dist < 1.5f) world->jump(hero, 6.f);
+            }
+            if (routeIndex >= route.size()) mx = mz = 0.f;
+        }
         world->setDesiredVelocity(hero, {mx * runSpeed, 0.f, mz * runSpeed});
+        maxHeroY = std::max(maxHeroY, world->positionOf(hero).y);
         if (!uiKeys && input.pressed("jump")) world->jump(hero, 6.f);
         if (!uiKeys && input.pressed("reset")) {
             world->destroy(hero);
@@ -337,6 +363,8 @@ int main(int argc, char** argv) {
             screenshotFailed = true;
         }
     }
+    const auto finalPos = world->positionOf(hero);
+    std::printf("персонаж: x %.2f, y %.2f, z %.2f; наибольшая высота %.2f м; точек маршрута пройдено %zu из %zu\n", finalPos.x, finalPos.y, finalPos.z, maxHeroY, routeIndex, route.size());
     const auto errors = renderer->validationErrors();
     std::printf("ошибок валидации: %u, предупреждений: %u\n", errors, renderer->validationWarnings());
     if (screenshotFailed) return 2;

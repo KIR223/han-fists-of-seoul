@@ -1,0 +1,74 @@
+{
+  "id": "tourist",
+  "numeric_id": 7,
+  "name_key": "people.archetype.tourist",
+  "age_range": [
+    22,
+    60
+  ],
+  "money_range": [
+    50000,
+    800000
+  ],
+  "walk_speed": 1.2,
+  "courage": 0.45,
+  "fights_back": 0.05,
+  "schedule": [
+    {
+      "from": 0,
+      "to": 8,
+      "activity": "sleep",
+      "place_category": "home"
+    },
+    {
+      "from": 8,
+      "to": 9,
+      "activity": "home",
+      "place_category": "home"
+    },
+    {
+      "from": 9,
+      "to": 12,
+      "activity": "walk",
+      "place_category": "sights"
+    },
+    {
+      "from": 12,
+      "to": 13,
+      "activity": "eat",
+      "place_category": "eat"
+    },
+    {
+      "from": 13,
+      "to": 18,
+      "activity": "walk",
+      "place_category": "sights"
+    },
+    {
+      "from": 18,
+      "to": 20,
+      "activity": "shop",
+      "place_category": "shop"
+    },
+    {
+      "from": 20,
+      "to": 22,
+      "activity": "eat",
+      "place_category": "eat"
+    },
+    {
+      "from": 22,
+      "to": 24,
+      "activity": "home",
+      "place_category": "home"
+    }
+  ],
+  "reactions": {
+    "fight": "film",
+    "gunshot": "flee"
+  },
+  "line_keys": [
+    "people.line.tourist_tourist_lost",
+    "people.line.tourist_tourist_photo"
+  ]
+}

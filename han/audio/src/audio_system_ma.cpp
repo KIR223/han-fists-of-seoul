@@ -84,7 +84,7 @@ struct AudioSystem::Impl {
         const auto& file = e.files[static_cast<std::size_t>(rand01() * static_cast<float>(e.files.size())) % e.files.size()];
         auto voice = std::make_unique<Voice>();
         const bool spatial = allowSpatial && e.spatial && !spatialOverride;
-        ma_uint32 flags = e.bus == Bus::Music ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE;
+        ma_uint32 flags = e.bus == Bus::Music && settings.streamMusic ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE;
         if (!spatial) flags |= MA_SOUND_FLAG_NO_SPATIALIZATION;
 #ifdef _WIN32
         const ma_result r = ma_sound_init_from_file_w(&engine, file.c_str(), flags, &groups[static_cast<int>(e.bus)], nullptr, &voice->sound);
