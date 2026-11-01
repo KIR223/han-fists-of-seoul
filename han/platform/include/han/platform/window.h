@@ -26,6 +26,8 @@ public:
     // Забирает все события ОС, передаёт клавиши в карту действий. Вызывать один раз в начале кадра.
     FrameEvents pump(InputMap& input);
     void setCaptureMouse(bool capture);  // относительный режим мыши для камеры и боя
+    // Кнопка мыши сейчас нажата: 1 — левая, 2 — средняя, 3 — правая (как в SDL). Для боя: ЛКМ — удары, ПКМ — блок.
+    bool mouseButtonHeld(int button) const;
 
     // Хук получает каждое сырое событие SDL (const SDL_Event*) до обработки; нужен интерфейсу отладки (ImGui).
     using EventHook = std::function<void(const void* sdlEvent)>;
