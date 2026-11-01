@@ -1,0 +1,55 @@
+{
+  "id": "nightlife_reveler",
+  "numeric_id": 6,
+  "name_key": "people.archetype.nightlife_reveler",
+  "age_range": [
+    20,
+    38
+  ],
+  "money_range": [
+    20000,
+    250000
+  ],
+  "walk_speed": 1.5,
+  "courage": 0.55,
+  "fights_back": 0.3,
+  "schedule": [
+    {
+      "from": 0,
+      "to": 3,
+      "activity": "walk",
+      "place_category": "nightlife"
+    },
+    {
+      "from": 3,
+      "to": 14,
+      "activity": "sleep",
+      "place_category": "home"
+    },
+    {
+      "from": 14,
+      "to": 18,
+      "activity": "walk"
+    },
+    {
+      "from": 18,
+      "to": 20,
+      "activity": "eat",
+      "place_category": "eat"
+    },
+    {
+      "from": 20,
+      "to": 24,
+      "activity": "walk",
+      "place_category": "nightlife"
+    }
+  ],
+  "reactions": {
+    "fight": "film",
+    "gunshot": "flee"
+  },
+  "line_keys": [
+    "people.line.nightlife_reveler_night_second_round",
+    "people.line.nightlife_reveler_night_taxi"
+  ]
+}

@@ -1,1 +1,33 @@
 key,ru,ko,en,context
+people.archetype.office_worker,Офисный работник,회사원,Office worker,название архетипа прохожего
+people.line.office_worker_office_tired,Опять сверхурочные…,또 야근이야…,Overtime again…,реплика прохожего
+people.line.office_worker_office_deadline,"Дедлайн горит, а я в очереди за кофе.",마감이 코앞인데 커피 줄이 길다.,Deadline's on fire and I'm stuck in the coffee line.,реплика прохожего
+people.archetype.student_adult,Студент,대학생,University student,название архетипа прохожего
+people.line.student_adult_student_exam,"Экзамен завтра, а я ничего не читал.",내일 시험인데 아무것도 못 읽었어.,Exam tomorrow and I haven't read a thing.,реплика прохожего
+people.line.student_adult_student_money,До стипендии ещё неделя.,장학금 나오려면 아직 일주일이나 남았네.,A week until the stipend.,реплика прохожего
+people.archetype.shopkeeper,Владелец лавки,가게 사장님,Shopkeeper,название архетипа прохожего
+people.line.shopkeeper_shop_welcome,"Заходите, посмотрите!","어서 오세요, 구경하고 가세요!","Come in, have a look!",реплика прохожего
+people.line.shopkeeper_shop_slow_day,Сегодня народу маловато.,오늘은 손님이 별로 없네.,Quiet day today.,реплика прохожего
+people.archetype.delivery_rider,Курьер,배달 기사,Delivery rider,название архетипа прохожего
+people.line.delivery_rider_rider_late,"Заказ остывает, опаздываю!","음식 식겠다, 늦었네!","Order's getting cold, I'm late!",реплика прохожего
+people.line.delivery_rider_rider_rain,В дождь вызовов вдвое больше.,비 오는 날엔 주문이 두 배야.,Twice the orders when it rains.,реплика прохожего
+people.archetype.elderly_walker,Пожилой прохожий,어르신,Elderly walker,название архетипа прохожего
+people.line.elderly_walker_elder_knees,"Колени уже не те, что раньше.",무릎이 예전 같지 않구먼.,My knees aren't what they were.,реплика прохожего
+people.line.elderly_walker_elder_old_days,"Раньше тут был рынок, а не эти башни.",예전엔 여기가 시장이었는데 말이야.,"This used to be a market, not these towers.",реплика прохожего
+people.archetype.nightlife_reveler,Любитель ночной жизни,밤문화 즐기는 사람,Nightlife reveler,название архетипа прохожего
+people.line.nightlife_reveler_night_second_round,"Ещё по одной, и по домам!",딱 한 잔만 더 하고 가자!,One more round and we go home!,реплика прохожего
+people.line.nightlife_reveler_night_taxi,Такси в такое время не поймать.,이 시간엔 택시 잡기 힘들어.,You can't catch a cab at this hour.,реплика прохожего
+people.archetype.tourist,Турист,관광객,Tourist,название архетипа прохожего
+people.line.tourist_tourist_lost,"Кажется, мы свернули не туда.",길을 잘못 든 것 같은데.,I think we took a wrong turn.,реплика прохожего
+people.line.tourist_tourist_photo,Сфотографируешь нас здесь?,여기서 사진 좀 찍어 주실래요?,Could you take our photo here?,реплика прохожего
+people.archetype.security_guard,Охранник,경비원,Security guard,название архетипа прохожего
+people.line.security_guard_guard_round,"Обход по кругу, всё тихо.",순찰 돌고 있는데 이상 없음.,"Making my rounds, all quiet.",реплика прохожего
+people.line.security_guard_guard_quiet,Ночная смена тянется долго.,야간 근무는 시간이 참 안 가.,Night shifts drag on.,реплика прохожего
+people.archetype.market_goer,Покупательница на рынке,시장 보러 온 아주머니,Market shopper,название архетипа прохожего
+people.line.market_goer_market_cheap,"Дёшево, но овощи уже вялые.",싸긴 한데 채소가 시들었네.,"Cheap, but the greens are limp.",реплика прохожего
+people.line.market_goer_market_fresh,"Зелень сегодня свежая, берите.","오늘 나물이 싱싱하네, 사 가요.","The herbs are fresh today, get some.",реплика прохожего
+people.react.flee,Бежим отсюда!,도망쳐!,Run!,реакция прохожего на событие
+people.react.watch,Что там происходит?,무슨 일이야?,What's going on over there?,реакция прохожего на событие
+people.react.film,Снимаю на телефон!,찍어 둬야겠다!,I'm getting this on camera!,реакция прохожего на событие
+people.react.call_police,"Алло, полиция? Тут драка!","여보세요, 경찰이죠? 여기 싸움 났어요!","Hello, police? There's a fight here!",реакция прохожего на событие
+people.react.intervene,"Эй, прекратите!","이봐, 그만해!","Hey, stop that!",реакция прохожего на событие

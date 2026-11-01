@@ -1,0 +1,74 @@
+{
+  "id": "market_goer",
+  "numeric_id": 9,
+  "name_key": "people.archetype.market_goer",
+  "age_range": [
+    45,
+    70
+  ],
+  "money_range": [
+    10000,
+    200000
+  ],
+  "walk_speed": 1.1,
+  "courage": 0.45,
+  "fights_back": 0.1,
+  "schedule": [
+    {
+      "from": 0,
+      "to": 7,
+      "activity": "sleep",
+      "place_category": "home"
+    },
+    {
+      "from": 7,
+      "to": 8,
+      "activity": "home",
+      "place_category": "home"
+    },
+    {
+      "from": 8,
+      "to": 11,
+      "activity": "shop",
+      "place_category": "market"
+    },
+    {
+      "from": 11,
+      "to": 12,
+      "activity": "cafe",
+      "place_category": "cafe"
+    },
+    {
+      "from": 12,
+      "to": 13,
+      "activity": "eat",
+      "place_category": "eat"
+    },
+    {
+      "from": 13,
+      "to": 15,
+      "activity": "walk"
+    },
+    {
+      "from": 15,
+      "to": 17,
+      "activity": "shop",
+      "place_category": "market"
+    },
+    {
+      "from": 17,
+      "to": 24,
+      "activity": "home",
+      "place_category": "home"
+    }
+  ],
+  "reactions": {
+    "fight": "watch",
+    "gunshot": "flee",
+    "crash": "watch"
+  },
+  "line_keys": [
+    "people.line.market_goer_market_cheap",
+    "people.line.market_goer_market_fresh"
+  ]
+}

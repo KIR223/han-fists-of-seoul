@@ -1,0 +1,50 @@
+{
+  "id": "delivery_rider",
+  "numeric_id": 4,
+  "name_key": "people.archetype.delivery_rider",
+  "age_range": [
+    20,
+    45
+  ],
+  "money_range": [
+    10000,
+    120000
+  ],
+  "walk_speed": 2.2,
+  "courage": 0.6,
+  "fights_back": 0.25,
+  "schedule": [
+    {
+      "from": 0,
+      "to": 9,
+      "activity": "sleep",
+      "place_category": "home"
+    },
+    {
+      "from": 9,
+      "to": 10,
+      "activity": "home",
+      "place_category": "home"
+    },
+    {
+      "from": 10,
+      "to": 22,
+      "activity": "work",
+      "place_category": "delivery"
+    },
+    {
+      "from": 22,
+      "to": 24,
+      "activity": "eat",
+      "place_category": "eat"
+    }
+  ],
+  "reactions": {
+    "fight": "watch",
+    "gunshot": "flee"
+  },
+  "line_keys": [
+    "people.line.delivery_rider_rider_late",
+    "people.line.delivery_rider_rider_rain"
+  ]
+}
