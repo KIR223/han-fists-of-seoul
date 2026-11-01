@@ -22,9 +22,11 @@ int sideOf(DefenseAction a) {
     switch (a) {
         case DefenseAction::SlipLeft:
         case DefenseAction::BobLeft:
+        case DefenseAction::ShoulderRollLeft:
         case DefenseAction::SidestepLeft: return -1;
         case DefenseAction::SlipRight:
         case DefenseAction::BobRight:
+        case DefenseAction::ShoulderRollRight:
         case DefenseAction::SidestepRight: return +1;
         default: return 0;
     }
@@ -42,6 +44,8 @@ const char* defenseActionName(DefenseAction a) {
         case DefenseAction::Duck: return "duck";
         case DefenseAction::BobLeft:
         case DefenseAction::BobRight: return "bob_weave";
+        case DefenseAction::ShoulderRollLeft:
+        case DefenseAction::ShoulderRollRight: return "shoulder_roll";
         case DefenseAction::LeanBack: return "lean_back";
         case DefenseAction::SidestepLeft:
         case DefenseAction::SidestepRight: return "sidestep";

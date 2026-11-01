@@ -239,3 +239,14 @@ TEST_CASE("scheme: игрок на схеме побеждает неподви�
     CHECK(r.sim.fighter(1).health < 40.f);
     CHECK(r.sim.fightOver());
 }
+
+TEST_CASE("scheme: Q — шолдер-ролл в сторону направления, без направления вправо") {
+    Rig r;
+    RawInput q;
+    q.shoulderPressed = true;
+    CHECK(r.scheme.map(q, r.sim, 0).defense == DefenseAction::ShoulderRollRight);
+    q.right = -1.f;
+    CHECK(r.scheme.map(q, r.sim, 0).defense == DefenseAction::ShoulderRollLeft);
+    q.right = 1.f;
+    CHECK(r.scheme.map(q, r.sim, 0).defense == DefenseAction::ShoulderRollRight);
+}

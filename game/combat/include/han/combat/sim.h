@@ -17,7 +17,7 @@ struct Vec2 {
 };
 
 enum class FighterState : unsigned char { Idle, Moving, Attacking, Defending, Blocking, HitStun, BlockStun, Knockdown, GettingUp, KnockedOut };
-enum class DefenseAction : unsigned char { None, Parry, SlipLeft, SlipRight, Duck, BobLeft, BobRight, LeanBack, SidestepLeft, SidestepRight, StepBack };
+enum class DefenseAction : unsigned char { None, Parry, SlipLeft, SlipRight, Duck, BobLeft, BobRight, LeanBack, SidestepLeft, SidestepRight, StepBack, ShoulderRollLeft, ShoulderRollRight };
 
 struct FighterStats {
     float strength = 5, endurance = 5, technique = 5, toughness = 5;

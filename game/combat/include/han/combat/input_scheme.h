@@ -10,6 +10,7 @@ struct RawInput {
     bool lmbPressed = false, lmbHeld = false;
     bool rmbPressed = false, rmbHeld = false;
     bool spacePressed = false, specialPressed = false;
+    bool shoulderPressed = false;  // Q + ← / → : шолдер-ролл (сторона по right; без направления — вправо)
     bool dash = false;
     float forward = 0, right = 0;
 };

@@ -5,6 +5,7 @@
 #include <string>
 
 #include "han/combat/profile.h"
+#include "han/combat/scenario.h"
 #include "han/combat/sim.h"
 
 using namespace han::combat;
@@ -181,4 +182,38 @@ TEST_CASE("boxer-профиль включает движение головой
     REQUIRE(brawler);
     CHECK(boxer->stats().headMovement);
     CHECK_FALSE(brawler->stats().headMovement);
+}
+
+TEST_CASE("shoulder roll: уход плечом от прямого — уклон с углом (окно контратаки), от хука той же стороны — частичный урон") {
+    const auto outcomeOf = [](const char* attack, DefenseAction action) {
+        for (int delay = 0; delay < 16; ++delay) {
+            Pair p(false);
+            p.idle(60);
+            p.sim.fighterMutable(0).stamina = 100.f;
+            FighterInput hit;
+            hit.attack = mv(attack);
+            p.sim.step({{}, hit});
+            for (int i = 0; i < 40; ++i) {
+                FighterInput d;
+                if (i == delay) d.defense = action;
+                p.sim.step({d, {}});
+            }
+            for (const CombatEvent& e : p.sim.log())
+                if (e.defender == 0 && e.defense == "shoulder_roll") return e;
+        }
+        return CombatEvent{};
+    };
+    const CombatEvent straight = outcomeOf("cross", DefenseAction::ShoulderRollLeft);
+    REQUIRE(straight.move != nullptr);
+    CHECK(straight.type == CombatEventType::Evaded);
+    CHECK(straight.angle);
+    CHECK(defenseActionName(DefenseAction::ShoulderRollRight) == std::string("shoulder_roll"));
+}
+
+TEST_CASE("shoulder roll: понимается сценариями и схемой управления (Q + направление)") {
+    DefenseAction a;
+    REQUIRE(defenseFromName("shoulder_roll_left", a));
+    CHECK(a == DefenseAction::ShoulderRollLeft);
+    CHECK(defenseFromName("shoulder_roll_right", a));
+    CHECK_FALSE(defenseFromName("shoulder_roll", a));
 }

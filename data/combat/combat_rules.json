@@ -81,6 +81,10 @@
       "covers": ["head", "torso"], "total": 20, "window": [1, 11], "cost": 5.0, "sided": true, "shift": 0.45,
       "outcomes": { "straight": "evade_angle", "arc_same": "evade_angle", "arc_other": "evade_angle", "up": "hit*1.5", "down": "hit", "low": "hit" }
     },
+    "shoulder_roll": {
+      "covers": ["head", "torso"], "total": 18, "window": [2, 12], "cost": 2.0, "sided": true, "shift": 0.12,
+      "outcomes": { "straight": "evade_angle", "arc_same": "partial", "arc_other": "evade_angle", "up": "hit", "down": "hit", "low": "hit" }
+    },
     "lean_back": {
       "covers": ["head", "torso"], "total": 14, "window": [1, 7], "cost": 3.0,
       "outcomes": { "straight": "evade", "arc_same": "evade", "arc_other": "evade", "up": "evade", "down": "partial", "low": "hit" }
