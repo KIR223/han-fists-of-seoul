@@ -56,7 +56,7 @@ def role_from_local():
         return env.strip().upper()
     p = os.path.join(ROOT, "CLAUDE.local.md")
     if os.path.exists(p):
-        m = re.search(r"РОЛЬ:\s*((?:OWNER|[ABCabc])(?:\+(?:OWNER|[ABCabc]))*)", open(p, encoding="utf-8").read())
+        m = re.search(r"РОЛЬ:\s*((?:SOLO|OWNER|[ABCabc])(?:\+(?:SOLO|OWNER|[ABCabc]))*)", open(p, encoding="utf-8").read())
         if m:
             return m.group(1).upper()
     return None
@@ -68,8 +68,12 @@ def role_from_branch(branch):
 
 
 def held(role):
-    """Роль может быть составной: A+OWNER (разработчик A, он же владелец)."""
-    return set((role or "").upper().split("+"))
+    """Роль может быть составной: A+OWNER (разработчик A, он же владелец).
+    SOLO — временный режим владельца, когда второго разработчика ещё нет: все зоны A, B и владельца."""
+    parts = set((role or "").upper().split("+"))
+    if "SOLO" in parts:
+        return {"A", "B", "OWNER"}
+    return parts
 
 
 def violations(files, role):
@@ -169,7 +173,10 @@ def cmd_pre_push(argv):
         if os.environ.get("HAN_ALLOW_ZONE") == "1":
             continue
         branch_role = role_from_branch(remote_ref)
-        r = branch_role if (role and branch_role in held(role)) else (role or branch_role)
+        if role and "SOLO" in role.upper().split("+"):
+            r = role  # соло-режим: проверяем по всем зонам, а не по префиксу ветки
+        else:
+            r = branch_role if (role and branch_role in held(role)) else (role or branch_role)
         if not r:
             print("⚠ Роль не определена — проверка зон пропущена.", file=sys.stderr)
             continue
