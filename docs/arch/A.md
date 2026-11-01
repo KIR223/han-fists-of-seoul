@@ -83,3 +83,24 @@ tests/combat/CMakeLists.txt       find_package(doctest CONFIG); add_executable(h
 заголовки, заглушки в `contracts/stubs/`, список — `contracts/registry.md`. Нужна библиотека из vcpkg — Issue для A (корневой `vcpkg.json` ведёт A).
 
 **Проверка кода:** CI (`build`) собирает и гоняет тесты на каждый PR; слияние в `main` — автоматически, если всё зелёное.
+
+## Что уже готово для B (карта «где что лежит»)
+| Что | Где | Статус |
+|---|---|---|
+| Интерфейсы A↔B (v1) и заглушки для сборки без движка | `contracts/*.h`, `contracts/stubs/*_stub.h`, реестр `contracts/registry.md` | в `main`, статус «черновик» до одобрения B |
+| Схемы данных мира (район, место/храм, бренд, архетип NPC) | `contracts/schemas/*.schema.json` | PR #18 (метка `contract`, ждёт одобрения) |
+| Рендер: сцена, PBR, тени, bloom, TAA, скриншот-тест | `han/render`, демо `han_scene_demo`, `tests/engine/screenshots/` | в `main` (E1–E4) |
+| Физика: лучи, свипы, персонаж, тела; реализует `IPhysicsQuery` и `ICharacterController` | `han/physics`, демо `han_physics_demo` | PR #19 (E5) |
+| Конвейер ассетов, загрузка `.hmesh`, горячая перезагрузка | `han/tools`, `han/render/asset_loader.h` | в `main` (E3, E20) |
+| Правила работы, этапы B, что читать | `docs/team/ROLE_B.md`, `STAGES_B.md`, `FIRST_TASKS.md` (часть для B), `READING_B.md`, `docs/progress/B.md` | в `main` |
+
+**С чего начать B:** `docs/team/FIRST_TASKS.md`, часть 1 (G1, ядро боя) — она не зависит от движка. Боевое ядро (`game/combat`) общается с миром только через
+`contracts/combat_world.h` (`ICombatWorld`) и `contracts/combat_events.h`; для тестов есть `contracts/stubs/combat_world_stub.h`.
+Реализацию `ICombatWorld` поверх физики пишет A (после этапа G1 у B есть что подключать), так что пока работайте на заглушке.
+
+**Чего B ждёт от A и когда:** персонаж и физические запросы (E5, PR #19) → камера и ввод для E6 (есть `InputMap` в `han_platform`) →
+скиннинг и анимация (A1 у B требует рендер скиннинга от A: Issue для A, когда понадобится) → экраны UI после E8.
+Любая просьба к A — Issue с меткой `zone-a`.
+
+**Как посмотреть игру глазами:** собрать (команды выше) и запустить `build/windows-release/bin/Release/han_scene_demo.exe` (сцена, день/ночь) и
+`han_physics_demo.exe` (капсула бегает по полигону; F1 — контуры физики). Управление указано в начале файлов `han/render/apps/*.cpp`.
