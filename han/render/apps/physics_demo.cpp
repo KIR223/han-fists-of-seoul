@@ -15,6 +15,9 @@
 
 #include "han/core/console.h"
 #include "han/physics/physics_world.h"
+#ifdef HAN_HAS_MINIAUDIO
+#include "han/audio/audio_system.h"
+#endif
 #include "han/platform/window.h"
 #include "han/render/camera.h"
 #include "han/render/mesh.h"
@@ -23,13 +26,17 @@
 #include "han/ui/imgui_layer.h"
 #endif
 
+#ifdef HAN_HAS_MINIAUDIO
+#include <fstream>
+#endif
+
 namespace {
 using han::core::Mat4;
 namespace phys = han::physics;
 namespace contracts = han::contracts;
 
 // Коды SDL_Scancode.
-constexpr int kW = 26, kA = 4, kS = 22, kD = 7, kF = 9, kG = 10, kR = 21, kSpace = 44, kLShift = 225, kTab = 43, kEsc = 41, kGrave = 53, kF1 = 58;
+constexpr int kW = 26, kA = 4, kS = 22, kD = 7, kF = 9, kG = 10, kR = 21, kSpace = 44, kLShift = 225, kTab = 43, kEsc = 41, kGrave = 53, kF1 = 58, kRight = 79, kLeft = 80, kDown = 81, kUp = 82;
 
 std::string fmt(const char* format, double a = 0, double b = 0, double c = 0) {
     char buf[160];
@@ -55,6 +62,34 @@ Mat4 bodyMatrix(contracts::Vec3 p, contracts::Quat q) {
     return r;
 }
 
+#ifdef HAN_HAS_MINIAUDIO
+// Тон «мотора» из нескольких гармоник, ровно целое число периодов — без щелчка на стыке цикла (демо; настоящие записи — позже, свободные).
+void writeEngineLoop(const std::filesystem::path& path) {
+    const std::uint32_t rate = 48000, frames = 24000;  // 0,5 с, основная частота 80 Гц: ровно 40 периодов
+    std::ofstream out(path, std::ios::binary);
+    const auto u32 = [&](std::uint32_t v) { out.write(reinterpret_cast<const char*>(&v), 4); };
+    const auto u16 = [&](std::uint16_t v) { out.write(reinterpret_cast<const char*>(&v), 2); };
+    out.write("RIFF", 4);
+    u32(36 + frames * 2);
+    out.write("WAVEfmt ", 8);
+    u32(16);
+    u16(1);
+    u16(1);
+    u32(rate);
+    u32(rate * 2);
+    u16(2);
+    u16(16);
+    out.write("data", 4);
+    u32(frames * 2);
+    for (std::uint32_t i = 0; i < frames; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(rate);
+        float v = 0.f;
+        for (int h = 1; h <= 6; ++h) v += std::sin(6.2831853f * 80.f * static_cast<float>(h) * t) / static_cast<float>(h);
+        u16(static_cast<std::uint16_t>(static_cast<std::int16_t>(v * 0.3f * 32767.f)));
+    }
+}
+#endif
+
 contracts::Quat aroundZ(float degrees) {
     const float h = degrees * 0.5f * 0.01745329f;
     return {0, 0, std::sin(h), std::cos(h)};
@@ -63,12 +98,13 @@ contracts::Quat aroundZ(float degrees) {
 
 int main(int argc, char** argv) {
     long maxFrames = -1;
-    bool captured = true, noUi = false, deterministic = false, debugDraw = true, autoWalk = false;
+    bool captured = true, noUi = false, deterministic = false, debugDraw = true, autoWalk = false, carMode = false;
     int windowSize[2] = {1280, 720};
     std::filesystem::path screenshotPath;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--no-capture")) captured = false;
         if (!std::strcmp(argv[i], "--auto")) autoWalk = true;
+        if (!std::strcmp(argv[i], "--car")) carMode = true;  // машина вместо пешехода: стрелки, Space — ручник; с --auto едет сама
         if (!std::strcmp(argv[i], "--no-ui")) noUi = true;
         if (!std::strcmp(argv[i], "--deterministic")) deterministic = true;
         if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atol(argv[i + 1]);
@@ -80,6 +116,12 @@ int main(int argc, char** argv) {
     }
 
     auto world = phys::PhysicsWorld::create();
+    if (world) {  // свойства поверхностей из данных (запуск из корня репозитория); без файла остаются значения по умолчанию
+        phys::SurfaceTable table;
+        std::string tableError;
+        if (table.load("data/materials/surfaces.tsv", tableError)) world->setSurfaceTable(table);
+        else std::fprintf(stderr, "таблица поверхностей: %s\n", tableError.c_str());
+    }
     if (!world) {
         std::fprintf(stderr, "физика недоступна: модуль собран без Jolt\n");
         return 1;
@@ -117,7 +159,7 @@ int main(int argc, char** argv) {
     han::render::generateMips(checker);
     const han::render::TextureId checkerId = renderer->uploadTexture(checker);
     const std::vector<han::render::TextureId> checkerSlots{checkerId};
-    auto groundData = han::render::makePlane(30.f, {0.55f, 0.75f, 0.55f}, 15.f);
+    auto groundData = han::render::makePlane(150.f, {0.55f, 0.75f, 0.55f}, 75.f);
     groundData.textures = {"checker"};
     groundData.submeshes = {{0, static_cast<std::uint32_t>(groundData.indices.size()), 0, 0.0f, 0.9f}};
     const auto material = [](han::render::MeshData m, float metallic, float roughness) {
@@ -127,6 +169,9 @@ int main(int argc, char** argv) {
     const auto ground = renderer->uploadMesh(groundData, checkerSlots);
     const auto boxMesh = renderer->uploadMesh(material(han::render::makeBox({0.5f, 0.5f, 0.5f}, {1.0f, 0.55f, 0.4f}), 0.0f, 0.6f));
     const auto ballMesh = renderer->uploadMesh(material(han::render::makeSphere(0.4f, 32, 16, {0.35f, 0.6f, 0.95f}), 0.0f, 0.3f));
+    const auto chassisMesh = renderer->uploadMesh(material(han::render::makeBox({0.9f, 0.2f, 2.0f}, {0.75f, 0.12f, 0.1f}), 0.3f, 0.35f));
+    const auto cabinMesh = renderer->uploadMesh(material(han::render::makeBox({0.75f, 0.22f, 0.9f}, {0.15f, 0.2f, 0.28f}), 0.0f, 0.2f));
+    const auto wheelMesh = renderer->uploadMesh(material(han::render::makeBox({0.05f, 0.3f, 0.3f}, {0.05f, 0.05f, 0.05f}), 0.0f, 0.9f));
     const auto bodyMesh = renderer->uploadMesh(material(han::render::makeBox({0.3f, 0.9f, 0.3f}, {0.9f, 0.85f, 0.3f}), 0.0f, 0.7f));
     if (!ground || !boxMesh || !ballMesh || !bodyMesh) {
         std::fprintf(stderr, "не удалось загрузить меши\n");
@@ -144,7 +189,7 @@ int main(int argc, char** argv) {
         const auto mesh = renderer->uploadMesh(material(han::render::makeBox({half.x, half.y, half.z}, color), 0.0f, 0.8f));
         statics.push_back({mesh, bodyMatrix(center, rot)});
     };
-    world->addStaticBox({0, -0.5f, 0}, {30, 0.5f, 30}, contracts::SurfaceMaterial::Asphalt);
+    world->addStaticBox({0, -0.5f, 0}, {150, 0.5f, 150}, contracts::SurfaceMaterial::Asphalt);
     for (int i = 0; i < 6; ++i)  // лестница: ступени по 0.15 м, ниже stepHeight персонажа (0.35)
     {
         const float halfHeight = 0.075f * static_cast<float>(i + 1);  // верх ступени: 0.15 * (i + 1)
@@ -177,6 +222,36 @@ int main(int argc, char** argv) {
     const std::vector<Waypoint> route = {{-11.f, -6.f, false}, {-3.f, -6.f, false}, {7.5f, -6.f, true}, {10.f, -6.f, false}};
     std::size_t routeIndex = 0;
     float maxHeroY = 0.f;
+    contracts::EntityId car = contracts::kNoEntity;
+#ifdef HAN_HAS_MINIAUDIO
+    std::unique_ptr<han::audio::AudioSystem> audio;
+    han::audio::AudioSystem::VoiceId engineVoice = 0;
+#endif
+    if (carMode) {
+        car = world->createVehicle({}, {18.f, 1.0f, 4.f}, {0.f, 1.f, 0.f, 0.f});  // нос смотрит в −Z (поворот на 180° вокруг Y)
+        if (!car) std::fprintf(stderr, "машину создать не удалось\n");
+#ifdef HAN_HAS_MINIAUDIO
+        // Звук двигателя: тон зациклен, высота растёт с оборотами, громкость — с газом. Без звуковой карты демо просто молчит.
+        const auto dir = std::filesystem::temp_directory_path() / "han_physics_demo";
+        std::filesystem::create_directories(dir);
+        writeEngineLoop(dir / "engine.wav");
+        han::audio::AudioSettings as;
+        std::string audioError;
+        audio = han::audio::AudioSystem::create(as, audioError);
+        if (audio) {
+            han::audio::SoundEvent engine;
+            engine.id = "engine";
+            engine.files = {dir / "engine.wav"};
+            engine.loop = true;
+            engine.minDistance = 4.f;
+            engine.maxDistance = 120.f;
+            audio->addEvent(engine);
+            engineVoice = audio->playLoop("engine", {0.f, 0.f, 0.f});
+        } else {
+            std::fprintf(stderr, "звук недоступен: %s\n", audioError.c_str());
+        }
+#endif
+    }
 
     han::platform::InputMap input;
     input.bind("forward", kW);
@@ -188,6 +263,10 @@ int main(int argc, char** argv) {
     input.bind("box", kF);
     input.bind("ball", kG);
     input.bind("reset", kR);
+    input.bind("up", kUp);
+    input.bind("down", kDown);
+    input.bind("rleft", kLeft);
+    input.bind("rright", kRight);
     input.bind("debug", kF1);
     input.bind("capture", kTab);
     input.bind("quit", kEsc);
@@ -275,6 +354,18 @@ int main(int argc, char** argv) {
             }
             if (routeIndex >= route.size()) mx = mz = 0.f;
         }
+        if (car) {
+            phys::PhysicsWorld::VehicleInput in;
+            if (autoWalk) {  // едет сама: газ и плавные «змейки» рулём
+                in.throttle = 0.7f;
+                in.steer = 0.6f * std::sin(static_cast<float>(frame) * 0.02f);
+            } else if (!uiKeys) {
+                in.throttle = (input.held("up") ? 1.f : 0.f) - (input.held("down") ? 1.f : 0.f);
+                in.steer = (input.held("rright") ? 1.f : 0.f) - (input.held("rleft") ? 1.f : 0.f);
+                in.handbrake = input.held("jump") ? 1.f : 0.f;
+            }
+            world->setVehicleInput(car, in);
+        }
         world->setDesiredVelocity(hero, {mx * runSpeed, 0.f, mz * runSpeed});
         maxHeroY = std::max(maxHeroY, world->positionOf(hero).y);
         if (!uiKeys && input.pressed("jump")) world->jump(hero, 6.f);
@@ -308,7 +399,9 @@ int main(int argc, char** argv) {
         }
 
         const auto heroState = world->state(hero);
-        const han::core::Vec3 target{heroState.position.x, heroState.position.y + 1.2f, heroState.position.z};
+        const auto carState = car ? world->vehicleState(car) : phys::PhysicsWorld::VehicleState{};
+        const han::core::Vec3 target = carState.valid ? han::core::Vec3{carState.position.x, carState.position.y + 1.0f, carState.position.z}
+                                                      : han::core::Vec3{heroState.position.x, heroState.position.y + 1.2f, heroState.position.z};
         const auto back = camera.forward();
         camera.position = {target.x - back.x * cameraDistance, target.y - back.y * cameraDistance, target.z - back.z * cameraDistance};
 
@@ -339,6 +432,20 @@ int main(int argc, char** argv) {
         items.push_back({ground, Mat4::identity()});
         for (const auto& s : statics) items.push_back({s.mesh, s.transform});
         items.push_back({bodyMesh, Mat4::translation({heroState.position.x, heroState.position.y + 0.9f, heroState.position.z})});
+#ifdef HAN_HAS_MINIAUDIO
+        if (audio && carState.valid) {
+            const float rpm01 = std::clamp((carState.rpm - 1000.f) / 5000.f, 0.f, 1.f);
+            audio->setListener({camera.position.x, camera.position.y, camera.position.z}, {back.x, back.y, back.z});
+            audio->setVoice(engineVoice, carState.position, 0.45f + 0.55f * rpm01, 0.7f + 1.5f * rpm01);
+            audio->update(dt);
+        }
+#endif
+        if (carState.valid) {
+            const Mat4 body = bodyMatrix(carState.position, carState.rotation);
+            items.push_back({chassisMesh, body});
+            items.push_back({cabinMesh, body * Mat4::translation({0.f, 0.38f, -0.2f})});
+            for (int i = 0; i < 4; ++i) items.push_back({wheelMesh, bodyMatrix(carState.wheelPosition[i], carState.wheelRotation[i])});
+        }
         for (const auto& t : thrown)
             items.push_back({t.ball ? ballMesh : boxMesh, bodyMatrix(world->positionOf(t.id), world->rotationOf(t.id))});
 
@@ -362,6 +469,11 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "снимок экрана не сохранён: %s\n", renderer->screenshotError().c_str());
             screenshotFailed = true;
         }
+    }
+    if (car) {
+        const auto cs = world->vehicleState(car);
+        std::printf("машина: x %.1f, y %.2f, z %.1f, скорость %.1f м/с (%.0f км/ч), передача %d, обороты %.0f\n", cs.position.x, cs.position.y, cs.position.z, cs.speed,
+                    std::fabs(cs.speed) * 3.6, cs.gear, cs.rpm);
     }
     const auto finalPos = world->positionOf(hero);
     std::printf("персонаж: x %.2f, y %.2f, z %.2f; наибольшая высота %.2f м; точек маршрута пройдено %zu из %zu\n", finalPos.x, finalPos.y, finalPos.z, maxHeroY, routeIndex, route.size());

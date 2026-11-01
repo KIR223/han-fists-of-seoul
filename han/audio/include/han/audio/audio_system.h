@@ -40,6 +40,15 @@ public:
     void setBusVolume(contracts::Bus bus, float volume01) override;
     void playMusic(std::string_view trackId, float fadeSeconds = 1.f) override;
 
+    // Управляемые голоса (двигатель машины, ветер, гул): зациклённый звук, которым игра управляет каждый кадр.
+    // Событие должно быть зациклено (loop = true в таблице). 0 — не удалось (нет события, файла).
+    using VoiceId = std::uint32_t;
+    VoiceId playLoop(std::string_view eventId, contracts::Vec3 position);
+    // volume умножает громкость события (0..2), pitch — высота (1 — как есть; у двигателя растёт с оборотами).
+    void setVoice(VoiceId id, contracts::Vec3 position, float volume, float pitch);
+    void stopVoice(VoiceId id);
+    bool voiceAlive(VoiceId id) const;
+
     float busVolume(contracts::Bus bus) const;
     void stopMusic(float fadeSeconds = 1.f);
     std::string currentMusic() const;  // пусто — музыки нет

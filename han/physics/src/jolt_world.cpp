@@ -12,6 +12,10 @@
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
+#include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
+#include <Jolt/Physics/Vehicle/VehicleConstraint.h>
+#include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -75,7 +79,10 @@ std::mutex gInitMutex;
 int gInitUsers = 0;
 void joltAcquire() {
     std::lock_guard<std::mutex> lock(gInitMutex);
-    if (gInitUsers++ == 0) {
+    ++gInitUsers;
+    static bool registered = false;
+    if (!registered) {
+        registered = true;
         JPH::RegisterDefaultAllocator();
         JPH::Factory::sInstance = new JPH::Factory();
         JPH::RegisterTypes();
@@ -83,11 +90,9 @@ void joltAcquire() {
 }
 void joltRelease() {
     std::lock_guard<std::mutex> lock(gInitMutex);
-    if (--gInitUsers == 0) {
-        JPH::UnregisterTypes();
-        delete JPH::Factory::sInstance;
-        JPH::Factory::sInstance = nullptr;
-    }
+    // Типы Jolt регистрируются один раз на процесс и живут до его конца: повторная регистрация после выгрузки падает
+    // (обнаружено тестами машин), а держать их в памяти ничего не стоит.
+    --gInitUsers;
 }
 }  // namespace
 
@@ -150,6 +155,13 @@ struct PhysicsWorld::Impl {
     std::unordered_map<EntityId, ShapeInfo> shapes;
     std::unordered_map<EntityId, Character> characters;
 
+    struct Vehicle {
+        JPH::Ref<JPH::VehicleConstraint> constraint;
+        JPH::BodyID body;
+        PhysicsWorld::VehicleInput input;
+    };
+    std::unordered_map<EntityId, Vehicle> vehicles;
+
     EntityId entityOf(JPH::BodyID id) const {
         JPH::BodyLockRead lock(system.GetBodyLockInterface(), id);
         return lock.Succeeded() ? static_cast<EntityId>(lock.GetBody().GetUserData()) : contracts::kNoEntity;
@@ -193,6 +205,16 @@ PhysicsWorld::~PhysicsWorld() {
     if (impl_) {
         impl_->characters.clear();
         JPH::BodyInterface& bi = impl_->system.GetBodyInterface();
+        // Машины: сначала ограничение (оно держит указатель на тело), потом тело.
+        for (auto it = impl_->vehicles.begin(); it != impl_->vehicles.end();) {
+            impl_->system.RemoveStepListener(it->second.constraint);
+            impl_->system.RemoveConstraint(it->second.constraint);
+            const JPH::BodyID body = it->second.body;
+            impl_->bodies.erase(it->first);
+            it = impl_->vehicles.erase(it);
+            bi.RemoveBody(body);
+            bi.DestroyBody(body);
+        }
         for (auto& [id, body] : impl_->bodies) {
             bi.RemoveBody(body);
             bi.DestroyBody(body);
@@ -243,12 +265,145 @@ void PhysicsWorld::removeBody(EntityId id) {
     impl_->shapes.erase(id);
 }
 
+EntityId PhysicsWorld::createVehicle(const VehicleDesc& d, Vec3 position, contracts::Quat rotation) {
+    Impl& im = *impl_;
+    // Шасси с опущенным центром масс (машина устойчивее к опрокидыванию).
+    JPH::Ref<JPH::Shape> shape = JPH::OffsetCenterOfMassShapeSettings(JPH::Vec3(0.f, -d.halfExtents.y, 0.f), new JPH::BoxShape(toJolt(d.halfExtents))).Create().Get();
+    JPH::BodyCreationSettings bs(shape, JPH::RVec3(position.x, position.y, position.z), JPH::Quat(rotation.x, rotation.y, rotation.z, rotation.w).Normalized(),
+                                 JPH::EMotionType::Dynamic, kObjMoving);
+    bs.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+    bs.mMassPropertiesOverride.mMass = d.mass;
+    const EntityId id = im.nextId;
+    bs.mUserData = id;
+    JPH::BodyInterface& bi = im.system.GetBodyInterface();
+    const JPH::BodyID body = bi.CreateAndAddBody(bs, JPH::EActivation::Activate);
+    if (body.IsInvalid()) return contracts::kNoEntity;
+
+    // Колёса: передние (индексы 0, 1) и задние (2, 3); привод задаётся дифференциалами.
+    const float w = d.halfExtents.x, h = d.halfExtents.y, l = d.halfExtents.z;
+    const JPH::Vec3 positions[4] = {{w, -0.9f * h, l - 2.f * d.wheelRadius}, {-w, -0.9f * h, l - 2.f * d.wheelRadius},
+                                    {w, -0.9f * h, -l + 2.f * d.wheelRadius}, {-w, -0.9f * h, -l + 2.f * d.wheelRadius}};
+    JPH::VehicleConstraintSettings vs;
+    vs.mDrawConstraintSize = 0.1f;
+    vs.mMaxPitchRollAngle = JPH::DegreesToRadians(60.f);
+    for (int i = 0; i < 4; ++i) {
+        JPH::WheelSettingsWV* wheel = new JPH::WheelSettingsWV;
+        wheel->mPosition = positions[i];
+        wheel->mSuspensionDirection = JPH::Vec3(0.f, -1.f, 0.f);
+        wheel->mRadius = d.wheelRadius;
+        wheel->mWidth = d.wheelWidth;
+        wheel->mMaxSteerAngle = i < 2 ? JPH::DegreesToRadians(d.maxSteerDegrees) : 0.f;
+        wheel->mMaxBrakeTorque = d.brakeTorque;
+        wheel->mMaxHandBrakeTorque = i < 2 ? 0.f : d.handbrakeTorque;
+        vs.mWheels.push_back(wheel);
+    }
+    JPH::WheeledVehicleControllerSettings* controller = new JPH::WheeledVehicleControllerSettings;
+    controller->mEngine.mMaxTorque = d.engineMaxTorque;
+    controller->mEngine.mMinRPM = d.engineMinRpm;
+    controller->mEngine.mMaxRPM = d.engineMaxRpm;
+    controller->mTransmission.mClutchStrength = 10.f;
+    const bool front = d.drive != Drive::Rear, rear = d.drive != Drive::Front;
+    controller->mDifferentials.resize((front ? 1 : 0) + (rear ? 1 : 0));
+    std::size_t di = 0;
+    const float share = 1.f / static_cast<float>(controller->mDifferentials.size());
+    if (front) {
+        controller->mDifferentials[di].mLeftWheel = 0;
+        controller->mDifferentials[di].mRightWheel = 1;
+        controller->mDifferentials[di].mEngineTorqueRatio = share;
+        ++di;
+    }
+    if (rear) {
+        controller->mDifferentials[di].mLeftWheel = 2;
+        controller->mDifferentials[di].mRightWheel = 3;
+        controller->mDifferentials[di].mEngineTorqueRatio = share;
+    }
+    vs.mController = controller;
+
+    Impl::Vehicle vehicle;
+    vehicle.body = body;
+    {
+        JPH::BodyLockWrite lock(im.system.GetBodyLockInterface(), body);
+        vehicle.constraint = new JPH::VehicleConstraint(lock.GetBody(), vs);
+    }
+    // Проверка земли считается по ссылкам и принадлежит ограничению: отдельно её удалять нельзя (двойное освобождение).
+    vehicle.constraint->SetVehicleCollisionTester(new JPH::VehicleCollisionTesterRay(kObjMoving));
+    im.system.AddConstraint(vehicle.constraint);
+    im.system.AddStepListener(vehicle.constraint);
+    ++im.nextId;
+    im.bodies[id] = body;
+    im.materials[id] = contracts::SurfaceMaterial::Metal;
+    im.shapes[id] = {false, false, d.halfExtents, 0.f};
+    im.vehicles.emplace(id, std::move(vehicle));
+    return id;
+}
+
+void PhysicsWorld::destroyVehicle(EntityId id) {
+    Impl& im = *impl_;
+    const auto it = im.vehicles.find(id);
+    if (it == im.vehicles.end()) return;
+    im.system.RemoveStepListener(it->second.constraint);
+    im.system.RemoveConstraint(it->second.constraint);
+    const JPH::BodyID body = it->second.body;
+    im.vehicles.erase(it);  // освобождает ограничение и проверку земли до удаления тела, на которое они ссылаются
+    JPH::BodyInterface& bi = im.system.GetBodyInterface();
+    bi.RemoveBody(body);
+    bi.DestroyBody(body);
+    im.bodies.erase(id);
+    im.materials.erase(id);
+    im.shapes.erase(id);
+}
+
+void PhysicsWorld::setVehicleInput(EntityId id, const VehicleInput& input) {
+    if (const auto it = impl_->vehicles.find(id); it != impl_->vehicles.end()) it->second.input = input;
+}
+
+PhysicsWorld::VehicleState PhysicsWorld::vehicleState(EntityId id) const {
+    VehicleState s;
+    const auto it = impl_->vehicles.find(id);
+    if (it == impl_->vehicles.end()) return s;
+    const JPH::VehicleConstraint& c = *it->second.constraint;
+    const JPH::Body* body = c.GetVehicleBody();
+    const auto* controller = static_cast<const JPH::WheeledVehicleController*>(c.GetController());
+    s.valid = true;
+    const JPH::RVec3 p = body->GetPosition();
+    s.position = {p.GetX(), p.GetY(), p.GetZ()};
+    s.velocity = fromJolt(body->GetLinearVelocity());
+    const JPH::Quat q = body->GetRotation();
+    s.rotation = {q.GetX(), q.GetY(), q.GetZ(), q.GetW()};
+    s.speed = body->GetLinearVelocity().Dot(q.RotateAxisZ());
+    s.rpm = controller->GetEngine().GetCurrentRPM();
+    s.gear = controller->GetTransmission().GetCurrentGear();
+    for (int i = 0; i < 4 && i < static_cast<int>(c.GetWheels().size()); ++i) {
+        const JPH::RMat44 m = c.GetWheelWorldTransform(static_cast<JPH::uint>(i), JPH::Vec3::sAxisX(), JPH::Vec3::sAxisY());
+        const JPH::RVec3 wp = m.GetTranslation();
+        const JPH::Quat wq = m.GetRotation().GetQuaternion();
+        s.wheelPosition[i] = {wp.GetX(), wp.GetY(), wp.GetZ()};
+        s.wheelRotation[i] = {wq.GetX(), wq.GetY(), wq.GetZ(), wq.GetW()};
+        s.wheelContact[i] = c.GetWheel(static_cast<JPH::uint>(i))->HasContact();
+    }
+    return s;
+}
+
 void PhysicsWorld::setVelocity(EntityId id, Vec3 velocity) {
     if (auto it = impl_->bodies.find(id); it != impl_->bodies.end()) impl_->system.GetBodyInterface().SetLinearVelocity(it->second, toJolt(velocity));
 }
 
 void PhysicsWorld::step(float dt) {
     Impl& im = *impl_;
+    for (auto& [id, v] : im.vehicles) {
+        auto* controller = static_cast<JPH::WheeledVehicleController*>(v.constraint->GetController());
+        const JPH::Body* body = v.constraint->GetVehicleBody();
+        const JPH::Vec3 forward = body->GetRotation().RotateAxisZ();
+        const float speed = body->GetLinearVelocity().Dot(forward);
+        float throttle = std::clamp(v.input.throttle, -1.f, 1.f), brake = std::clamp(v.input.brake, 0.f, 1.f);
+        // Газ против движения — это торможение, пока машина не остановится (иначе коробка дёргается между передачами).
+        if ((throttle < 0.f && speed > 1.f) || (throttle > 0.f && speed < -1.f)) {
+            brake = 1.f;
+            throttle = 0.f;
+        }
+        controller->SetDriverInput(throttle, std::clamp(v.input.steer, -1.f, 1.f), brake, std::clamp(v.input.handbrake, 0.f, 1.f));
+        if (std::fabs(throttle) > 0.01f || brake > 0.01f) im.system.GetBodyInterface().ActivateBody(v.body);
+    }
     for (auto& [id, c] : im.characters) {
         JPH::CharacterVirtual& body = *c.body;
         const float groundVy = body.GetGroundVelocity().GetY();

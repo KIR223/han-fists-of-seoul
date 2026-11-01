@@ -373,4 +373,180 @@ TEST_CASE("physics: debugLines рисует коробки (12 рёбер), ша
     for (const auto& l : lines) hasCharacter = hasCharacter || l.color == physics::PhysicsWorld::kColorCharacter;
     CHECK(hasCharacter);
 }
+
+namespace {
+// Дорога для машин: асфальт из таблицы поверхностей (трение 0.8), пол 1200 x 1200 м.
+std::unique_ptr<physics::PhysicsWorld> makeRoad() {
+    auto w = makeWorldWithTable();
+    w->addStaticBox({0, -0.5f, 0}, {600, 0.5f, 600}, SurfaceMaterial::Asphalt);
+    return w;
+}
+}  // namespace
+
+namespace {
+using VInput = physics::PhysicsWorld::VehicleInput;
+// Машина на плоской земле, нос смотрит вдоль +Z.
+EntityId spawnCar(physics::PhysicsWorld& w, physics::PhysicsWorld::Drive drive = physics::PhysicsWorld::Drive::Rear) {
+    physics::PhysicsWorld::VehicleDesc d;
+    d.drive = drive;
+    const EntityId car = w.createVehicle(d, {0, 1.0f, 0});
+    REQUIRE(car != contracts::kNoEntity);
+    return car;
+}
+float yawOf(const contracts::Quat& q) { return std::atan2(2.f * (q.w * q.y + q.x * q.z), 1.f - 2.f * (q.y * q.y + q.x * q.x)); }
+}  // namespace
+
+TEST_CASE("physics E12: машина стоит на четырёх колёсах на земле и не проваливается") {
+    auto w = makeRoad();
+    const EntityId car = spawnCar(*w);
+    run(*w, 180);
+    const auto s = w->vehicleState(car);
+    REQUIRE(s.valid);
+    for (int i = 0; i < 4; ++i) CHECK_MESSAGE(s.wheelContact[i], "колесо " << i << " не касается земли");
+    CHECK(s.position.y > 0.3f);
+    CHECK(s.position.y < 1.2f);
+    CHECK(std::fabs(s.speed) < 0.1f);
+}
+
+TEST_CASE("physics E12: полный газ — машина разгоняется, переключает передачи, не переворачивается") {
+    auto w = makeRoad();
+    const EntityId car = spawnCar(*w);
+    run(*w, 60);
+    int maxGear = 0;
+    float maxRpm = 0.f;
+    for (int i = 0; i < 480; ++i) {  // 8 секунд
+        w->setVehicleInput(car, VInput{1.f, 0.f, 0.f, 0.f});
+        w->step(1.f / 60.f);
+        const auto s = w->vehicleState(car);
+        maxGear = std::max(maxGear, s.gear);
+        maxRpm = std::max(maxRpm, s.rpm);
+    }
+    const auto s = w->vehicleState(car);
+    CHECK(s.speed > 15.f);                 // больше 54 км/ч
+    CHECK(maxGear >= 2);
+    CHECK(maxRpm <= 6100.f);
+    CHECK(maxRpm > 2500.f);
+    CHECK(s.position.z > 60.f);            // уехала вперёд (+Z — нос)
+    CHECK(std::fabs(s.position.x) < 3.f);  // прямо, без ухода в сторону
+    const contracts::Quat q = s.rotation;  // не перевернулась: ось «вверх» машины смотрит вверх
+    CHECK(1.f - 2.f * (q.x * q.x + q.z * q.z) > 0.95f);
+    CHECK(w->allFinite());
+}
+
+TEST_CASE("physics E12: руль поворачивает машину в нужную сторону") {
+    const auto turn = [](float steer) {
+        auto w = makeRoad();
+        const EntityId car = spawnCar(*w);
+        run(*w, 60);
+        for (int i = 0; i < 300; ++i) {
+            w->setVehicleInput(car, VInput{i < 120 ? 1.f : 0.4f, steer, 0.f, 0.f});
+            w->step(1.f / 60.f);
+        }
+        return yawOf(w->vehicleState(car).rotation);
+    };
+    const float left = turn(-1.f), right = turn(1.f), straight = turn(0.f);
+    CHECK(std::fabs(straight) < 0.1f);
+    CHECK(std::fabs(right - left) > 1.0f);  // заметно разные направления поворота
+    CHECK(right * left < 0.f);              // противоположные знаки
+}
+
+TEST_CASE("physics E12: тормоз останавливает, задний ход едет назад, газ против движения тормозит") {
+    auto w = makeRoad();
+    const EntityId car = spawnCar(*w);
+    run(*w, 60);
+    for (int i = 0; i < 360; ++i) {
+        w->setVehicleInput(car, VInput{1.f, 0.f, 0.f, 0.f});
+        w->step(1.f / 60.f);
+    }
+    REQUIRE(w->vehicleState(car).speed > 10.f);
+    for (int i = 0; i < 360; ++i) {
+        w->setVehicleInput(car, VInput{0.f, 0.f, 1.f, 0.f});
+        w->step(1.f / 60.f);
+    }
+    CHECK(std::fabs(w->vehicleState(car).speed) < 0.5f);
+    for (int i = 0; i < 240; ++i) {  // задний ход с места
+        w->setVehicleInput(car, VInput{-1.f, 0.f, 0.f, 0.f});
+        w->step(1.f / 60.f);
+    }
+    CHECK(w->vehicleState(car).speed < -3.f);
+    CHECK(w->vehicleState(car).gear == -1);
+}
+
+TEST_CASE("physics E12: ручник — машина резко теряет скорость") {
+    auto w = makeRoad();
+    const EntityId car = spawnCar(*w);
+    run(*w, 60);
+    for (int i = 0; i < 300; ++i) {
+        w->setVehicleInput(car, VInput{1.f, 0.f, 0.f, 0.f});
+        w->step(1.f / 60.f);
+    }
+    const float fast = w->vehicleState(car).speed;
+    for (int i = 0; i < 120; ++i) {
+        w->setVehicleInput(car, VInput{0.f, 0.5f, 0.f, 1.f});
+        w->step(1.f / 60.f);
+    }
+    CHECK(w->vehicleState(car).speed < fast - 5.f);
+    CHECK(w->allFinite());
+}
+
+TEST_CASE("physics E12: передний и полный привод тоже едут") {
+    for (auto drive : {physics::PhysicsWorld::Drive::Front, physics::PhysicsWorld::Drive::All}) {
+        auto w = makeRoad();
+        const EntityId car = spawnCar(*w, drive);
+        run(*w, 60);
+        for (int i = 0; i < 300; ++i) {
+            w->setVehicleInput(car, VInput{1.f, 0.f, 0.f, 0.f});
+            w->step(1.f / 60.f);
+        }
+        CHECK(w->vehicleState(car).speed > 8.f);
+    }
+}
+
+TEST_CASE("physics E12: удар в стену на скорости — машина останавливается, мир конечен; удаление машины") {
+    auto w = makeRoad();
+    w->addStaticBox({0, 2, 100}, {10, 2, 0.5f});
+    const EntityId car = spawnCar(*w);
+    run(*w, 60);
+    for (int i = 0; i < 900; ++i) {
+        w->setVehicleInput(car, VInput{1.f, 0.f, 0.f, 0.f});
+        w->step(1.f / 60.f);
+    }
+    const auto s = w->vehicleState(car);
+    CHECK(s.position.z < 100.f);
+    CHECK(std::fabs(s.speed) < 6.f);
+    CHECK(w->allFinite());
+    const auto bodiesBefore = w->bodyCount();
+    w->destroyVehicle(car);
+    CHECK_FALSE(w->vehicleState(car).valid);
+    CHECK(w->bodyCount() == bodiesBefore - 1);
+    run(*w, 60);
+    w->destroyVehicle(car);  // повторное удаление безопасно
+    CHECK(w->allFinite());
+}
+
+TEST_CASE("physics E12: 20 секунд случайного вождения — без NaN, машина остаётся в мире") {
+    auto w = makeRoad();
+    const EntityId car = spawnCar(*w);
+    unsigned seed = 12345;
+    const auto rnd = [&] {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<float>((seed >> 8) & 0xFFFF) / 65535.f * 2.f - 1.f;
+    };
+    float throttle = 0, steer = 0, brake = 0;
+    for (int i = 0; i < 1200; ++i) {
+        if (i % 45 == 0) {
+            throttle = rnd();
+            steer = rnd();
+            brake = rnd() > 0.7f ? 1.f : 0.f;
+        }
+        w->setVehicleInput(car, VInput{throttle, steer, brake, 0.f});
+        w->step(1.f / 60.f);
+        if (i % 100 == 0) REQUIRE(w->allFinite());
+    }
+    const auto s = w->vehicleState(car);
+    CHECK(std::fabs(s.position.x) < 50.f);
+    CHECK(std::fabs(s.position.z) < 200.f);
+    CHECK(s.position.y > -1.f);
+}
+
 #endif
