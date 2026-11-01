@@ -136,6 +136,9 @@ bool CombatRules::parse(const Json& j, std::string& error) {
                                      !integer(bx["body_work"], "doubled_frames", r.bodyDoubledFrames, 1, 600, e)))
             return fail("boxing.body_work: " + e);
     }
+    if (j.has("rhythm") && (!integer(j["rhythm"], "hits_for_flow", r.rhythmHitsForFlow, 1, 100, e) || !integer(j["rhythm"], "flow_frames", r.flowFrames, 1, 7200, e) ||
+                            !integer(j["rhythm"], "decay_frames", r.rhythmDecayFrames, 1, 7200, e)))
+        return fail("rhythm: " + e);
     if (!integer(j, "input_buffer_frames", r.inputBufferFrames, 0, 60, e) || !integer(j, "fps", r.fps, 30, 240, e)) return fail(e);
 
     if (!j["block_by_angle"].isArray() || j["block_by_angle"].size() == 0) return fail("block_by_angle — непустой массив");

@@ -217,3 +217,61 @@ TEST_CASE("shoulder roll: понимается сценариями и схем�
     CHECK(defenseFromName("shoulder_roll_right", a));
     CHECK_FALSE(defenseFromName("shoulder_roll", a));
 }
+
+TEST_CASE("ритм: пять чистых попаданий подряд открывают «Поток» — урон выше; пропущенный удар обрывает его") {
+    Pair p(false);
+    FighterInput jab;
+    jab.attack = mv("jab");
+    float first = 0.f, last = 0.f;
+    bool started = false;
+    int hits = 0;
+    for (int round = 0; round < 14 && !started; ++round) {
+        p.idle(70);
+        p.sim.fighterMutable(0).stamina = 100.f;
+        p.sim.fighterMutable(1).health = 100.f;  // противник не падает на нокдаун: серия идёт непрерывно
+        p.sim.fighterMutable(1).balance = 100.f;
+        p.sim.step({jab, {}});
+        for (int i = 0; i < 30; ++i) {
+            p.sim.step({});
+            for (const CombatEvent& e : p.sim.events())
+                if (e.type == CombatEventType::Hit && e.attacker == 0) {
+                    if (++hits == 1) first = e.damage;
+                    last = e.damage;
+                    if (e.flowStarted) started = true;
+                }
+        }
+    }
+    REQUIRE(started);
+    CHECK(hits == rules().rhythmHitsForFlow);
+    CHECK(p.sim.fighter(0).flowUntil > p.sim.frame());
+    // Шестой удар уже в «Потоке»: урон ×flow
+    p.idle(70);
+    p.sim.fighterMutable(0).stamina = 100.f;
+    p.sim.step({jab, {}});
+    float flowDamage = 0.f;
+    for (int i = 0; i < 30; ++i) {
+        p.sim.step({});
+        for (const CombatEvent& e : p.sim.events())
+            if (e.type == CombatEventType::Hit && e.attacker == 0 && e.flow) flowDamage = e.damage;
+    }
+    REQUIRE(flowDamage > 0.f);
+    CHECK(flowDamage == doctest::Approx(first * rules().flow).epsilon(0.05));
+    (void)last;
+    // Противник отвечает попаданием — «Поток» обрывается
+    p.idle(70);
+    FighterInput counter;
+    counter.attack = mv("jab");
+    p.sim.fighterMutable(0).state = FighterState::Idle;
+    p.sim.step({{}, counter});
+    for (int i = 0; i < 30; ++i) p.sim.step({});
+    CHECK(p.sim.fighter(0).flowUntil == 0);
+    CHECK(p.sim.fighter(0).rhythm == 0);
+}
+
+TEST_CASE("ритм: без попаданий счёт затухает") {
+    Pair p(false);
+    p.sim.fighterMutable(0).rhythm = 3;
+    p.sim.fighterMutable(0).rhythmFrame = p.sim.frame();
+    p.idle(rules().rhythmDecayFrames + 5);
+    CHECK(p.sim.fighter(0).rhythm == 0);
+}

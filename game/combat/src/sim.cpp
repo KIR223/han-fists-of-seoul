@@ -408,6 +408,10 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
         e.headCharges = a.headCharges;
         a.headCharges = 0;
     }
+    if (a.flowUntil > frame_ && out.kind != OutcomeKind::Block) {
+        situation *= rules_.flow;
+        e.flow = true;
+    }
     if (e.back) situation *= rules_.back;
     if (e.downed) situation *= rules_.downed;
     const float critChance = rules_.critBase + rules_.critTechniquePerPoint * (s.stats.technique - 5.f);
@@ -431,7 +435,19 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
 
     d.health = std::max(0.f, d.health - e.damage);
     d.balance -= e.balanceDamage;
-    if (out.kind == OutcomeKind::Hit) d.headCharges = 0;  // пропущенный удар сбивает ритм движения головой
+    if (out.kind == OutcomeKind::Hit) {
+        d.headCharges = 0;  // пропущенный удар сбивает ритм движения головой
+        d.rhythm = 0;       // и ритм серии вместе с «Потоком»
+        d.flowUntil = 0;
+    }
+    if (out.kind == OutcomeKind::Hit || out.kind == OutcomeKind::Partial) {  // чистое попадание растит ритм атакующего
+        a.rhythmFrame = frame_;
+        if (a.flowUntil <= frame_ && ++a.rhythm >= rules_.rhythmHitsForFlow) {
+            a.rhythm = 0;
+            a.flowUntil = frame_ + rules_.flowFrames;
+            e.flowStarted = true;
+        }
+    }
     bool doubledOver = false;
     if (m.height == Height::Torso && out.kind != OutcomeKind::Block && !d.down()) {  // работа по корпусу: урон накапливается
         d.bodyWork += e.damage;
@@ -483,6 +499,7 @@ void CombatSim::regen(Fighter& f) {
         const float rate = f.state == FighterState::Blocking ? rules_.staminaRegenBlock : rules_.staminaRegen;
         f.stamina = std::min(100.f, f.stamina + rate / fps);
     }
+    if (f.rhythm > 0 && frame_ - f.rhythmFrame > rules_.rhythmDecayFrames) f.rhythm = 0;
     if (f.headCharges > 0 && frame_ - f.headChargeFrame > rules_.headMoveDecayFrames) f.headCharges = 0;
     f.bodyWork = std::max(0.f, f.bodyWork - rules_.bodyWorkDecayPerSecond / fps);
     if (!f.stunned() && !f.down()) f.balance = std::min(rules_.balanceMax, f.balance + rules_.balanceRegen / fps);

@@ -60,6 +60,8 @@ struct Fighter {
     // Бокс: заряды движения головой (до headMoveMaxCharges) и накопленный урон по корпусу
     int headCharges = 0, headChargeFrame = 0;
     float bodyWork = 0.f;
+    // Ритм и «Поток»: чистые попадания подряд; пока flowUntil больше текущего кадра, урон усилен
+    int rhythm = 0, rhythmFrame = 0, flowUntil = 0;
     // Буфер ввода
     const MoveData* buffered = nullptr;
     int bufferAge = 0;
@@ -81,6 +83,7 @@ struct CombatEvent {
     float damage = 0, balanceDamage = 0, impulse = 0;
     Vec2 direction;  // от атакующего к защитнику
     bool counter = false, crit = false, back = false, downed = false, angle = false;
+    bool flowStarted = false, flow = false;  // удар нанесён в «Потоке» / этим ударом открылся «Поток»
     bool doubled = false;  // удар по корпусу согнул защитника (накопленный урон)
     int headCharges = 0;   // заряды движения головой, пошедшие в этот удар
     std::string defense;  // имя защиты, сработавшей у защитника ("" — нет)

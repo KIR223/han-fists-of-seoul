@@ -66,6 +66,8 @@ struct CombatRules {
     int headMoveMaxCharges = 5, headMoveDecayFrames = 240;
     float bodyWorkThreshold = 28.f, bodyWorkDecayPerSecond = 1.5f;
     int bodyDoubledFrames = 50;
+    // Ритм: серия чистых попаданий без пропущенных ударов открывает «Поток» (урон ×flow)
+    int rhythmHitsForFlow = 5, flowFrames = 360, rhythmDecayFrames = 240;
     int inputBufferFrames = 8;
     std::map<std::string, DefenseDef> defenses;
 
