@@ -1134,8 +1134,22 @@ MeshId Renderer::uploadMesh(const MeshData& mesh, std::span<const TextureId> tex
         std::fprintf(stderr, "uploadMesh: %s\n", err.c_str());
         return 0;
     }
+    // Свободный слот (после releaseMesh) используем повторно, иначе добавляем в конец.
+    for (std::size_t i = 0; i < s.meshes.size(); ++i) {
+        if (s.meshes[i].indexCount == 0) {
+            s.meshes[i] = gpu;
+            return static_cast<MeshId>(i + 1);
+        }
+    }
     s.meshes.push_back(gpu);
     return static_cast<MeshId>(s.meshes.size());
+}
+
+void Renderer::releaseMesh(MeshId id) {
+    Impl& s = *impl_;
+    if (id == 0 || id > s.meshes.size() || s.meshes[id - 1].indexCount == 0) return;
+    vkDeviceWaitIdle(s.device);  // буферы могут ещё использоваться предыдущими кадрами
+    s.destroyMesh(s.meshes[id - 1]);
 }
 
 bool Renderer::replaceMesh(MeshId id, const MeshData& mesh, std::span<const TextureId> textures) {

@@ -83,6 +83,9 @@ public:
     // false — id неверный или не хватило памяти; тогда прежний меш остаётся как был.
     bool replaceMesh(MeshId id, const MeshData& mesh, std::span<const TextureId> textures = {});
 
+    // Освобождает память меша (стриминг ячеек). Ждёт простоя GPU; id пропускается при рисовании, а слот берёт следующий uploadMesh.
+    void releaseMesh(MeshId id);
+
     // Рисует кадр: меши с PBR при свете frame.sun и окружении frame.sky, затем небо, тонмаппинг AgX и наложение.
     // width/height — текущий размер окна в пикселях (для пересоздания swapchain).
     // false — кадр пропущен (окно свёрнуто, пересоздание swapchain) или произошла ошибка устройства.
