@@ -1,0 +1,16 @@
+{
+  "frames": 240,
+  "fighters": [
+    { "name": "Нападающий", "x": 0, "z": 0, "stats": { "strength": 6 } },
+    { "name": "Защитник", "x": 0, "z": -1.2, "stats": { "toughness": 6 } }
+  ],
+  "inputs": [
+    { "frame": 1, "fighter": 1, "block": 90 },
+    { "frame": 10, "fighter": 0, "attack": "boxing_jab" },
+    { "frame": 24, "fighter": 0, "attack": "boxing_cross" },
+    { "frame": 44, "fighter": 0, "attack": "boxing_left_hook" },
+    { "frame": 70, "fighter": 0, "attack": "boxing_overhand" },
+    { "frame": 120, "fighter": 0, "attack": "boxing_liver_hook" },
+    { "frame": 150, "fighter": 0, "attack": "boxing_uppercut" }
+  ]
+}

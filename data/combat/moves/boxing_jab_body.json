@@ -1,0 +1,36 @@
+{
+  "id": "boxing_jab_body",
+  "style": "boxing",
+  "name_key": "move.boxing.jab_body",
+  "unlock_level": 2,
+  "type": "jab",
+  "trajectory": "straight",
+  "limb": "left_hand",
+  "height": "torso",
+  "movement_variant": "static",
+  "frames": {
+    "startup": 6,
+    "active": 2,
+    "recovery": 10
+  },
+  "cancel_window": [
+    8,
+    13
+  ],
+  "range": 1.35,
+  "damage": 4,
+  "stamina": 3,
+  "balance": 4,
+  "on_block_frames": -1,
+  "on_hit_frames": 3,
+  "armor": false,
+  "unblockable": false,
+  "power": false,
+  "impulse": 60,
+  "fx": {
+    "hitstop_ms": 45,
+    "shake": 0.2,
+    "sound": "impact_light_face"
+  },
+  "anim": "anims/boxing/jab_body.ozz"
+}

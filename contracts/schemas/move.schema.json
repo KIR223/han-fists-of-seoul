@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "han/move.schema.json",
+  "title": "Приём (data/combat/moves/*.json)",
+  "description": "Поставщик: B. Потребители: A (звук и эффекты по fx, импульс для физики). Формат — часть 64.4 дизайна. Числа боя — только здесь, не в коде.",
+  "type": "object",
+  "required": ["id", "style", "name_key", "unlock_level", "type", "trajectory", "limb", "height", "frames", "cancel_window", "range", "damage", "stamina", "balance"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,48}$" },
+    "style": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,24}$" },
+    "name_key": { "type": "string", "pattern": "^move\\.[a-z0-9_.]+$" },
+    "unlock_level": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "type": { "enum": ["jab", "straight", "hook", "uppercut", "body", "power", "elbow", "knee", "fastkick", "lowkick", "midkick", "highkick", "teep", "axe", "spinning", "jumping", "counter", "clinch", "takedown", "throw", "control", "sweep", "guard", "submission", "escape", "defense", "groundpunch", "special"] },
+    "trajectory": { "enum": ["straight", "arc_left", "arc_right", "up", "down", "spin", "low", "push"] },
+    "limb": { "enum": ["left_hand", "right_hand", "left_foot", "right_foot", "elbow", "knee", "head", "body"] },
+    "height": { "enum": ["head", "torso", "legs"] },
+    "movement_variant": { "enum": ["static", "step_in", "retreat", "sidestep", "pivot", "circle", "run"], "default": "static" },
+    "frames": {
+      "type": "object", "required": ["startup", "active", "recovery"], "additionalProperties": false,
+      "properties": {
+        "startup": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "active": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "recovery": { "type": "integer", "minimum": 1, "maximum": 90 }
+      }
+    },
+    "cancel_window": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 180 }, "minItems": 2, "maxItems": 2, "description": "Кадры [от, до] от начала приёма, когда можно отменить в следующий" },
+    "range": { "type": "number", "exclusiveMinimum": 0, "maximum": 4, "description": "Дальность от центра атакующего до края цели, м" },
+    "damage": { "type": "number", "minimum": 0, "maximum": 200 },
+    "stamina": { "type": "number", "minimum": 0, "maximum": 100 },
+    "balance": { "type": "number", "minimum": 0, "maximum": 100 },
+    "focus": { "type": "number", "minimum": 0, "maximum": 100 },
+    "on_block_frames": { "type": "integer", "minimum": -30, "maximum": 30 },
+    "on_hit_frames": { "type": "integer", "minimum": -30, "maximum": 30 },
+    "armor": { "type": "boolean" },
+    "unblockable": { "type": "boolean" },
+    "power": { "type": "boolean", "description": "Силовой удар: блок снижает урон слабее" },
+    "impulse": { "type": "number", "minimum": 0, "maximum": 2000 },
+    "hitbox": { "type": "object", "additionalProperties": true },
+    "fx": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "hitstop_ms": { "type": "integer", "minimum": 0, "maximum": 400 },
+        "shake": { "type": "number", "minimum": 0, "maximum": 2 },
+        "sound": { "type": "string" }
+      }
+    },
+    "anim": { "type": "string" },
+    "simple_rhythm_slots": { "type": "array", "items": { "type": "string" } },
+    "input_master": { "type": "object", "additionalProperties": true },
+    "variants": { "type": "array", "items": { "type": "string" } },
+    "optimal_range": { "enum": ["close", "mid", "far"] }
+  }
+}

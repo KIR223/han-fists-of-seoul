@@ -1,0 +1,36 @@
+{
+  "id": "boxing_overhand",
+  "style": "boxing",
+  "name_key": "move.boxing.overhand",
+  "unlock_level": 4,
+  "type": "power",
+  "trajectory": "down",
+  "limb": "right_hand",
+  "height": "head",
+  "movement_variant": "static",
+  "frames": {
+    "startup": 16,
+    "active": 4,
+    "recovery": 22
+  },
+  "cancel_window": [
+    20,
+    31
+  ],
+  "range": 1.3,
+  "damage": 14,
+  "stamina": 9,
+  "balance": 16,
+  "on_block_frames": -9,
+  "on_hit_frames": -1,
+  "armor": false,
+  "unblockable": false,
+  "power": true,
+  "impulse": 220,
+  "fx": {
+    "hitstop_ms": 110,
+    "shake": 0.8,
+    "sound": "impact_heavy_face"
+  },
+  "anim": "anims/boxing/overhand.ozz"
+}

@@ -1,0 +1,36 @@
+{
+  "id": "boxing_pivot_hook",
+  "style": "boxing",
+  "name_key": "move.boxing.pivot_hook",
+  "unlock_level": 6,
+  "type": "power",
+  "trajectory": "arc_left",
+  "limb": "left_hand",
+  "height": "head",
+  "movement_variant": "pivot",
+  "frames": {
+    "startup": 16,
+    "active": 4,
+    "recovery": 22
+  },
+  "cancel_window": [
+    20,
+    31
+  ],
+  "range": 1.3,
+  "damage": 14,
+  "stamina": 9,
+  "balance": 16,
+  "on_block_frames": -9,
+  "on_hit_frames": -1,
+  "armor": false,
+  "unblockable": false,
+  "power": true,
+  "impulse": 220,
+  "fx": {
+    "hitstop_ms": 110,
+    "shake": 0.8,
+    "sound": "impact_heavy_face"
+  },
+  "anim": "anims/boxing/pivot_hook.ozz"
+}

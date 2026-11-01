@@ -1,1 +1,19 @@
 key,ru,ko,en,context
+move.boxing.jab,Джеб,잽,Jab,название приёма бокса
+move.boxing.cross,Кросс,크로스,Cross,название приёма бокса
+move.boxing.left_hook,Левый хук,왼손 훅,Left hook,название приёма бокса
+move.boxing.right_hook,Правый хук,오른손 훅,Right hook,название приёма бокса
+move.boxing.uppercut,Апперкот,어퍼컷,Uppercut,название приёма бокса
+move.boxing.jab_body,Джеб в корпус,바디 잽,Body jab,название приёма бокса
+move.boxing.liver_hook,Хук по печени,간장 훅,Liver hook,название приёма бокса
+move.boxing.body_uppercut,Апперкот в корпус,바디 어퍼컷,Body uppercut,название приёма бокса
+move.boxing.double_jab_step,Двойной джеб с шагом,스텝 더블 잽,Stepping double jab,название приёма бокса
+move.boxing.overhand,Оверхенд,오버핸드,Overhand,название приёма бокса
+move.boxing.rear_uppercut,Апперкот задней,뒷손 어퍼컷,Rear uppercut,название приёма бокса
+move.boxing.slip_counter,Слип и контр,슬립 카운터,Slip and counter,название приёма бокса
+move.boxing.pull_counter,Пулл-каунтер,풀 카운터,Pull counter,название приёма бокса
+move.boxing.jab_retreat,Джеб с отходом,후퇴 잽,Retreating jab,название приёма бокса
+move.boxing.pivot_hook,Пивот-хук,피벗 훅,Pivot hook,название приёма бокса
+move.boxing.bolo_punch,Боло-панч,볼로 펀치,Bolo punch,название приёма бокса
+move.boxing.dempsey_roll,Демпси-ролл,뎀프시 롤,Dempsey roll,название приёма бокса
+move.boxing.liver_knockout,Нокаут в печень,간장 KO,Liver knockout,название приёма бокса

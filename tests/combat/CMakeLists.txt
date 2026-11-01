@@ -1,0 +1,13 @@
+find_package(doctest CONFIG QUIET)
+if(NOT doctest_FOUND)
+    message(WARNING "doctest не найден (нужен vcpkg-манифест, функция tests): тесты боя пропущены")
+    return()
+endif()
+
+add_executable(han_tests_combat src/main.cpp src/combat_data_test.cpp src/combat_sim_test.cpp src/combat_extra_test.cpp src/combat_scenario_test.cpp)
+target_link_libraries(han_tests_combat PRIVATE doctest::doctest han_combat han_core)
+target_compile_definitions(han_tests_combat PRIVATE HAN_REPO_DIR="${CMAKE_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(han_tests_combat PRIVATE /W4 /permissive- /utf-8)
+endif()
+add_test(NAME combat COMMAND han_tests_combat)

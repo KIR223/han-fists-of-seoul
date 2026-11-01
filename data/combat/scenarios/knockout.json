@@ -1,0 +1,19 @@
+{
+  "frames": 600,
+  "fighters": [
+    { "name": "Нокаутёр", "x": 0, "z": 0, "stats": { "strength": 8, "stars": 2 } },
+    { "name": "Жертва", "x": 0, "z": -1.2 }
+  ],
+  "inputs": [
+    { "frame": 1, "fighter": 0, "attack": "boxing_cross" },
+    { "frame": 30, "fighter": 0, "attack": "boxing_overhand" },
+    { "frame": 80, "fighter": 0, "attack": "boxing_overhand" },
+    { "frame": 130, "fighter": 0, "attack": "boxing_overhand" },
+    { "frame": 180, "fighter": 0, "attack": "boxing_overhand" },
+    { "frame": 230, "fighter": 0, "attack": "boxing_dempsey_roll" },
+    { "frame": 300, "fighter": 0, "attack": "boxing_dempsey_roll" },
+    { "frame": 370, "fighter": 0, "attack": "boxing_cross" },
+    { "frame": 400, "fighter": 0, "attack": "boxing_overhand" },
+    { "frame": 450, "fighter": 0, "attack": "boxing_cross" }
+  ]
+}
