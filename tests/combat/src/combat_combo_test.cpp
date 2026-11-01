@@ -108,3 +108,23 @@ TEST_CASE("combo: плохие данные отклоняются") {
     CHECK_FALSE(lib.parse(j, error));
     CHECK(error.find("повторяющийся") != std::string::npos);
 }
+
+TEST_CASE("combo: награда в ритм — комбо добавляет попадания и может открыть «Поток»; в потоке и у нокаутированного не копится") {
+    CombatRules rules;
+    std::string error;
+    REQUIRE_MESSAGE(rules.load(repo("data/combat/combat_rules.json"), error), error);
+    CombatSim sim(rules);
+    sim.addFighter({0, 0});
+    sim.addFighter({0, -1.1f});
+    CHECK_FALSE(sim.awardRhythm(0, 2));
+    CHECK(sim.fighter(0).rhythm == 2);
+    CHECK_FALSE(sim.awardRhythm(0, 0));
+    CHECK(sim.awardRhythm(0, rules.rhythmHitsForFlow));  // 2 + 5 >= порога
+    CHECK(sim.fighter(0).flowUntil > sim.frame());
+    CHECK(sim.fighter(0).rhythm == 0);
+    CHECK_FALSE(sim.awardRhythm(0, 10));  // уже в «Потоке»
+    CHECK(sim.fighter(0).rhythm == 0);
+    CHECK_FALSE(sim.awardRhythm(5, 3));   // нет такого бойца
+    sim.fighterMutable(1).state = FighterState::KnockedOut;
+    CHECK_FALSE(sim.awardRhythm(1, 10));
+}

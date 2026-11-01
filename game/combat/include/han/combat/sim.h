@@ -98,6 +98,8 @@ public:
     void setTarget(int fighter, int target);
     // Нокаут по числу нокдаунов (бой «по правилам»); в уличной драке — только по здоровью.
     void setOfficialRules(bool on) { official_ = on; }
+    // Награда за комбо: засчитывает бойцу ещё hits чистых попаданий в ритм (может открыть «Поток»). Возвращает true, если Поток открылся.
+    bool awardRhythm(int fighter, int hits);
 
     // Один кадр. inputs — по одному на бойца в порядке добавления (недостающие считаются пустыми).
     void step(const std::vector<FighterInput>& inputs);

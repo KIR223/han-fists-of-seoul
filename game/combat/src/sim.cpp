@@ -306,6 +306,18 @@ void CombatSim::checkKnockout(Fighter& d, int cause) {
     emit(e);
 }
 
+bool CombatSim::awardRhythm(int fighter, int hits) {
+    if (fighter < 0 || fighter >= fighterCount() || hits <= 0) return false;
+    Fighter& f = fighters_[static_cast<std::size_t>(fighter)];
+    if (!f.alive() || f.flowUntil > frame_) return false;  // в «Потоке» награда не копится
+    f.rhythmFrame = frame_;
+    f.rhythm += hits;
+    if (f.rhythm < rules_.rhythmHitsForFlow) return false;
+    f.rhythm = 0;
+    f.flowUntil = frame_ + rules_.flowFrames;
+    return true;
+}
+
 void CombatSim::resolveHits() {
     std::vector<AttackSnapshot> pending;
     for (Fighter& a : fighters_) {
