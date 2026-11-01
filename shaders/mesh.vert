@@ -16,6 +16,7 @@ layout(location = 0) out vec3 vWorldPos;
 layout(location = 1) out vec3 vNormal;
 layout(location = 2) out vec3 vColor;
 layout(location = 3) out vec2 vUV;
+layout(location = 4) out float vViewDepth;  // глубина вдоль взгляда (clip.w) — для выбора каскада теней
 
 void main() {
     vec4 world = vpc.model * vec4(inPos, 1.0);
@@ -24,4 +25,5 @@ void main() {
     vNormal = mat3(vpc.model) * inNormal;  // верно для равномерного масштаба
     vColor = inColor;
     vUV = inUV;
+    vViewDepth = gl_Position.w;
 }

@@ -1,11 +1,13 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <vector>
 
 #include "han/core/math.h"
 #include "han/render/camera.h"
 #include "han/render/lighting.h"
 #include "han/render/mesh.h"
+#include "han/render/shadow.h"
 
 using namespace han::core;
 using namespace han::render;
@@ -213,4 +215,128 @@ TEST_CASE("свет: небо светлеет с высотой солнца и
     const SkyColors day = skyFromSun(makeSun(60.0f, 0.0f, 5800.0f));
     CHECK(day.zenith.z > day.zenith.x);  // днём небо над головой синее
     CHECK(luminance(day.horizon) > luminance(day.zenith));  // и светлее у горизонта
+}
+
+namespace {
+// Углы среза камеры между глубинами d0 и d1 вдоль взгляда: разворачиваем на NDC-глубине каждого среза (так же, как в коде теней).
+std::vector<Vec3> frustumSlice(const Camera& cam, float aspect, float d0, float d1) {
+    Mat4 inv;
+    REQUIRE(invert(cam.viewProjection(aspect), inv));
+    std::vector<Vec3> out;
+    for (const float d : {d0, d1}) {
+        const float ndcZ = cam.farZ * (d - cam.nearZ) / (d * (cam.farZ - cam.nearZ));
+        for (const float x : {-1.0f, 1.0f})
+            for (const float y : {-1.0f, 1.0f}) {
+                const Vec4 p = transform(inv, {x, y, ndcZ});
+                out.push_back({p.x / p.w, p.y / p.w, p.z / p.w});
+            }
+    }
+    return out;
+}
+}  // namespace
+
+TEST_CASE("тени: границы каскадов 15 / 50 / 150 и их порядок") {
+    Camera cam;
+    const ShadowCascades c = computeShadowCascades(cam.viewProjection(1.6f), cam.nearZ, cam.farZ, normalize({0.4f, 0.8f, 0.3f}), {});
+    CHECK(c.cascade[0].splitDistance == doctest::Approx(15.0f));
+    CHECK(c.cascade[1].splitDistance == doctest::Approx(50.0f));
+    CHECK(c.cascade[2].splitDistance == doctest::Approx(150.0f));
+    CHECK(c.cascade[0].radius < c.cascade[1].radius);
+    CHECK(c.cascade[1].radius < c.cascade[2].radius);
+    for (const auto& k : c.cascade) CHECK(k.texelWorldSize == doctest::Approx(2.0f * k.radius / 2048.0f).epsilon(1e-4));
+
+    Camera nearCam;
+    nearCam.farZ = 30.0f;  // дальняя плоскость ближе третьей границы: границы обрезаются по ней
+    const ShadowCascades clipped = computeShadowCascades(nearCam.viewProjection(1.6f), nearCam.nearZ, nearCam.farZ, normalize({0, 1, 0.2f}), {});
+    CHECK(clipped.cascade[1].splitDistance <= 30.0f + 1e-4f);
+    CHECK(clipped.cascade[2].splitDistance <= 30.0f + 1e-4f);
+}
+
+TEST_CASE("тени: все углы среза каждого каскада внутри его клипа") {
+    const float suns[][3] = {{0.4f, 0.8f, 0.3f}, {-0.7f, 0.3f, 0.2f}, {0.0f, 1.0f, 0.0f}, {0.9f, 0.05f, -0.4f}, {0.2f, -0.1f, 0.9f}};
+    const float yaws[] = {0.0f, 1.0f, -2.2f, 3.0f};
+    for (const auto& s : suns)
+        for (const float yaw : yaws) {
+            Camera cam;
+            cam.position = {12.0f, 3.0f, -40.0f};
+            cam.yaw = yaw;
+            cam.pitch = -0.3f;
+            const Vec3 sun = normalize({s[0], s[1], s[2]});
+            const ShadowCascades c = computeShadowCascades(cam.viewProjection(1.78f), cam.nearZ, cam.farZ, sun, {});
+            float previous = cam.nearZ;
+            for (const auto& k : c.cascade) {
+                for (const Vec3& corner : frustumSlice(cam, 1.78f, previous, k.splitDistance)) {
+                    const Vec4 p = transform(k.viewProjection, corner);
+                    CHECK_MESSAGE(std::fabs(p.x) <= 1.0f + 1e-3f, "x=" << p.x);
+                    CHECK_MESSAGE(std::fabs(p.y) <= 1.0f + 1e-3f, "y=" << p.y);
+                    CHECK_MESSAGE(p.z >= -1e-3f, "z=" << p.z);
+                    CHECK_MESSAGE(p.z <= 1.0f + 1e-3f, "z=" << p.z);
+                    CHECK(p.w == doctest::Approx(1.0f));  // ортографическая проекция
+                }
+                previous = k.splitDistance;
+            }
+        }
+}
+
+TEST_CASE("тени: радиус каскада не зависит от поворота камеры, а тень привязана к сетке текселей") {
+    const Vec3 sun = normalize({0.4f, 0.8f, 0.3f});
+    Camera a;
+    a.position = {5, 2, 5};
+    const ShadowCascades base = computeShadowCascades(a.viewProjection(1.6f), a.nearZ, a.farZ, sun, {});
+
+    Camera rotated = a;
+    rotated.yaw = 2.4f;
+    rotated.pitch = -0.5f;
+    const ShadowCascades turned = computeShadowCascades(rotated.viewProjection(1.6f), rotated.nearZ, rotated.farZ, sun, {});
+    for (int i = 0; i < kShadowCascades; ++i)
+        CHECK_MESSAGE(turned.cascade[i].radius == doctest::Approx(base.cascade[i].radius).epsilon(1e-4), "каскад " << i << ": " << turned.cascade[i].radius << " против " << base.cascade[i].radius);
+
+    // Мировая точка попадает в карту теней с одной и той же дробной частью текселя при любом сдвиге камеры:
+    // иначе края теней «плыли» бы при движении.
+    const Vec3 point{3.7f, 0.0f, -11.3f};
+    const auto fractionalTexel = [&](const ShadowCascade& k, int axis) {
+        const Vec4 p = transform(k.viewProjection, point);
+        const float texel = ((axis == 0 ? p.x : p.y) * 0.5f + 0.5f) * 2048.0f;
+        return texel - std::floor(texel);
+    };
+    for (const float shift : {0.013f, 0.37f, 2.9f, 17.0f}) {
+        Camera moved = a;
+        moved.position = {a.position.x + shift, a.position.y, a.position.z - shift * 0.7f};
+        const ShadowCascades after = computeShadowCascades(moved.viewProjection(1.6f), moved.nearZ, moved.farZ, sun, {});
+        for (int i = 0; i < kShadowCascades; ++i)
+            for (const int axis : {0, 1}) {
+                const float f0 = fractionalTexel(base.cascade[i], axis), f1 = fractionalTexel(after.cascade[i], axis);
+                const float diff = std::fabs(f0 - f1);
+                CHECK_MESSAGE(std::min(diff, 1.0f - diff) < 0.02f, "каскад " << i << ", ось " << axis << ", сдвиг " << shift << ": " << f0 << " и " << f1);
+            }
+    }
+}
+
+TEST_CASE("тени: вырожденные входы дают нулевой результат без NaN") {
+    Mat4 zero;
+    for (float& v : zero.m) v = 0;
+    const ShadowCascades none = computeShadowCascades(zero, 0.1f, 100.0f, {0, 1, 0}, {});
+    CHECK(none.cascade[0].radius == doctest::Approx(0.0f));
+
+    Camera cam;
+    const ShadowCascades reversed = computeShadowCascades(cam.viewProjection(1.6f), 50.0f, 10.0f, {0, 1, 0}, {});  // far < near
+    CHECK(reversed.cascade[2].radius == doctest::Approx(0.0f));
+
+    ShadowSettings tiny;
+    tiny.mapSize = 0;
+    CHECK(computeShadowCascades(cam.viewProjection(1.6f), cam.nearZ, cam.farZ, {0, 1, 0}, tiny).cascade[0].radius == doctest::Approx(0.0f));
+
+    const ShadowCascades zenith = computeShadowCascades(cam.viewProjection(1.6f), cam.nearZ, cam.farZ, {0, 1, 0}, {});  // солнце в зените
+    for (const auto& k : zenith.cascade)
+        for (const float v : k.viewProjection.m) CHECK(std::isfinite(v));
+}
+
+TEST_CASE("Mat4: ортографическая проекция переводит ящик в клип 0..1 по глубине") {
+    const Mat4 o = Mat4::orthographic(-2, 2, -1, 1, 1.0f, 11.0f);
+    const Vec4 nearPt = transform(o, {0, 0, -1.0f}), farPt = transform(o, {0, 0, -11.0f}), corner = transform(o, {2, 1, -6.0f});
+    CHECK(nearPt.z == doctest::Approx(0.0f));
+    CHECK(farPt.z == doctest::Approx(1.0f));
+    CHECK(corner.x == doctest::Approx(1.0f));
+    CHECK(corner.y == doctest::Approx(1.0f));
+    CHECK(corner.z == doctest::Approx(0.5f));
 }

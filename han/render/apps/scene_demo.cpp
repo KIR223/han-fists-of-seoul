@@ -47,11 +47,17 @@ std::string fmt(const char* format, double a = 0, double b = 0, double c = 0) {
 int main(int argc, char** argv) {
     long maxFrames = -1;
     bool captured = true, nullOverlay = false;
-    float sunArgs[3] = {35.0f, 160.0f, 5200.0f};  // высота, азимут, кельвины; по умолчанию дневное солнце из таблицы 34.1 (10:00)
+    float sunArgs[3] = {38.0f, 125.0f, 5200.0f};  // высота, азимут, кельвины; по умолчанию дневное солнце из таблицы 34.1 (10:00)
     float exposureArg = 1.0f;
+    bool shadowsArg = true, cascadesArg = false;
+    float cameraArgs[5] = {0.0f, 2.6f, 9.5f, 0.0f, -8.0f};  // x y z, рыскание и тангаж в градусах
     std::filesystem::path meshPath;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--null-overlay")) nullOverlay = true;
+        if (!std::strcmp(argv[i], "--no-shadows")) shadowsArg = false;
+        if (!std::strcmp(argv[i], "--cascades")) cascadesArg = true;
+        if (!std::strcmp(argv[i], "--camera") && i + 5 < argc)  // --camera x y z рыскание тангаж
+            for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
         if (!std::strcmp(argv[i], "--sun") && i + 3 < argc)  // --sun высота азимут кельвины
             for (int k = 0; k < 3; ++k) sunArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
         if (!std::strcmp(argv[i], "--exposure") && i + 1 < argc) exposureArg = static_cast<float>(std::atof(argv[i + 1]));
@@ -155,14 +161,16 @@ int main(int argc, char** argv) {
     input.bind("console", kGrave);
 
     han::render::Camera camera;
-    camera.position = {0, 2.6f, 9.5f};
-    camera.pitch = -0.14f;
+    camera.position = {cameraArgs[0], cameraArgs[1], cameraArgs[2]};
+    camera.yaw = cameraArgs[3] * 0.01745329f;
+    camera.pitch = cameraArgs[4] * 0.01745329f;
     float speed = 6.f;
     bool quit = false;
     bool consoleOpen = false;
 
     // Свет: высота и азимут солнца в градусах, цветовая температура, экспозиция. Меняется командами sun и exposure.
     float sunElevation = sunArgs[0], sunAzimuth = sunArgs[1], sunKelvin = sunArgs[2], exposure = exposureArg;
+    bool shadowsEnabled = shadowsArg, debugCascades = cascadesArg;
 
     han::core::Console console;
     console.registerCommand("quit", "закрыть демо", [&](const std::vector<std::string>&) {
@@ -204,6 +212,14 @@ int main(int argc, char** argv) {
         exposure = std::clamp(static_cast<float>(std::atof(a[0].c_str())), 0.01f, 100.f);
         return std::string("готово");
     });
+    const auto onOff = [](const std::vector<std::string>& a, bool& value) {
+        if (a.size() == 1 && (a[0] == "on" || a[0] == "off")) value = a[0] == "on";
+        else if (a.size() == 1) return std::string("использование: on или off");
+        return std::string(value ? "включено" : "выключено");
+    };
+    console.registerCommand("shadows", "shadows on|off — тени от солнца", [&](const std::vector<std::string>& a) { return onOff(a, shadowsEnabled); });
+    console.registerCommand("cascades", "cascades on|off — подкрасить каскады теней (красный, зелёный, синий)",
+                            [&](const std::vector<std::string>& a) { return onOff(a, debugCascades); });
     console.registerCommand("echo", "echo текст", [](const std::vector<std::string>& a) {
         std::string out;
         for (const auto& s : a) out += (out.empty() ? "" : " ") + s;
@@ -249,6 +265,7 @@ int main(int argc, char** argv) {
         ui.drawStats({fmt("FPS: %.0f", fps), "GPU: " + renderer->deviceName(),
                       fmt("ошибок валидации: %.0f", renderer->validationErrors()),
                       fmt("камера: %.1f %.1f %.1f", camera.position.x, camera.position.y, camera.position.z),
+                      shadowsEnabled ? "тени: вкл" : "тени: выкл",
                       consoleOpen ? "` — закрыть консоль" : "` — консоль"});
         ui.drawConsole(console, consoleOpen);
 #endif
@@ -291,6 +308,10 @@ int main(int argc, char** argv) {
         params.sun = han::render::makeSun(sunElevation, sunAzimuth, sunKelvin);
         params.sky = han::render::skyFromSun(params.sun);
         params.exposure = exposure;
+        params.nearPlane = camera.nearZ;
+        params.farPlane = camera.farZ;
+        params.shadows = shadowsEnabled;
+        params.debugCascades = debugCascades;
         renderer->drawFrame(params, items, w, h);
     }
     const auto errors = renderer->validationErrors();
