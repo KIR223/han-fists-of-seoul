@@ -53,8 +53,11 @@ struct FrameUbo {
     float cascadeSplits[4];      // xyz — дальние границы каскадов (м), w — 1, если тени включены
     float cascadeTexel[4];       // xyz — размер текселя карты каждого каскада (м)
     float shadowParams[4];       // x — 1 / размер карты, y — 1: подкрасить каскады
+    float lightPos[32][4];       // точечные источники: xyz — позиция, w — радиус действия (м)
+    float lightColor[32][4];     // rgb — цвет, умноженный на яркость
+    float lightInfo[4];          // x — сколько источников, y — влажность поверхностей 0..1
 };
-static_assert(sizeof(FrameUbo) == 480, "FrameUbo должен совпадать с std140-блоком Frame");
+static_assert(sizeof(FrameUbo) == 1520, "FrameUbo должен совпадать с std140-блоком Frame");
 
 // Push constants теневого прохода (vertex): матрица модели и номер каскада.
 struct ShadowPush {
@@ -1226,6 +1229,21 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     put3(ubo.skyGround, frame.sky.ground);
     ubo.params[0] = frame.exposure;
     ubo.params[1] = frame.fogDensity;
+    {
+        const std::size_t count = std::min<std::size_t>(frame.pointLights.size(), 32);
+        for (std::size_t i = 0; i < count; ++i) {
+            const PointLight& pl = frame.pointLights[i];
+            ubo.lightPos[i][0] = pl.position.x;
+            ubo.lightPos[i][1] = pl.position.y;
+            ubo.lightPos[i][2] = pl.position.z;
+            ubo.lightPos[i][3] = pl.radius;
+            ubo.lightColor[i][0] = pl.color.x;
+            ubo.lightColor[i][1] = pl.color.y;
+            ubo.lightColor[i][2] = pl.color.z;
+        }
+        ubo.lightInfo[0] = static_cast<float>(count);
+        ubo.lightInfo[1] = std::clamp(frame.wetness, 0.f, 1.f);
+    }
 
     // Каскады теней. Без солнечного света (ночь) или при выключенных тенях шейдер получает «тени выключены», а карты просто очищаются.
     ShadowSettings shadowSettings = frame.shadow;

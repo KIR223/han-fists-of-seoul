@@ -1,7 +1,7 @@
 // Демо E10: город из данных OpenStreetMap (по умолчанию Мапо: Хондэ), ячейки подгружаются по мере полёта (E9).
 // Управление: мышь — взгляд, W/A/S/D — полёт, Space/Ctrl — вверх/вниз, Shift — быстрее, Tab — захват мыши, ` — консоль, Esc — выход.
 // Запуск: han_city_demo.exe [--osm файл.osm] [--origin широта долгота] [--frames N] [--no-capture] [--no-ui] [--deterministic]
-//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины]
+//         [--size W H] [--screenshot файл.png] [--camera x y z рыскание тангаж] [--sun высота азимут кельвины] [--wet 0..1]
 // Данные OSM (ODbL) не лежат в Git: python han/tools/pipeline/han_osm_fetch.py (карта © участники OpenStreetMap).
 #include <SDL3/SDL_timer.h>
 
@@ -78,6 +78,7 @@ struct CityLoader final : world::ICellLoader {
 }  // namespace
 
 int main(int argc, char** argv) {
+    float wetness = 0.f;
     han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
     long maxFrames = -1;
     bool captured = true, noUi = false, deterministic = false;
@@ -105,6 +106,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--exposure") && i + 1 < argc) exposureArg = static_cast<float>(std::atof(argv[i + 1]));
         if (!std::strcmp(argv[i], "--camera") && i + 5 < argc)
             for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
+        if (!std::strcmp(argv[i], "--wet") && i + 1 < argc) wetness = std::clamp(static_cast<float>(std::atof(argv[i + 1])), 0.f, 1.f);
         if (!std::strcmp(argv[i], "--sun") && i + 3 < argc)
             for (int k = 0; k < 3; ++k) sunArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
     }
@@ -282,6 +284,24 @@ int main(int argc, char** argv) {
         params.cameraPosition = camera.position;
         params.sun = han::render::makeSun(sunElevation, sunAzimuth, sunKelvin);
         params.sky = han::render::skyFromSun(params.sun);
+        params.wetness = wetness;
+        if (sunElevation < 6.f) {  // ночью и в сумерки горят ближайшие 32 фонаря (натриевый тёплый свет)
+            struct Near {
+                float d2;
+                const world::Vec3* p;
+            };
+            std::vector<Near> near;
+            for (const auto& [cell, chunk] : chunks)
+                for (const world::Vec3& lamp : chunk.lamps) {
+                    const float dx = lamp.x - camera.position.x, dz = lamp.z - camera.position.z;
+                    if (dx * dx + dz * dz < 250.f * 250.f) near.push_back({dx * dx + dz * dz + (lamp.y - camera.position.y) * (lamp.y - camera.position.y), &lamp});
+                }
+            const std::size_t keep = std::min<std::size_t>(near.size(), 32);
+            std::partial_sort(near.begin(), near.begin() + static_cast<std::ptrdiff_t>(keep), near.end(), [](const Near& a, const Near& b) { return a.d2 < b.d2; });
+            const float k = std::clamp((6.f - sunElevation) / 8.f, 0.f, 1.f);  // плавное включение на закате
+            for (std::size_t i = 0; i < keep; ++i)
+                params.pointLights.push_back({{near[i].p->x, near[i].p->y, near[i].p->z}, {k * 60.f, k * 42.f, k * 22.f}, 24.f});
+        }
         params.exposure = exposure;
         params.fogDensity = 0.0006f;
         params.nearPlane = camera.nearZ;

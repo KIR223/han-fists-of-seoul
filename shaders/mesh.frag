@@ -76,9 +76,11 @@ void main() {
         int c = cascadeIndex(vViewDepth);
         albedo = mix(albedo, c == 0 ? vec3(1.0, 0.2, 0.2) : (c == 1 ? vec3(0.2, 1.0, 0.2) : (c == 2 ? vec3(0.2, 0.4, 1.0) : vec3(0.6))), 0.5);
     }
+    float wet = frame.lightInfo.y * smoothstep(0.85, 0.98, N.y);  // мокрыми считаются только горизонтальные поверхности
+    albedo *= 1.0 - 0.45 * wet;
     float metallic = clamp(fpc.material.x, 0.0, 1.0);
     float roughness = fpc.material.w > 0.5 ? texture(uRoughMap, vUV).r : fpc.material.y;  // карта задаёт шероховатость как нарисована; без неё — число материала
-    roughness = clamp(roughness, 0.045, 1.0);  // ниже 0,045 блик вырождается в точку
+    roughness = clamp(mix(roughness, roughness * 0.3, wet), 0.045, 1.0);  // ниже 0,045 блик вырождается в точку
     float a = roughness * roughness;
 
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
@@ -99,6 +101,25 @@ void main() {
     vec3 sunRadiance = frame.sunColor.rgb * frame.sunColor.a;
     float visibility = shadowVisibility(vWorldPos, N, vViewDepth, L);
     vec3 direct = (diffuse * (1.0 - F) + specular) * sunRadiance * NoL * visibility;
+    // Точечные источники (фонари): без теней; расстояние затухает по «окну» Карриса, блик по тому же GGX.
+    int lightCount = int(frame.lightInfo.x);
+    for (int i = 0; i < lightCount; ++i) {
+        vec3 toLight = frame.lightPos[i].xyz - vWorldPos;
+        float d2 = dot(toLight, toLight);
+        float radius = frame.lightPos[i].w;
+        if (d2 > radius * radius) continue;
+        float d = sqrt(d2);
+        vec3 Ll = toLight / max(d, 1e-4);
+        float window = clamp(1.0 - pow(d / radius, 4.0), 0.0, 1.0);
+        float atten = window * window / (d2 + 1.0);
+        vec3 Hl = normalize(V + Ll);
+        float NoLl = clamp(dot(N, Ll), 0.0, 1.0);
+        float NoHl = clamp(dot(N, Hl), 0.0, 1.0);
+        float VoHl = clamp(dot(V, Hl), 0.0, 1.0);
+        vec3 Fl = fresnelSchlick(VoHl, f0);
+        vec3 spec = distributionGGX(NoHl, a) * visibilitySmithGGXCorrelated(NoV, NoLl, a) * Fl;
+        direct += (diffuse * (1.0 - Fl) + spec) * frame.lightColor[i].rgb * NoLl * atten;
+    }
 
     // Окружение: рассеянная часть — полусфера неба по нормали, зеркальная — небо по отражённому лучу (размытое при шероховатости).
     float up = N.y * 0.5 + 0.5;

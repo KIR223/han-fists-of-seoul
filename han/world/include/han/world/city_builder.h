@@ -21,10 +21,15 @@ struct CityBuildSettings {
     float junctionSides = 10;            // сторон «диска» в стыках сегментов дороги (закрывает щели на поворотах)
 };
 
+struct Vec3 {
+    float x = 0, y = 0, z = 0;
+};
+
 // Содержимое одной ячейки города.
 struct CityChunk {
     GeoMesh ground;     // дороги, парки, вода
     GeoMesh buildings;  // стены и крыши
+    std::vector<Vec3> lamps;  // головки фонарей (точки света ночью)
     int roadSegments = 0, buildingCount = 0, areaCount = 0;
     bool empty() const { return ground.empty() && buildings.empty(); }
 };

@@ -582,7 +582,11 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                         const float off = width * 0.5f + 1.2f;
                         const float s = static_cast<float>(-side);
                         const float lx = px + nx * off * s, lz = pz + nz * off * s;
-                        if (!insideAnyBuilding(lx, lz)) addLamp(chunkAt({lx, lz}).buildings, lx, lz, -nx * s, -nz * s);
+                        if (!insideAnyBuilding(lx, lz)) {
+                            CityChunk& lampChunk = chunkAt({lx, lz});
+                            addLamp(lampChunk.buildings, lx, lz, -nx * s, -nz * s);
+                            lampChunk.lamps.push_back({lx - nx * s * 0.7f, 6.8f, lz - nz * s * 0.7f});
+                        }
                         sinceLamp = 0.f;
                     }
                 }
