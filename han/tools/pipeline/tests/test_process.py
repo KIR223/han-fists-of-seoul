@@ -157,6 +157,20 @@ class ProcessWithFakesTests(unittest.TestCase):
         self.assertIn("альбедо", str(ctx.exception))
         self.assertFalse(credits.has_row(self.paths.credits, asset))
 
+    def test_font_is_copied_with_license_text_and_needs_no_tools(self):
+        (self.root / "inbox" / "font.ttf").write_bytes(b"TTF")
+        asset = dict(self.asset, id="fn_test", name="FN_test", kind="font", source={"type": "local", "file": "inbox/font.ttf"})
+        han_fetch.process_asset(asset, self.paths, None, None)  # ни Blender, ни han_cooker шрифту не нужны
+        self.assertEqual((self.paths.cooked / "fn_test" / "font.ttf").read_bytes(), b"TTF")
+        self.assertTrue(credits.has_row(self.paths.credits, asset))
+
+    def test_font_without_font_file_is_an_error(self):
+        (self.root / "inbox" / "readme.txt").write_text("нет шрифта", encoding="utf-8")
+        asset = dict(self.asset, id="fn_bad", name="FN_bad", kind="font", source={"type": "local", "file": "inbox/readme.txt"})
+        with self.assertRaises(han_fetch.PipelineError):
+            han_fetch.process_asset(asset, self.paths, None, None)
+        self.assertFalse(credits.has_row(self.paths.credits, asset))
+
     def test_texture_needs_cooker(self):
         (self.root / "inbox" / "diff.jpg").write_bytes(b"JPG")
         asset = dict(self.asset, id="tx_nc", name="TX_nc", kind="texture", source={"type": "local", "file": "inbox/diff.jpg"})

@@ -162,6 +162,25 @@
       "used_in": "бетонные фасады офисов и многоэтажек (G6)",
       "modified": "да: конвертация JPG в KTX2 с цепочкой мипов; без изменения изображения",
       "license_url": "https://polyhaven.com/license"
+    },
+    {
+      "id": "fn_noto_sans_kr",
+      "name": "FN_NotoSansKR",
+      "kind": "font",
+      "zone": "A",
+      "source": {
+        "type": "direct",
+        "page": "https://fonts.google.com/noto/specimen/Noto+Sans+KR",
+        "url": "https://github.com/google/fonts/raw/main/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf",
+        "filename": "NotoSansKR.ttf"
+      },
+      "author": "The Noto Project Authors (Google)",
+      "license": "OFL-1.1",
+      "retrieved": "2026-11-01",
+      "sha256": "0c05a1d43f716d2f284d3c9efb474c298dc28681b459ccb590ae0baf1ca082bd",
+      "used_in": "шрифт интерфейса: кириллица, хангыль, латиница (RmlUi, E8)",
+      "modified": "нет",
+      "license_url": "https://openfontlicense.org/"
     }
   ]
 }

@@ -16,6 +16,13 @@ if(Vulkan_FOUND)
         add_executable(han_scene_demo apps/scene_demo.cpp)
         target_link_libraries(han_scene_demo PRIVATE han_render han_ui)  # han_ui даёт ImGui, если он найден
 
+        # Демо интерфейса E8: RmlUi поверх сцены (нужны han_ui с RmlUi и ImGui).
+        add_executable(han_ui_demo apps/ui_demo.cpp)
+        target_link_libraries(han_ui_demo PRIVATE han_render han_ui)
+        if(MSVC)
+            target_compile_options(han_ui_demo PRIVATE /W4 /permissive- /utf-8)
+        endif()
+
         # Демо города E10: данные OpenStreetMap, ячейки подгружаются стримингом (han_world).
         add_executable(han_city_demo apps/city_demo.cpp)
         target_link_libraries(han_city_demo PRIVATE han_render han_ui han_world)

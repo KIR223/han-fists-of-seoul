@@ -11,3 +11,13 @@ if(imgui_FOUND AND SDL3_FOUND AND Vulkan_FOUND)
 else()
     message(STATUS "imgui, SDL3 или Vulkan не найдены: отладочный интерфейс ImGui не собирается")
 endif()
+
+# Игровой интерфейс на RmlUi (E8): рисуется через ImGui, поэтому нужны оба.
+find_package(RmlUi CONFIG QUIET)
+if(RmlUi_FOUND AND imgui_FOUND AND SDL3_FOUND AND Vulkan_FOUND)
+    target_sources(han_ui PRIVATE rml/rml_layer.cpp)
+    target_link_libraries(han_ui PUBLIC RmlUi::RmlUi)
+    target_compile_definitions(han_ui PUBLIC HAN_WITH_RMLUI=1)
+else()
+    message(STATUS "RmlUi не найден: игровой интерфейс (E8) не собирается")
+endif()

@@ -1,0 +1,83 @@
+/* В RmlUi нет таблицы стилей по умолчанию: блочные элементы объявляем сами. */
+body, div, p, h1, h2, h3 { display: block; }
+
+body {
+    font-family: "Noto Sans KR";
+    font-size: 18dp;
+    color: #f2efe8;
+    width: 100%;
+    height: 100%;
+}
+#hud { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.panel {
+    position: absolute;
+    width: 360dp;
+    padding: 12dp 16dp;
+    background-color: #101418cc;
+    border-width: 2dp;
+    border-color: #ffffff30;
+    border-radius: 6dp;
+}
+.hero { left: 28dp; top: 24dp; }
+.foe { right: 28dp; top: 24dp; }
+.name { font-weight: bold; font-size: 17dp; margin-bottom: 6dp; letter-spacing: 1dp; }
+.bar { position: relative; height: 20dp; margin-bottom: 6dp; background-color: #00000099; border-radius: 3dp; }
+.bar.small { height: 9dp; }
+.fill { height: 100%; border-radius: 3dp; }
+.health { background-color: #d94b4b; }
+.foehealth { background-color: #e0833b; }
+.stamina { background-color: #4bb86a; }
+.balance { background-color: #4b8bd9; }
+.value { position: absolute; right: 8dp; top: 0; font-size: 15dp; line-height: 20dp; }
+.hint { font-size: 13dp; color: #b8b4aa; }
+.combo {
+    position: absolute;
+    left: 50%;
+    margin-left: -230dp;
+    top: 120dp;
+    width: 460dp;
+    text-align: center;
+    padding: 10dp;
+    font-size: 26dp;
+    font-weight: bold;
+    color: #ffd34d;
+    background-color: #101418aa;
+    border-radius: 6dp;
+}
+.keys {
+    position: absolute;
+    left: 28dp;
+    bottom: 22dp;
+    font-size: 15dp;
+    color: #d8d4ca;
+    background-color: #101418aa;
+    padding: 8dp 14dp;
+    border-radius: 4dp;
+}
+#menu {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    margin-left: -220dp;
+    margin-top: -150dp;
+    width: 440dp;
+    padding: 22dp;
+    background-color: #0c1014e6;
+    border-width: 2dp;
+    border-color: #ffd34d80;
+    border-radius: 8dp;
+}
+.title { font-size: 30dp; font-weight: bold; text-align: center; margin-bottom: 18dp; color: #ffd34d; }
+.button {
+    padding: 12dp 16dp;
+    margin-bottom: 10dp;
+    text-align: center;
+    font-size: 21dp;
+    background-color: #2a323c;
+    border-radius: 5dp;
+    border-width: 2dp;
+    border-color: #ffffff20;
+}
+.button:hover { background-color: #3f6fb0; border-color: #9cc4ff; }
+.button:active { background-color: #2e5384; }
+.button.danger:hover { background-color: #b03f3f; border-color: #ff9c9c; }
