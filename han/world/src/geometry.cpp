@@ -80,7 +80,40 @@ std::vector<std::uint32_t> triangulate(const std::vector<Vec2>& input) {
     return result;
 }
 
+void GeoMesh::tag(GeoMaterial material, std::uint32_t firstIndex) {
+    const auto end = static_cast<std::uint32_t>(indices.size());
+    if (end <= firstIndex) return;
+    if (!ranges.empty() && ranges.back().material == material && ranges.back().firstIndex + ranges.back().indexCount == firstIndex) {
+        ranges.back().indexCount += end - firstIndex;
+        return;
+    }
+    ranges.push_back({firstIndex, end - firstIndex, material});
+}
+
+void GeoMesh::groupByMaterial() {
+    if (ranges.size() <= 1) return;
+    std::vector<std::uint32_t> sorted;
+    sorted.reserve(indices.size());
+    std::vector<GeoRange> grouped;
+    for (int m = 0; m < 8; ++m) {
+        const auto material = static_cast<GeoMaterial>(m);
+        const auto first = static_cast<std::uint32_t>(sorted.size());
+        for (const GeoRange& r : ranges)
+            if (r.material == material) sorted.insert(sorted.end(), indices.begin() + r.firstIndex, indices.begin() + r.firstIndex + r.indexCount);
+        if (sorted.size() > first) grouped.push_back({first, static_cast<std::uint32_t>(sorted.size()) - first, material});
+    }
+    indices = std::move(sorted);
+    ranges = std::move(grouped);
+}
+
 void GeoMesh::append(const GeoMesh& other) {
+    const auto indexBase = static_cast<std::uint32_t>(indices.size());
+    for (const GeoRange& r : other.ranges) {
+        if (!ranges.empty() && ranges.back().material == r.material && ranges.back().firstIndex + ranges.back().indexCount == indexBase + r.firstIndex)
+            ranges.back().indexCount += r.indexCount;
+        else
+            ranges.push_back({indexBase + r.firstIndex, r.indexCount, r.material});
+    }
     const auto base = static_cast<std::uint32_t>(vertices.size());
     vertices.insert(vertices.end(), other.vertices.begin(), other.vertices.end());
     for (std::uint32_t i : other.indices) indices.push_back(base + i);

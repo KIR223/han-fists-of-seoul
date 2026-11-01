@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "city_common.h"
 #include "han/core/repo_root.h"
 #include "han/ai/archetype.h"
 #include "han/ai/crowd.h"
@@ -46,25 +47,9 @@ std::string fmt(const char* format, double a = 0, double b = 0, double c = 0) {
     return buf;
 }
 
-han::render::MeshData toMesh(const world::GeoMesh& g, float roughness) {
-    han::render::MeshData m;
-    m.vertices.reserve(g.vertices.size());
-    for (const auto& v : g.vertices) {
-        han::render::Vertex out{};
-        for (int i = 0; i < 3; ++i) {
-            out.position[i] = v.position[i];
-            out.normal[i] = v.normal[i];
-            out.color[i] = v.color[i];
-        }
-        m.vertices.push_back(out);
-    }
-    m.indices = g.indices;
-    m.submeshes = {{0, static_cast<std::uint32_t>(m.indices.size()), -1, 0.0f, roughness}};
-    return m;
-}
-
 struct CityLoader final : world::ICellLoader {
     han::render::Renderer* renderer = nullptr;
+    std::vector<han::render::TextureId> textureIds;  // альбедо материалов города (0 — нет файла)
     world::StreamingManager* manager = nullptr;
     const std::map<world::CellCoord, world::CityChunk>* chunks = nullptr;
     struct Gpu {
@@ -74,8 +59,8 @@ struct CityLoader final : world::ICellLoader {
     void beginLoad(world::CellCoord cell) override {
         Gpu g;
         if (const auto it = chunks->find(cell); it != chunks->end()) {
-            if (!it->second.ground.empty()) g.ground = renderer->uploadMesh(toMesh(it->second.ground, 0.9f));
-            if (!it->second.buildings.empty()) g.buildings = renderer->uploadMesh(toMesh(it->second.buildings, 0.8f));
+            if (!it->second.ground.empty()) g.ground = renderer->uploadMesh(han::render::citytex::toMesh(it->second.ground, textureIds, 0.9f), textureIds);
+            if (!it->second.buildings.empty()) g.buildings = renderer->uploadMesh(han::render::citytex::toMesh(it->second.buildings, textureIds, 0.8f), textureIds);
         }
         gpu[cell] = g;
         manager->onLoaded(cell, 0);
@@ -258,6 +243,7 @@ int main(int argc, char** argv) {
     ss.maxNewLoadsPerFrame = 3;
     CityLoader loader;
     loader.renderer = renderer.get();
+    loader.textureIds = han::render::citytex::load(*renderer);
     loader.chunks = &chunks;
     world::StreamingManager streaming(ss, loader);
     loader.manager = &streaming;

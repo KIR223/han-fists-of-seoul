@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "city_common.h"
 #include "han/core/repo_root.h"
 #include "han/core/console.h"
 #include "han/platform/window.h"
@@ -40,26 +41,10 @@ std::string fmt(const char* format, double a = 0, double b = 0, double c = 0) {
     return buf;
 }
 
-han::render::MeshData toMesh(const world::GeoMesh& g, float roughness) {
-    han::render::MeshData m;
-    m.vertices.reserve(g.vertices.size());
-    for (const auto& v : g.vertices) {
-        han::render::Vertex out{};
-        for (int i = 0; i < 3; ++i) {
-            out.position[i] = v.position[i];
-            out.normal[i] = v.normal[i];
-            out.color[i] = v.color[i];
-        }
-        m.vertices.push_back(out);
-    }
-    m.indices = g.indices;
-    m.submeshes = {{0, static_cast<std::uint32_t>(m.indices.size()), -1, 0.0f, roughness}};
-    return m;
-}
-
 // Загрузчик ячеек: строит и заливает в видеопамять меши ячейки; выгрузка освобождает их.
 struct CityLoader final : world::ICellLoader {
     han::render::Renderer* renderer = nullptr;
+    std::vector<han::render::TextureId> textureIds;  // альбедо материалов города (0 — нет файла)
     world::StreamingManager* manager = nullptr;
     const std::map<world::CellCoord, world::CityChunk>* chunks = nullptr;
     struct Gpu {
@@ -73,8 +58,8 @@ struct CityLoader final : world::ICellLoader {
         Gpu g;
         const auto it = chunks->find(cell);
         if (it != chunks->end()) {
-            if (!it->second.ground.empty()) g.ground = renderer->uploadMesh(toMesh(it->second.ground, 0.9f));
-            if (!it->second.buildings.empty()) g.buildings = renderer->uploadMesh(toMesh(it->second.buildings, 0.8f));
+            if (!it->second.ground.empty()) g.ground = renderer->uploadMesh(han::render::citytex::toMesh(it->second.ground, textureIds, 0.9f), textureIds);
+            if (!it->second.buildings.empty()) g.buildings = renderer->uploadMesh(han::render::citytex::toMesh(it->second.buildings, textureIds, 0.8f), textureIds);
             g.triangles = (it->second.ground.indices.size() + it->second.buildings.indices.size()) / 3;
         }
         uploadedTriangles += g.triangles;
@@ -163,7 +148,7 @@ int main(int argc, char** argv) {
     std::printf("GPU: %s; слой валидации: %s\n", renderer->deviceName().c_str(), renderer->validationEnabled() ? "включён" : "НЕ найден");
 
     // Земля вокруг: большая плоскость под городом (дороги и дома лежат выше неё).
-    auto groundData = han::render::makePlane(4000.f, {0.40f, 0.42f, 0.38f});
+    auto groundData = han::render::makePlane(4000.f, {0.20f, 0.23f, 0.18f});
     groundData.submeshes = {{0, static_cast<std::uint32_t>(groundData.indices.size()), -1, 0.0f, 0.95f}};
     const auto ground = renderer->uploadMesh(groundData);
     if (!ground) {
@@ -182,6 +167,7 @@ int main(int argc, char** argv) {
     ss.maxInFlight = 8;
     CityLoader loader;
     loader.renderer = renderer.get();
+    loader.textureIds = han::render::citytex::load(*renderer);
     loader.chunks = &chunks;
     world::StreamingManager streaming(ss, loader);
     loader.manager = &streaming;

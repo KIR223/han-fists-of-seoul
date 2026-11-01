@@ -126,8 +126,9 @@ def fetch_asset(asset: dict[str, Any], paths: Paths, update_hash: bool = False, 
                 fetcher.extract_zip(target, dest)
                 target.unlink()
         elif kind == "polyhaven":
-            resolved = fetcher.resolve_polyhaven(source["asset_id"], source.get("resolution", "1k"),
-                                                 os.environ.get("HAN_POLYHAVEN_API", fetcher.POLYHAVEN_API))
+            resolver = fetcher.resolve_polyhaven_texture if asset.get("kind") == "texture" else fetcher.resolve_polyhaven
+            resolved = resolver(source["asset_id"], source.get("resolution", "1k"),
+                                os.environ.get("HAN_POLYHAVEN_API", fetcher.POLYHAVEN_API))
             _check_meta(asset, resolved.meta)
             for url, rel in resolved.files:
                 target = dest / Path(*fetcher.safe_member_path(rel).parts)
@@ -242,9 +243,38 @@ def check_report(asset: dict[str, Any], report: dict[str, Any]) -> list[str]:
     return list(report.get("warnings", []))
 
 
+def process_texture(asset: dict[str, Any], paths: Paths, cooker: list[str] | None, write_credits: bool) -> dict[str, Any]:
+    """Текстура: JPG/PNG из загрузки → .ktx2 с мипами в assets_bin/cooked/<id>/ (альбедо — sRGB, остальное — линейное)."""
+    if not cooker:
+        raise PipelineError("han_cooker не найден: соберите проект (cmake --preset …) или задайте путь в переменной HAN_COOKER")
+    download_dir = paths.downloads / asset["id"]
+    if not download_dir.is_dir():
+        fetch_asset(asset, paths)
+    out_dir = paths.cooked / asset["id"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    produced = []
+    for image in sorted(download_dir.iterdir()):
+        if image.suffix.lower() not in (".jpg", ".jpeg", ".png", ".tga", ".bmp"):
+            continue
+        target = out_dir / (image.stem + ".ktx2")
+        command = cooker + ["--texture"] + ([] if image.stem.startswith("diff") else ["--linear"]) + [str(image), str(target)]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise PipelineError(f"{asset['id']}: han_cooker не смог обработать {image.name}: {result.stderr.strip()}")
+        produced.append(target.name)
+    if "diff.ktx2" not in produced:
+        raise PipelineError(f"{asset['id']}: в загрузке нет альбедо (diff.*)")
+    if write_credits and credits_mod.ensure_row(paths.credits, asset):
+        print(f"{asset['id']}: строка добавлена в docs/credits/{asset['zone']}.md")
+    print(f"{asset['id']}: готово — {', '.join(produced)}")
+    return {"textures": produced, "triangles": {"lod0": 0}}
+
+
 def process_asset(asset: dict[str, Any], paths: Paths, blender: str | None, cooker: list[str] | None, write_credits: bool = True,
                   cook: bool = True) -> dict[str, Any]:
     gate_license(asset)
+    if asset.get("kind") == "texture":
+        return process_texture(asset, paths, cooker, write_credits)
     if asset.get("kind") != "model":
         raise PipelineError(f"{asset['id']}: обработка типа «{asset.get('kind')}» пока не реализована (только model)")
     if not blender:

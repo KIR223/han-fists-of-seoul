@@ -386,3 +386,87 @@ TEST_CASE("city: реальный район Мапо (если файл ска�
     CHECK(triangles > 10000);
     CHECK(st.maxX - st.minX < 3000.f);
 }
+
+TEST_CASE("city: части сетки по материалам — дороги, парк, стены и крыши; индексы покрыты без пропусков; UV непрерывны вдоль стены") {
+    const OsmData d = parseFixture();
+    const auto chunks = buildCity(d, GeoProjection(37.5, 127.0), {});
+    bool sawRoad = false, sawPark = false, sawWall = false, sawRoof = false;
+    for (const auto& [cell, chunk] : chunks) {
+        for (const GeoMesh* mesh : {&chunk.ground, &chunk.buildings}) {
+            if (mesh->empty()) continue;
+            REQUIRE_FALSE(mesh->ranges.empty());
+            std::uint32_t expected = 0;
+            std::vector<int> seen(8, 0);
+            for (const GeoRange& r : mesh->ranges) {
+                CHECK(r.firstIndex == expected);  // подряд, без дыр
+                CHECK(r.indexCount % 3 == 0);
+                expected += r.indexCount;
+                ++seen[static_cast<std::size_t>(r.material)];
+                sawRoad |= r.material == GeoMaterial::Road;
+                sawPark |= r.material == GeoMaterial::Park;
+                sawWall |= r.material == GeoMaterial::WallBrick || r.material == GeoMaterial::WallPlaster || r.material == GeoMaterial::WallConcrete;
+                sawRoof |= r.material == GeoMaterial::Roof;
+            }
+            CHECK(expected == mesh->indices.size());
+            for (int count : seen) CHECK(count <= 1);  // после группировки — одна часть на материал
+        }
+    }
+    CHECK(sawRoad);
+    CHECK(sawPark);
+    CHECK(sawWall);
+    CHECK(sawRoof);
+}
+
+TEST_CASE("city: стены размечены UV в плитках (метры / размер плитки), у крыши и дороги UV планарные") {
+    const OsmData d = parseFixture();
+    const auto chunks = buildCity(d, GeoProjection(37.5, 127.0), {});
+    for (const auto& [cell, chunk] : chunks) {
+        for (const GeoVertex& v : chunk.ground.vertices) {
+            // Плоские материалы: UV пропорциональны координатам XZ (плитка 6 м у дорог, 8 м у парков).
+            const bool road = std::fabs(v.uv[0] * 6.f - v.position[0]) < 1e-2f && std::fabs(v.uv[1] * 6.f - v.position[2]) < 1e-2f;
+            const bool park = std::fabs(v.uv[0] * 8.f - v.position[0]) < 1e-2f && std::fabs(v.uv[1] * 8.f - v.position[2]) < 1e-2f;
+            CHECK((road || park));
+        }
+        for (const GeoVertex& v : chunk.buildings.vertices) {
+            if (std::fabs(v.normal[1]) < 0.5f) {  // стена: v по высоте в плитках по 5 м, 0 вверху
+                CHECK(v.uv[1] >= -1e-4f);
+                CHECK(v.uv[1] <= 300.f / 6.4f + 1e-3f);
+            }
+        }
+    }
+}
+
+TEST_CASE("geometry: tag сливает соседние части, append сдвигает части, groupByMaterial собирает материал в одну часть") {
+    GeoMesh a;
+    a.vertices.resize(3);
+    a.indices = {0, 1, 2};
+    a.tag(GeoMaterial::Road, 0);
+    a.indices.insert(a.indices.end(), {0, 1, 2});
+    a.tag(GeoMaterial::Road, 3);  // тот же материал подряд — сливается
+    REQUIRE(a.ranges.size() == 1);
+    CHECK(a.ranges[0].indexCount == 6);
+
+    GeoMesh b;
+    b.vertices.resize(3);
+    b.indices = {0, 1, 2};
+    b.tag(GeoMaterial::Roof, 0);
+    a.append(b);
+    CHECK(a.indices.size() == 9);
+    REQUIRE(a.ranges.size() == 2);
+    CHECK(a.ranges[1].firstIndex == 6);
+    CHECK(a.indices[6] == 3);  // индексы второго меша сдвинуты на число вершин первого
+
+    GeoMesh c;
+    c.vertices.resize(9);
+    c.indices = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+    c.tag(GeoMaterial::Roof, 0);
+    c.ranges = {{0, 3, GeoMaterial::Roof}, {3, 3, GeoMaterial::WallBrick}, {6, 3, GeoMaterial::Roof}};
+    c.groupByMaterial();
+    REQUIRE(c.ranges.size() == 2);
+    CHECK(c.ranges[0].material == GeoMaterial::WallBrick);
+    CHECK(c.ranges[0].indexCount == 3);
+    CHECK(c.ranges[1].material == GeoMaterial::Roof);
+    CHECK(c.ranges[1].indexCount == 6);
+    CHECK(c.indices.size() == 9);
+    CHECK(c.indices[0] == 3);  // кирпичные треугольники теперь первые
+}

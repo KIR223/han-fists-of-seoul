@@ -146,6 +146,29 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual(resolved.meta["author"], "Автор Один")
             self.assertEqual({rel for _, rel in resolved.files}, {"barrel_01_1k.gltf", "barrel_01.bin", "textures/diff.jpg"})
 
+    def test_polyhaven_texture_resolve(self):
+        with MockServer({}) as server:
+            server.routes["/info/asphalt_02"] = json_body({"authors": {"Rob Tuytel": "all"}})
+            server.routes["/files/asphalt_02"] = json_body({
+                "Diffuse": {"1k": {"jpg": {"url": f"{server.url}/dl/diff.jpg"}}},
+                "nor_gl": {"1k": {"jpg": {"url": f"{server.url}/dl/nor.jpg"}}},
+                "Rough": {"1k": {"jpg": {"url": f"{server.url}/dl/rough.jpg"}}},
+            })
+            resolved = fetcher.resolve_polyhaven_texture("asphalt_02", "1k", api=server.url)
+            self.assertEqual(resolved.meta["license"], "CC0")
+            self.assertEqual(resolved.meta["author"], "Rob Tuytel")
+            self.assertEqual({rel for _, rel in resolved.files}, {"diff.jpg", "nor.jpg", "rough.jpg"})
+
+    def test_polyhaven_texture_needs_albedo_but_not_other_maps(self):
+        with MockServer({}) as server:
+            server.routes["/info/t"] = json_body({"authors": {}})
+            server.routes["/files/t"] = json_body({"Diffuse": {"1k": {"jpg": {"url": f"{server.url}/dl/diff.jpg"}}}})
+            resolved = fetcher.resolve_polyhaven_texture("t", "1k", api=server.url)
+            self.assertEqual([rel for _, rel in resolved.files], ["diff.jpg"])  # нормалей и шероховатости нет — не ошибка
+            server.routes["/files/t"] = json_body({"nor_gl": {"1k": {"jpg": {"url": f"{server.url}/dl/nor.jpg"}}}})
+            with self.assertRaises(fetcher.FetchError):
+                fetcher.resolve_polyhaven_texture("t", "1k", api=server.url)
+
     def test_polyhaven_missing_resolution(self):
         with MockServer({}) as server:
             server.routes.update(self.polyhaven_routes(server.url))
