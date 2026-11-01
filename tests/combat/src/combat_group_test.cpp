@@ -167,3 +167,34 @@ TEST_CASE("group: один против троих — жетоны ограни
     // Жетонов два на цель: трое не бьют игрока одновременно.
     CHECK(totalSimultaneousMax <= 2);
 }
+
+TEST_CASE("group: трое врагов окружают цель, а не выстраиваются колонной") {
+    CombatSim sim(rules(), 3);
+    TargetSelector ts;
+    AttackTokens tokens(2, 70);
+    const FighterProfile& brawl = *profiles().byId("street_brawler");
+    const int p = sim.addFighter({0, 0}, FighterStats{});
+    std::vector<FightAI> ais;
+    ais.emplace_back(brawl, basicMoves(), rules(), 1, &tokens);
+    for (int k = 0; k < 3; ++k) {
+        const int f = sim.addFighter({-0.4f + 0.4f * static_cast<float>(k), -6.f}, brawl.stats());
+        ts.setTeam(f, 1);
+        ais.emplace_back(brawl, basicMoves(), rules(), 10u + static_cast<std::uint32_t>(k), &tokens);
+    }
+    ts.update(sim);
+    float maxSpread = 0.f;
+    for (int frame = 0; frame < 240; ++frame) {
+        ts.update(sim);
+        std::vector<FighterInput> in{FighterInput{}};
+        for (int i = 1; i < sim.fighterCount(); ++i) in.push_back(ais[static_cast<std::size_t>(i)].decide(sim, i));
+        sim.step(in);
+        float lo = 1e9f, hi = -1e9f;
+        for (int i = 1; i < sim.fighterCount(); ++i) {
+            lo = std::min(lo, sim.fighter(i).pos.x);
+            hi = std::max(hi, sim.fighter(i).pos.x);
+        }
+        maxSpread = std::max(maxSpread, hi - lo);
+    }
+    (void)p;
+    CHECK(maxSpread > 1.2f);
+}
