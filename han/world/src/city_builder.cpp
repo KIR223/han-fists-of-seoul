@@ -207,6 +207,7 @@ struct BuildingLook {
     bool shop = false;      // первый этаж — витрины и вывески
     bool parapet = true;    // бортик по краю крыши
     bool rooftop = true;    // лестничная клетка / бак на крыше
+    float shopTile = 19.2f; // метров стены на одну плитку текстуры витрин
 };
 
 // Здание: стены (наружу) + плоская крыша, витрины на первом этаже, парапет и надстройка на крыше. Контур — любого направления обхода.
@@ -219,7 +220,8 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
     if (signedArea(footprint) < 0) std::reverse(footprint.begin(), footprint.end());
     const auto roofTriOriented = triangulate(footprint);  // после разворота индексы другие
     const std::size_t n = footprint.size();
-    constexpr float kShopHeight = 3.6f, kShopBay = 19.2f;  // высота витрины; ширина плитки вывесок (четыре секции по 4,8 м)
+    constexpr float kShopHeight = 3.6f;  // высота витрины
+    const float kShopBay = look.shopTile;  // ширина плитки вывесок (секции по 4,8 м)
     const bool shop = look.shop && height > kShopHeight + 2.f;
     float along = 0.f;  // пройденная длина периметра: u текстуры идёт непрерывно вдоль стены
     for (std::size_t i = 0; i < n; ++i) {
@@ -475,6 +477,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             look.shop = settings.buildingDetail && height <= 45.f && seed % 4 != 0;  // у трёх домов из четырёх на первом этаже лавки
             look.parapet = settings.buildingDetail && seed % 7 != 0;
             look.rooftop = settings.buildingDetail;
+            look.shopTile = settings.shopTileMeters;
             if (addBuilding(chunk.buildings, pts, height, wallTint(way.id), {1.f, 1.f, 1.f}, look)) {
                 if (settings.buildingDetail) addApron(chunk.ground, pts, 1.6f, 0.09f);
                 footprints.push_back(pts);

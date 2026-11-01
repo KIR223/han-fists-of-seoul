@@ -123,7 +123,9 @@ int main(int argc, char** argv) {
         return 1;
     }
     world::CityStats cityStats;
-    const auto chunks = world::buildCity(osm, world::GeoProjection(origin[0], origin[1]), {}, &cityStats);
+    world::CityBuildSettings citySettings;
+    citySettings.shopTileMeters = han::render::citytex::shopTileMeters();
+    const auto chunks = world::buildCity(osm, world::GeoProjection(origin[0], origin[1]), citySettings, &cityStats);
     // Трафик (G7): граф дорог из тех же данных; машины едут вокруг камеры (появляются в радиусе 350 м, уходят за 550 м).
     const han::ai::RoadGraph roads = han::ai::RoadGraph::build(osm, world::GeoProjection(origin[0], origin[1]));
     han::ai::TrafficSettings trafficSettings;

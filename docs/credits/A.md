@@ -15,3 +15,4 @@
 | TX_ground_grass (assets_src/tx_ground_grass) | Rob Tuytel | https://polyhaven.com/a/aerial_grass_rock | CC0 | парки и газоны (G6) | да: конвертация JPG в KTX2 с цепочкой мипов; без изменения изображения |
 | TX_wall_concrete (assets_src/tx_wall_concrete) | Dario Barresi, Charlotte Baglioni | https://polyhaven.com/a/concrete_wall_008 | CC0 | бетонные фасады офисов и многоэтажек (G6) | да: конвертация JPG в KTX2 с цепочкой мипов; без изменения изображения |
 | FN_NotoSansKR (assets_src/fn_noto_sans_kr) | The Noto Project Authors (Google) | https://fonts.google.com/noto/specimen/Noto+Sans+KR | OFL-1.1 | шрифт интерфейса: кириллица, хангыль, латиница (RmlUi, E8) | нет |
+| assets_src/brands/*.svg (23 логотипа вымышленных брендов) | Проект HAN (собственная работа, генератор han/tools/pipeline/make_brands.py) | https://github.com/KIR223/han-fists-of-seoul | CC0 | вывески витрин города (G38), атлас вывесок | нет |

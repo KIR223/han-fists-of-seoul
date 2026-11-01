@@ -12,6 +12,8 @@
 #include "han/render/ktx2_io.h"
 #include "han/render/mesh.h"
 #include "han/render/renderer.h"
+#include "han/render/sign_atlas.h"
+#include "han/ui/localization.h"
 #include "han/world/geometry.h"
 
 namespace han::render::citytex {
@@ -136,6 +138,24 @@ inline TextureData makeStorefront() {
     return t;
 }
 
+// Вывески вымышленных брендов (data/city/brands.json + SVG + шрифт): если всё есть, витрины строятся из них (16 секций), иначе — общие цветные.
+inline const char* kBrandFont = "assets_bin/cooked/fn_noto_sans_kr/NotoSansKR.ttf";
+inline bool brandAtlasAvailable() { return std::filesystem::exists("data/city/brands.json") && std::filesystem::exists("assets_src/brands"); }
+inline float shopTileMeters() { return brandAtlasAvailable() ? 76.8f : 19.2f; }  // 16 секций по 4,8 м или 4 секции
+
+inline TextureData makeBrandStorefront() {
+    ui::Localization loc;
+    std::string error;
+    loc.loadTable("contracts/loc_requests/A.csv", error);
+    loc.setLanguage("ko");  // вывески в Корее — хангылем
+    std::vector<SignBrand> brands;
+    if (!loadSignBrands("data/city/brands.json", "assets_src", [&](const std::string& key) { return loc.get(key); }, brands, error)) {
+        std::fprintf(stderr, "бренды: %s\n", error.c_str());
+        return makeStorefront();
+    }
+    return buildStorefrontAtlas(brands, std::filesystem::exists(kBrandFont) ? kBrandFont : "", 16);
+}
+
 // Загружает альбедо материалов в GPU. Возвращает id текстур по номерам slots() (0 — нет файла).
 inline std::vector<TextureId> load(Renderer& renderer, bool windows = true, const std::filesystem::path& cooked = "assets_bin/cooked") {
     // Номера: 0..5 — альбедо, 6..11 — нормали, 12..17 — шероховатость (по порядку slots()).
@@ -144,7 +164,7 @@ inline std::vector<TextureId> load(Renderer& renderer, bool windows = true, cons
     int loaded = 0;
     for (std::size_t i = 0; i < n; ++i) {
         if (!slots()[i].folder) {
-            TextureData generated = makeStorefront();
+            TextureData generated = brandAtlasAvailable() ? makeBrandStorefront() : makeStorefront();
             ids[i] = renderer.uploadTexture(generated);
             loaded += ids[i] ? 1 : 0;
             continue;

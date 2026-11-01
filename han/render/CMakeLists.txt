@@ -1,5 +1,12 @@
 han_module(render DEPENDS han_platform)
 
+# Вывески брендов (G38): шрифт рисует stb_truetype (только заголовок из vcpkg-порта stb).
+find_path(STB_TRUETYPE_INCLUDE_DIR stb_truetype.h)
+if(STB_TRUETYPE_INCLUDE_DIR)
+    target_include_directories(han_render PRIVATE ${STB_TRUETYPE_INCLUDE_DIR})
+    target_compile_definitions(han_render PRIVATE HAN_WITH_STB_TRUETYPE=1)
+endif()
+
 # Vulkan-рендерер — если найден Vulkan SDK (загрузчик и заголовки). Демо дополнительно требует окно (SDL3).
 find_package(Vulkan QUIET)
 if(Vulkan_FOUND)

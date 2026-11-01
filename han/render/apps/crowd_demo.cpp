@@ -133,7 +133,9 @@ int main(int argc, char** argv) {
     }
     const world::GeoProjection projection(37.5572, 126.9230);
     world::CityStats cityStats;
-    const auto chunks = world::buildCity(osm, projection, {}, &cityStats);
+    world::CityBuildSettings citySettings;
+    citySettings.shopTileMeters = han::render::citytex::shopTileMeters();
+    const auto chunks = world::buildCity(osm, projection, citySettings, &cityStats);
     const auto footprints = world::buildingFootprints(osm, projection);
     std::vector<std::vector<ai::Vec2>> obstacles;
     obstacles.reserve(footprints.size());
