@@ -1,0 +1,448 @@
+{
+  "id": "line2",
+  "name_key": "world.metro.line2",
+  "color": "#00A84D",
+  "circular": true,
+  "max_speed": 22.0,
+  "acceleration": 1.0,
+  "dwell_seconds": 25.0,
+  "service": {
+    "first_hour": 5.5,
+    "last_hour": 24.5,
+    "headway_peak": 150.0,
+    "headway_day": 240.0,
+    "headway_night": 420.0,
+    "peak_hours": [
+      [
+        7.0,
+        9.5
+      ],
+      [
+        17.0,
+        20.0
+      ]
+    ],
+    "night_hours": [
+      [
+        21.5,
+        24.5
+      ],
+      [
+        5.5,
+        6.5
+      ]
+    ]
+  },
+  "stations": [
+    {
+      "id": "city_hall",
+      "name_key": "world.metro.station.city_hall",
+      "lat": 37.5657,
+      "lon": 126.9769,
+      "pos": [
+        5557.7,
+        -965.6
+      ]
+    },
+    {
+      "id": "euljiro_1ga",
+      "name_key": "world.metro.station.euljiro_1ga",
+      "lat": 37.566,
+      "lon": 126.9826,
+      "pos": [
+        6061.4,
+        -998.9
+      ]
+    },
+    {
+      "id": "euljiro_3ga",
+      "name_key": "world.metro.station.euljiro_3ga",
+      "lat": 37.5662,
+      "lon": 126.9926,
+      "pos": [
+        6945.0,
+        -1021.1
+      ]
+    },
+    {
+      "id": "euljiro_4ga",
+      "name_key": "world.metro.station.euljiro_4ga",
+      "lat": 37.5667,
+      "lon": 126.9981,
+      "pos": [
+        7430.9,
+        -1076.6
+      ]
+    },
+    {
+      "id": "dongdaemun_dhcp",
+      "name_key": "world.metro.station.dongdaemun_dhcp",
+      "lat": 37.5651,
+      "lon": 127.0079,
+      "pos": [
+        8296.8,
+        -899.0
+      ]
+    },
+    {
+      "id": "sindang",
+      "name_key": "world.metro.station.sindang",
+      "lat": 37.5656,
+      "lon": 127.0174,
+      "pos": [
+        9136.2,
+        -954.5
+      ]
+    },
+    {
+      "id": "sangwangsimni",
+      "name_key": "world.metro.station.sangwangsimni",
+      "lat": 37.5644,
+      "lon": 127.0293,
+      "pos": [
+        10187.7,
+        -821.3
+      ]
+    },
+    {
+      "id": "wangsimni",
+      "name_key": "world.metro.station.wangsimni",
+      "lat": 37.5612,
+      "lon": 127.0371,
+      "pos": [
+        10876.9,
+        -466.1
+      ]
+    },
+    {
+      "id": "hanyang_univ",
+      "name_key": "world.metro.station.hanyang_univ",
+      "lat": 37.5555,
+      "lon": 127.0439,
+      "pos": [
+        11477.7,
+        166.5
+      ]
+    },
+    {
+      "id": "ttukseom",
+      "name_key": "world.metro.station.ttukseom",
+      "lat": 37.5474,
+      "lon": 127.0473,
+      "pos": [
+        11778.2,
+        1065.5
+      ]
+    },
+    {
+      "id": "seongsu",
+      "name_key": "world.metro.station.seongsu",
+      "lat": 37.5445,
+      "lon": 127.0559,
+      "pos": [
+        12538.0,
+        1387.4
+      ]
+    },
+    {
+      "id": "konkuk_univ",
+      "name_key": "world.metro.station.konkuk_univ",
+      "lat": 37.5404,
+      "lon": 127.0693,
+      "pos": [
+        13722.0,
+        1842.4
+      ]
+    },
+    {
+      "id": "gangbyeon",
+      "name_key": "world.metro.station.gangbyeon",
+      "lat": 37.5351,
+      "lon": 127.0945,
+      "pos": [
+        15948.7,
+        2430.6
+      ]
+    },
+    {
+      "id": "jamsilnaru",
+      "name_key": "world.metro.station.jamsilnaru",
+      "lat": 37.5207,
+      "lon": 127.1037,
+      "pos": [
+        16761.6,
+        4028.9
+      ]
+    },
+    {
+      "id": "jamsil",
+      "name_key": "world.metro.station.jamsil",
+      "lat": 37.5133,
+      "lon": 127.1001,
+      "pos": [
+        16443.5,
+        4850.2
+      ]
+    },
+    {
+      "id": "sports_complex",
+      "name_key": "world.metro.station.sports_complex",
+      "lat": 37.511,
+      "lon": 127.0735,
+      "pos": [
+        14093.1,
+        5105.5
+      ]
+    },
+    {
+      "id": "samseong",
+      "name_key": "world.metro.station.samseong",
+      "lat": 37.5088,
+      "lon": 127.0631,
+      "pos": [
+        13174.2,
+        5349.6
+      ]
+    },
+    {
+      "id": "seolleung",
+      "name_key": "world.metro.station.seolleung",
+      "lat": 37.5045,
+      "lon": 127.049,
+      "pos": [
+        11928.4,
+        5826.9
+      ]
+    },
+    {
+      "id": "yeoksam",
+      "name_key": "world.metro.station.yeoksam",
+      "lat": 37.5006,
+      "lon": 127.0364,
+      "pos": [
+        10815.1,
+        6259.7
+      ]
+    },
+    {
+      "id": "gangnam",
+      "name_key": "world.metro.station.gangnam",
+      "lat": 37.4979,
+      "lon": 127.0276,
+      "pos": [
+        10037.5,
+        6559.4
+      ]
+    },
+    {
+      "id": "gyodae",
+      "name_key": "world.metro.station.gyodae",
+      "lat": 37.4934,
+      "lon": 127.014,
+      "pos": [
+        8835.8,
+        7058.8
+      ]
+    },
+    {
+      "id": "seocho",
+      "name_key": "world.metro.station.seocho",
+      "lat": 37.4916,
+      "lon": 127.0078,
+      "pos": [
+        8288.0,
+        7258.6
+      ]
+    },
+    {
+      "id": "bangbae",
+      "name_key": "world.metro.station.bangbae",
+      "lat": 37.4814,
+      "lon": 126.9976,
+      "pos": [
+        7386.8,
+        8390.7
+      ]
+    },
+    {
+      "id": "sadang",
+      "name_key": "world.metro.station.sadang",
+      "lat": 37.4766,
+      "lon": 126.9816,
+      "pos": [
+        5973.0,
+        8923.4
+      ]
+    },
+    {
+      "id": "nakseongdae",
+      "name_key": "world.metro.station.nakseongdae",
+      "lat": 37.477,
+      "lon": 126.9637,
+      "pos": [
+        4391.4,
+        8879.0
+      ]
+    },
+    {
+      "id": "snu",
+      "name_key": "world.metro.station.snu",
+      "lat": 37.4812,
+      "lon": 126.9527,
+      "pos": [
+        3419.5,
+        8412.9
+      ]
+    },
+    {
+      "id": "bongcheon",
+      "name_key": "world.metro.station.bongcheon",
+      "lat": 37.4824,
+      "lon": 126.9418,
+      "pos": [
+        2456.4,
+        8279.7
+      ]
+    },
+    {
+      "id": "sillim",
+      "name_key": "world.metro.station.sillim",
+      "lat": 37.4842,
+      "lon": 126.9296,
+      "pos": [
+        1378.4,
+        8079.9
+      ]
+    },
+    {
+      "id": "sindaebang",
+      "name_key": "world.metro.station.sindaebang",
+      "lat": 37.4872,
+      "lon": 126.9131,
+      "pos": [
+        -79.5,
+        7747.0
+      ]
+    },
+    {
+      "id": "guro_digital",
+      "name_key": "world.metro.station.guro_digital",
+      "lat": 37.4853,
+      "lon": 126.9014,
+      "pos": [
+        -1113.3,
+        7957.8
+      ]
+    },
+    {
+      "id": "daerim",
+      "name_key": "world.metro.station.daerim",
+      "lat": 37.4927,
+      "lon": 126.8957,
+      "pos": [
+        -1617.0,
+        7136.5
+      ]
+    },
+    {
+      "id": "sindorim",
+      "name_key": "world.metro.station.sindorim",
+      "lat": 37.5089,
+      "lon": 126.8913,
+      "pos": [
+        -2005.7,
+        5338.5
+      ]
+    },
+    {
+      "id": "mullae",
+      "name_key": "world.metro.station.mullae",
+      "lat": 37.5179,
+      "lon": 126.8949,
+      "pos": [
+        -1687.6,
+        4339.6
+      ]
+    },
+    {
+      "id": "yeongdeungpo_gu_office",
+      "name_key": "world.metro.station.yeongdeungpo_gu_office",
+      "lat": 37.5254,
+      "lon": 126.8967,
+      "pos": [
+        -1528.6,
+        3507.2
+      ]
+    },
+    {
+      "id": "dangsan",
+      "name_key": "world.metro.station.dangsan",
+      "lat": 37.5348,
+      "lon": 126.9029,
+      "pos": [
+        -980.8,
+        2463.9
+      ]
+    },
+    {
+      "id": "hapjeong",
+      "name_key": "world.metro.station.hapjeong",
+      "lat": 37.5496,
+      "lon": 126.9139,
+      "pos": [
+        -8.8,
+        821.3
+      ]
+    },
+    {
+      "id": "hongik_univ",
+      "name_key": "world.metro.station.hongik_univ",
+      "lat": 37.5568,
+      "lon": 126.9245,
+      "pos": [
+        927.8,
+        22.2
+      ]
+    },
+    {
+      "id": "sinchon",
+      "name_key": "world.metro.station.sinchon",
+      "lat": 37.5551,
+      "lon": 126.9367,
+      "pos": [
+        2005.7,
+        210.9
+      ]
+    },
+    {
+      "id": "ewha_univ",
+      "name_key": "world.metro.station.ewha_univ",
+      "lat": 37.5568,
+      "lon": 126.9464,
+      "pos": [
+        2862.8,
+        22.2
+      ]
+    },
+    {
+      "id": "ahyeon",
+      "name_key": "world.metro.station.ahyeon",
+      "lat": 37.5573,
+      "lon": 126.956,
+      "pos": [
+        3711.0,
+        -33.3
+      ]
+    },
+    {
+      "id": "chungjeongno",
+      "name_key": "world.metro.station.chungjeongno",
+      "lat": 37.5601,
+      "lon": 126.9636,
+      "pos": [
+        4382.6,
+        -344.1
+      ]
+    }
+  ]
+}
