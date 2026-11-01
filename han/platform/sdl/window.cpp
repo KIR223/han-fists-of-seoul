@@ -58,6 +58,11 @@ void* Window::nativeHandle() const { return impl_->window; }
 
 void Window::setCaptureMouse(bool capture) { SDL_SetWindowRelativeMouseMode(impl_->window, capture); }
 
+bool Window::mouseButtonHeld(int button) const {
+    if (button < 1 || button > 5) return false;
+    return (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_MASK(button)) != 0;
+}
+
 std::vector<const char*> Window::vulkanInstanceExtensions() const {
     Uint32 count = 0;
     const char* const* names = SDL_Vulkan_GetInstanceExtensions(&count);
