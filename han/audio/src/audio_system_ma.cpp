@@ -1,4 +1,7 @@
 // Реализация AudioSystem на miniaudio. Компилируется только если miniaudio найден (см. CMakeLists.txt модуля).
+#ifndef NOMINMAX
+#define NOMINMAX  // miniaudio подключает windows.h, чьи макросы min/max ломают std::min/std::max
+#endif
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
