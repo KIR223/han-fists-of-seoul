@@ -1,0 +1,44 @@
+{
+  "id": "mangwon",
+  "numeric_id": 1,
+  "name_key": "world.district.mangwon",
+  "kind": "city_district",
+  "bounds": [
+    [
+      -1325.4,
+      -776.9
+    ],
+    [
+      -441.8,
+      -776.9
+    ],
+    [
+      -441.8,
+      554.9
+    ],
+    [
+      -1325.4,
+      554.9
+    ]
+  ],
+  "sacred_allowed": false,
+  "danger": 1,
+  "tags": [
+    "market",
+    "residential",
+    "start"
+  ],
+  "ambience": {
+    "lut": "market_amber",
+    "saturation": 1.1,
+    "contrast": 1.15,
+    "neon": 0.7,
+    "lamp_color": [
+      1.0,
+      0.72,
+      0.4
+    ],
+    "crowd_density": 1.0,
+    "music_key": "world.music.mangwon_market"
+  }
+}

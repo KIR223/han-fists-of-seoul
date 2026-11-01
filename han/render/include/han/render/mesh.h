@@ -23,6 +23,8 @@ struct Submesh {
     std::int32_t texture = -1;
     float metallic = 0.0f;
     float roughness = 0.5f;
+    // Карты материала (номера в MeshData::textures, -1 — нет): нормали (OpenGL, +Y вверх, линейные) и шероховатость (линейная, серый).
+    std::int32_t normalTexture = -1, roughnessTexture = -1;
 };
 
 struct MeshData {

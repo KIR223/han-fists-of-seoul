@@ -133,7 +133,9 @@ int main(int argc, char** argv) {
     }
     const world::GeoProjection projection(37.5572, 126.9230);
     world::CityStats cityStats;
-    const auto chunks = world::buildCity(osm, projection, {}, &cityStats);
+    world::CityBuildSettings citySettings;
+    citySettings.shopTileMeters = han::render::citytex::shopTileMeters();
+    const auto chunks = world::buildCity(osm, projection, citySettings, &cityStats);
     const auto footprints = world::buildingFootprints(osm, projection);
     std::vector<std::vector<ai::Vec2>> obstacles;
     obstacles.reserve(footprints.size());
@@ -217,9 +219,7 @@ int main(int argc, char** argv) {
 #endif
     std::printf("GPU: %s; слой валидации: %s\n", renderer->deviceName().c_str(), renderer->validationEnabled() ? "включён" : "НЕ найден");
 
-    auto groundData = han::render::makePlane(4000.f, {0.40f, 0.42f, 0.38f});
-    groundData.submeshes = {{0, static_cast<std::uint32_t>(groundData.indices.size()), -1, 0.0f, 0.95f}};
-    const auto ground = renderer->uploadMesh(groundData);
+    const auto ground = han::render::citytex::uploadGround(*renderer);
     std::map<std::uint32_t, han::render::MeshId> bodyMeshes;
     for (const ai::Archetype& a : library.all()) {
         auto body = han::render::makeBox({0.28f, 0.85f, 0.2f}, archetypeColor(a.numericId));
@@ -401,7 +401,7 @@ int main(int argc, char** argv) {
 #endif
 
         std::vector<han::render::DrawItem> items;
-        items.push_back({ground, Mat4::identity()});
+        items.push_back({ground, Mat4::translation({0.f, -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
         for (const auto& [cell, g] : loader.gpu) {
             if (g.ground) items.push_back({g.ground, Mat4::identity()});
             if (g.buildings) items.push_back({g.buildings, Mat4::identity()});
@@ -422,6 +422,7 @@ int main(int argc, char** argv) {
         params.sun = han::render::makeSun(std::max(sunHeight, -10.f), 100.f + hour * 7.5f, sunHeight > 15.f ? sunKelvin : 3200.f);
         params.sky = han::render::skyFromSun(params.sun);
         params.exposure = sunHeight < 0.f ? exposure * 4.f : exposure;
+        params.fogDensity = 0.0006f;
         params.nearPlane = camera.nearZ;
         params.farPlane = camera.farZ;
         params.shadows = true;

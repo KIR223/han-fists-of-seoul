@@ -243,6 +243,26 @@ def check_report(asset: dict[str, Any], report: dict[str, Any]) -> list[str]:
     return list(report.get("warnings", []))
 
 
+def process_font(asset: dict[str, Any], paths: Paths, write_credits: bool) -> dict[str, Any]:
+    """Шрифт: .ttf/.otf из загрузки копируются в assets_bin/cooked/<id>/ (RmlUi читает их как есть); текст лицензии — рядом."""
+    download_dir = paths.downloads / asset["id"]
+    if not download_dir.is_dir():
+        fetch_asset(asset, paths)
+    out_dir = paths.cooked / asset["id"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    copied = []
+    for item in sorted(download_dir.iterdir()):
+        if item.suffix.lower() in (".ttf", ".otf", ".ttc", ".txt"):
+            shutil.copy2(item, out_dir / item.name)
+            copied.append(item.name)
+    if not any(Path(n).suffix.lower() in (".ttf", ".otf", ".ttc") for n in copied):
+        raise PipelineError(f"{asset['id']}: в загрузке нет файла шрифта (.ttf/.otf)")
+    if write_credits and credits_mod.ensure_row(paths.credits, asset):
+        print(f"{asset['id']}: строка добавлена в docs/credits/{asset['zone']}.md")
+    print(f"{asset['id']}: готово — {', '.join(copied)}")
+    return {"fonts": copied, "triangles": {"lod0": 0}}
+
+
 def process_texture(asset: dict[str, Any], paths: Paths, cooker: list[str] | None, write_credits: bool) -> dict[str, Any]:
     """Текстура: JPG/PNG из загрузки → .ktx2 с мипами в assets_bin/cooked/<id>/ (альбедо — sRGB, остальное — линейное)."""
     if not cooker:
@@ -275,6 +295,8 @@ def process_asset(asset: dict[str, Any], paths: Paths, blender: str | None, cook
     gate_license(asset)
     if asset.get("kind") == "texture":
         return process_texture(asset, paths, cooker, write_credits)
+    if asset.get("kind") == "font":
+        return process_font(asset, paths, write_credits)
     if asset.get("kind") != "model":
         raise PipelineError(f"{asset['id']}: обработка типа «{asset.get('kind')}» пока не реализована (только model)")
     if not blender:

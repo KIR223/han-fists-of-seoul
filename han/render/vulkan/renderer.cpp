@@ -29,7 +29,7 @@ constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 constexpr VkFormat kHdrFormat = VK_FORMAT_R16G16B16A16_SFLOAT;  // сцена рисуется в линейном HDR, затем тонмаппинг в экран
 
-// Push constants мешей: матрица модели (vertex, 0..64) и материал (fragment, 64..80): x — металличность, y — шероховатость.
+// Push constants мешей: матрица модели (vertex, 0..64) и материал (fragment, 64..80): x — металличность, y — шероховатость, z — 1: есть карта нормалей, w — 1: есть карта шероховатости.
 struct VertexPush {
     float model[16];
 };
@@ -48,13 +48,16 @@ struct FrameUbo {
     float skyZenith[4];
     float skyHorizon[4];
     float skyGround[4];
-    float params[4];     // x — экспозиция
+    float params[4];     // x — экспозиция, y — плотность воздушной дымки, z — усиление неона
     float lightViewProj[3][16];  // каскады теней: мир → клип карты теней
     float cascadeSplits[4];      // xyz — дальние границы каскадов (м), w — 1, если тени включены
     float cascadeTexel[4];       // xyz — размер текселя карты каждого каскада (м)
     float shadowParams[4];       // x — 1 / размер карты, y — 1: подкрасить каскады
+    float lightPos[32][4];       // точечные источники: xyz — позиция, w — радиус действия (м)
+    float lightColor[32][4];     // rgb — цвет, умноженный на яркость
+    float lightInfo[4];          // x — сколько источников, y — влажность поверхностей 0..1
 };
-static_assert(sizeof(FrameUbo) == 480, "FrameUbo должен совпадать с std140-блоком Frame");
+static_assert(sizeof(FrameUbo) == 1520, "FrameUbo должен совпадать с std140-блоком Frame");
 
 // Push constants теневого прохода (vertex): матрица модели и номер каскада.
 struct ShadowPush {
@@ -80,10 +83,57 @@ struct GpuSubmesh {
     std::uint32_t firstIndex = 0, indexCount = 0;
     TextureId texture = 0;  // 0 — белая текстура
     float metallic = 0.0f, roughness = 0.5f;
+    TextureId normalTexture = 0, roughnessTexture = 0;  // 0 — нет карты
 };
 
 
+// Пирамида видимости из матрицы вид-проекция (Vulkan: z клипа 0..1, столбцы). Плоскости смотрят внутрь: точка внутри, если dot(n, p) + d >= 0.
+struct Frustum {
+    float p[6][4];
+    int count = 0;
+    static Frustum from(const float* m, bool useNear) {
+        Frustum f;
+        const auto row = [&](int i, int k) { return m[k * 4 + i]; };  // строка i, столбец k
+        const float r[4][4] = {{row(0, 0), row(0, 1), row(0, 2), row(0, 3)}, {row(1, 0), row(1, 1), row(1, 2), row(1, 3)},
+                               {row(2, 0), row(2, 1), row(2, 2), row(2, 3)}, {row(3, 0), row(3, 1), row(3, 2), row(3, 3)}};
+        const auto add = [&](float sign, int a) {
+            for (int k = 0; k < 4; ++k) f.p[f.count][k] = r[3][k] + sign * r[a][k];
+            ++f.count;
+        };
+        add(+1.f, 0);  // левая
+        add(-1.f, 0);  // правая
+        add(+1.f, 1);  // верх/низ (знак зависит от оси Y, обе плоскости нужны)
+        add(-1.f, 1);
+        if (useNear) {
+            for (int k = 0; k < 4; ++k) f.p[f.count][k] = r[2][k];  // ближняя: z >= 0
+            ++f.count;
+        }
+        for (int k = 0; k < 4; ++k) f.p[f.count][k] = r[3][k] - r[2][k];  // дальняя
+        ++f.count;
+        return f;
+    }
+    // false — коробка целиком за одной из плоскостей.
+    bool sees(const float* model, const float bmin[3], const float bmax[3]) const {
+        float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+        for (int c = 0; c < 8; ++c) {
+            const float x = (c & 1) ? bmax[0] : bmin[0], y = (c & 2) ? bmax[1] : bmin[1], z = (c & 4) ? bmax[2] : bmin[2];
+            for (int a = 0; a < 3; ++a) {
+                const float v = model[a] * x + model[4 + a] * y + model[8 + a] * z + model[12 + a];
+                lo[a] = std::min(lo[a], v);
+                hi[a] = std::max(hi[a], v);
+            }
+        }
+        for (int i = 0; i < count; ++i) {
+            const float* q = p[i];
+            const float px = q[0] >= 0.f ? hi[0] : lo[0], py = q[1] >= 0.f ? hi[1] : lo[1], pz = q[2] >= 0.f ? hi[2] : lo[2];
+            if (q[0] * px + q[1] * py + q[2] * pz + q[3] < 0.f) return false;
+        }
+        return true;
+    }
+};
+
 struct GpuMesh {
+    float boundsMin[3] = {0, 0, 0}, boundsMax[3] = {0, 0, 0};
     VkBuffer vertexBuffer = VK_NULL_HANDLE, indexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexMemory = VK_NULL_HANDLE, indexMemory = VK_NULL_HANDLE;
     std::uint32_t indexCount = 0;
@@ -546,7 +596,8 @@ bool Renderer::Impl::createSwapchain(int width, int height, std::string& err) {
 
 bool Renderer::Impl::createPipeline(std::string& err) {
     // Меши и небо: set 0 — текстура материала, set 1 — данные кадра; push constants — матрица модели и материал.
-    const std::array<VkDescriptorSetLayout, 2> sceneSets{setLayout, frameLayout};
+    // set 2 — карта нормалей, set 3 — карта шероховатости (тот же layout: одна комбинированная текстура).
+    const std::array<VkDescriptorSetLayout, 4> sceneSets{setLayout, frameLayout, setLayout, setLayout};
     const std::array<VkPushConstantRange, 2> scenePush{{
         {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VertexPush)},
         {VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(FragmentPush)},
@@ -990,10 +1041,21 @@ bool Renderer::Impl::createTexture(const TextureData& data, GpuTexture& out, std
 
 bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId> textureIds, GpuMesh& out, std::string& err) {
     out.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
+    if (!mesh.vertices.empty()) {
+        for (int a = 0; a < 3; ++a) out.boundsMin[a] = out.boundsMax[a] = mesh.vertices[0].position[a];
+        for (const Vertex& v : mesh.vertices)
+            for (int a = 0; a < 3; ++a) {
+                out.boundsMin[a] = std::min(out.boundsMin[a], v.position[a]);
+                out.boundsMax[a] = std::max(out.boundsMax[a], v.position[a]);
+            }
+    }
     for (const Submesh& s : effectiveSubmeshes(mesh)) {
         TextureId tex = 0;
         if (s.texture >= 0 && static_cast<std::size_t>(s.texture) < textureIds.size()) tex = textureIds[static_cast<std::size_t>(s.texture)];
-        out.submeshes.push_back({s.firstIndex, s.indexCount, tex, s.metallic, s.roughness});
+        const auto pick = [&](std::int32_t index) -> TextureId {
+            return index >= 0 && static_cast<std::size_t>(index) < textureIds.size() ? textureIds[static_cast<std::size_t>(index)] : 0;
+        };
+        out.submeshes.push_back({s.firstIndex, s.indexCount, tex, s.metallic, s.roughness, pick(s.normalTexture), pick(s.roughnessTexture)});
     }
     const bool ok = createBuffer(mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                  out.vertexBuffer, out.vertexMemory, err) &&
@@ -1220,6 +1282,23 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     put3(ubo.skyHorizon, frame.sky.horizon);
     put3(ubo.skyGround, frame.sky.ground);
     ubo.params[0] = frame.exposure;
+    ubo.params[1] = frame.fogDensity;
+    ubo.params[2] = frame.neonBoost;
+    {
+        const std::size_t count = std::min<std::size_t>(frame.pointLights.size(), 32);
+        for (std::size_t i = 0; i < count; ++i) {
+            const PointLight& pl = frame.pointLights[i];
+            ubo.lightPos[i][0] = pl.position.x;
+            ubo.lightPos[i][1] = pl.position.y;
+            ubo.lightPos[i][2] = pl.position.z;
+            ubo.lightPos[i][3] = pl.radius;
+            ubo.lightColor[i][0] = pl.color.x;
+            ubo.lightColor[i][1] = pl.color.y;
+            ubo.lightColor[i][2] = pl.color.z;
+        }
+        ubo.lightInfo[0] = static_cast<float>(count);
+        ubo.lightInfo[1] = std::clamp(frame.wetness, 0.f, 1.f);
+    }
 
     // Каскады теней. Без солнечного света (ночь) или при выключенных тенях шейдер получает «тени выключены», а карты просто очищаются.
     ShadowSettings shadowSettings = frame.shadow;
@@ -1302,10 +1381,13 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowLayout, 1, 1, &s.frameSets[f], 0, nullptr);
             ShadowPush shadowPush{};
             shadowPush.cascade = cascade;
+            // Отсечение по пирамиде каскада без ближней плоскости: отбрасывающие тень объекты могут стоять между светом и кадром.
+            const Frustum cascadeFrustum = Frustum::from(ubo.lightViewProj[cascade], false);
             for (const DrawItem& item : items) {
                 if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
                 const GpuMesh& mesh = s.meshes[item.mesh - 1];
                 if (mesh.indexCount == 0) continue;
+                if (!cascadeFrustum.sees(item.model.m, mesh.boundsMin, mesh.boundsMax)) continue;
                 std::memcpy(shadowPush.model, item.model.m, sizeof(shadowPush.model));
                 const VkDeviceSize offset = 0;
                 vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1373,10 +1455,12 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
 
     VertexPush vertexPush{};
     VkDescriptorSet boundSet = VK_NULL_HANDLE;
+    const Frustum viewFrustum = Frustum::from(frame.viewProjection.m, true);
     for (const DrawItem& item : items) {
         if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
         const GpuMesh& mesh = s.meshes[item.mesh - 1];
         if (mesh.indexCount == 0) continue;
+        if (!viewFrustum.sees(item.model.m, mesh.boundsMin, mesh.boundsMax)) continue;  // вне кадра
         std::memcpy(vertexPush.model, item.model.m, sizeof(vertexPush.model));
         const VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1389,7 +1473,10 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 0, 1, &set, 0, nullptr);
                 boundSet = set;
             }
-            const FragmentPush material{{part.metallic, part.roughness, 0.0f, 0.0f}};
+            const VkDescriptorSet normalSet = s.descriptorFor(part.normalTexture), roughSet = s.descriptorFor(part.roughnessTexture);
+            const VkDescriptorSet extra[2] = {normalSet, roughSet};
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 2, 2, extra, 0, nullptr);
+            const FragmentPush material{{part.metallic, part.roughness, part.normalTexture != 0 ? 1.0f : 0.0f, part.roughnessTexture != 0 ? 1.0f : 0.0f}};
             vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(material), &material);
             vkCmdDrawIndexed(cmd, part.indexCount, 1, part.firstIndex, 0, 0);
         }

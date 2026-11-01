@@ -27,8 +27,8 @@
       "dependencies": ["fastgltf", "meshoptimizer", "stb"]
     },
     "ui": {
-      "description": "Отладочный интерфейс (E1, E2): Dear ImGui с привязками SDL3 и Vulkan",
-      "dependencies": [{ "name": "imgui", "features": ["sdl3-binding", "vulkan-binding"] }]
+      "description": "Интерфейс: Dear ImGui (отладка, E1–E2) и RmlUi + FreeType (меню и HUD, E8)",
+      "dependencies": [{ "name": "imgui", "features": ["sdl3-binding", "vulkan-binding"] }, { "name": "rmlui", "features": ["freetype"] }]
     },
     "engine": {
       "description": "Все библиотеки движка (включается по мере появления модулей): -DVCPKG_MANIFEST_FEATURES=tests;engine",

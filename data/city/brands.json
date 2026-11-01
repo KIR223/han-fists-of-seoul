@@ -1,0 +1,324 @@
+[
+  {
+    "id": "ilsang24",
+    "name_key": "city.brand.ilsang24",
+    "sector": "convenience",
+    "colors": [
+      "#1B8F4E",
+      "#FFD400"
+    ],
+    "logo": "brands/ilsang24.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "dalbit_mart",
+    "name_key": "city.brand.dalbit_mart",
+    "sector": "convenience",
+    "colors": [
+      "#2B3A8C",
+      "#F4C542"
+    ],
+    "logo": "brands/dalbit_mart.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "gom_coffee",
+    "name_key": "city.brand.gom_coffee",
+    "sector": "coffee",
+    "colors": [
+      "#6B3E26",
+      "#F2E3C6"
+    ],
+    "logo": "brands/gom_coffee.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "coffee_bangbang",
+    "name_key": "city.brand.coffee_bangbang",
+    "sector": "coffee",
+    "colors": [
+      "#E83A2F",
+      "#FFFFFF"
+    ],
+    "logo": "brands/coffee_bangbang.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "chicken_teacher",
+    "name_key": "city.brand.chicken_teacher",
+    "sector": "food",
+    "colors": [
+      "#F2A900",
+      "#7A1E1E"
+    ],
+    "logo": "brands/chicken_teacher.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "crispy_ajumma",
+    "name_key": "city.brand.crispy_ajumma",
+    "sector": "food",
+    "colors": [
+      "#D62828",
+      "#FFD166"
+    ],
+    "logo": "brands/crispy_ajumma.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "kimbap_station",
+    "name_key": "city.brand.kimbap_station",
+    "sector": "food",
+    "colors": [
+      "#2A9D8F",
+      "#F4F1DE"
+    ],
+    "logo": "brands/kimbap_station.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "bulgogi_bros",
+    "name_key": "city.brand.bulgogi_bros",
+    "sector": "food",
+    "colors": [
+      "#1D3557",
+      "#E63946"
+    ],
+    "logo": "brands/bulgogi_bros.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "pizza_ajumma",
+    "name_key": "city.brand.pizza_ajumma",
+    "sector": "food",
+    "colors": [
+      "#E76F51",
+      "#264653"
+    ],
+    "logo": "brands/pizza_ajumma.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "levelup_pc",
+    "name_key": "city.brand.levelup_pc",
+    "sector": "other",
+    "colors": [
+      "#7B2CBF",
+      "#00F5D4"
+    ],
+    "logo": "brands/levelup_pc.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "singsing_room",
+    "name_key": "city.brand.singsing_room",
+    "sector": "other",
+    "colors": [
+      "#FF006E",
+      "#8338EC"
+    ],
+    "logo": "brands/singsing_room.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "snail_queen",
+    "name_key": "city.brand.snail_queen",
+    "sector": "other",
+    "colors": [
+      "#C9ADA7",
+      "#4A4E69"
+    ],
+    "logo": "brands/snail_queen.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "glow_seoul",
+    "name_key": "city.brand.glow_seoul",
+    "sector": "other",
+    "colors": [
+      "#FFB5A7",
+      "#6D6875"
+    ],
+    "logo": "brands/glow_seoul.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "hantel",
+    "name_key": "city.brand.hantel",
+    "sector": "telecom",
+    "colors": [
+      "#0077B6",
+      "#FFFFFF"
+    ],
+    "logo": "brands/hantel.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "pado_mobile",
+    "name_key": "city.brand.pado_mobile",
+    "sector": "telecom",
+    "colors": [
+      "#FF7B00",
+      "#2D2D2D"
+    ],
+    "logo": "brands/pado_mobile.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "ttang_bank",
+    "name_key": "city.brand.ttang_bank",
+    "sector": "bank",
+    "colors": [
+      "#355E3B",
+      "#FFD700"
+    ],
+    "logo": "brands/ttang_bank.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "bori_card",
+    "name_key": "city.brand.bori_card",
+    "sector": "bank",
+    "colors": [
+      "#8E7DBE",
+      "#FFFFFF"
+    ],
+    "logo": "brands/bori_card.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "hwasan_ramyeon",
+    "name_key": "city.brand.hwasan_ramyeon",
+    "sector": "food",
+    "colors": [
+      "#B80C09",
+      "#FFB400"
+    ],
+    "logo": "brands/hwasan_ramyeon.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "pureun_bam",
+    "name_key": "city.brand.pureun_bam",
+    "sector": "beer",
+    "colors": [
+      "#1A3A6B",
+      "#9AD1D4"
+    ],
+    "logo": "brands/pureun_bam.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "haneul_lager",
+    "name_key": "city.brand.haneul_lager",
+    "sector": "beer",
+    "colors": [
+      "#5AA9E6",
+      "#FFFFFF"
+    ],
+    "logo": "brands/haneul_lager.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "banana_moo",
+    "name_key": "city.brand.banana_moo",
+    "sector": "food",
+    "colors": [
+      "#FFE45E",
+      "#6B4F1D"
+    ],
+    "logo": "brands/banana_moo.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "volt_tiger",
+    "name_key": "city.brand.volt_tiger",
+    "sector": "other",
+    "colors": [
+      "#00C2FF",
+      "#FFD60A"
+    ],
+    "logo": "brands/volt_tiger.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  },
+  {
+    "id": "kumbit_shop",
+    "name_key": "city.brand.kumbit_shop",
+    "sector": "electronics",
+    "colors": [
+      "#3A0CA3",
+      "#F72585"
+    ],
+    "logo": "brands/kumbit_shop.svg",
+    "appears_in": [
+      "city_district"
+    ],
+    "fictional": true
+  }
+]

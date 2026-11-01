@@ -1,5 +1,12 @@
 han_module(render DEPENDS han_platform)
 
+# Вывески брендов (G38): шрифт рисует stb_truetype (только заголовок из vcpkg-порта stb).
+find_path(STB_TRUETYPE_INCLUDE_DIR stb_truetype.h)
+if(STB_TRUETYPE_INCLUDE_DIR)
+    target_include_directories(han_render PRIVATE ${STB_TRUETYPE_INCLUDE_DIR})
+    target_compile_definitions(han_render PRIVATE HAN_WITH_STB_TRUETYPE=1)
+endif()
+
 # Vulkan-рендерер — если найден Vulkan SDK (загрузчик и заголовки). Демо дополнительно требует окно (SDL3).
 find_package(Vulkan QUIET)
 if(Vulkan_FOUND)
@@ -16,9 +23,16 @@ if(Vulkan_FOUND)
         add_executable(han_scene_demo apps/scene_demo.cpp)
         target_link_libraries(han_scene_demo PRIVATE han_render han_ui)  # han_ui даёт ImGui, если он найден
 
+        # Демо интерфейса E8: RmlUi поверх сцены (нужны han_ui с RmlUi и ImGui).
+        add_executable(han_ui_demo apps/ui_demo.cpp)
+        target_link_libraries(han_ui_demo PRIVATE han_render han_ui)
+        if(MSVC)
+            target_compile_options(han_ui_demo PRIVATE /W4 /permissive- /utf-8)
+        endif()
+
         # Демо города E10: данные OpenStreetMap, ячейки подгружаются стримингом (han_world).
         add_executable(han_city_demo apps/city_demo.cpp)
-        target_link_libraries(han_city_demo PRIVATE han_render han_ui han_world)
+        target_link_libraries(han_city_demo PRIVATE han_render han_ui han_world han_ai)
         if(MSVC)
             target_compile_options(han_city_demo PRIVATE /W4 /permissive- /utf-8)
         endif()

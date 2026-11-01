@@ -16,13 +16,21 @@ struct CityBuildSettings {
     float maxBuildingHeight = 300.f;
     float minBuildingArea = 6.f;         // меньше (м²) — не здание (сарай, ошибка данных)
     float roadLift = 0.05f;              // дорога чуть выше земли
+    float shopTileMeters = 19.2f;        // длина стены на одну плитку текстуры витрин (атлас брендов из 16 секций — 76,8)
+    bool buildingDetail = true;          // витрины, парапеты, надстройки на крышах и тротуар вокруг домов
+    bool streetProps = true;             // деревья и фонари вдоль улиц
     float junctionSides = 10;            // сторон «диска» в стыках сегментов дороги (закрывает щели на поворотах)
+};
+
+struct Vec3 {
+    float x = 0, y = 0, z = 0;
 };
 
 // Содержимое одной ячейки города.
 struct CityChunk {
     GeoMesh ground;     // дороги, парки, вода
     GeoMesh buildings;  // стены и крыши
+    std::vector<Vec3> lamps;  // головки фонарей (точки света ночью)
     int roadSegments = 0, buildingCount = 0, areaCount = 0;
     bool empty() const { return ground.empty() && buildings.empty(); }
 };

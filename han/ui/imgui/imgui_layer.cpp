@@ -74,7 +74,7 @@ void ImGuiLayer::onRendererReady(const render::VulkanHandles& h) {
     info.Device = static_cast<VkDevice>(h.device);
     info.QueueFamily = h.queueFamily;
     info.Queue = static_cast<VkQueue>(h.queue);
-    info.DescriptorPoolSize = 16;
+    info.DescriptorPoolSize = 64;  // запас под текстуры RmlUi (атласы шрифтов, картинки)
     info.MinImageCount = 2;
     info.ImageCount = h.imageCount < 2 ? 2 : h.imageCount;
     info.UseDynamicRendering = true;

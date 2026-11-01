@@ -1,0 +1,34 @@
+<rml>
+<head>
+    <title>HAN: демо интерфейса</title>
+    <link type="text/rcss" href="ui_demo.rcss"/>
+</head>
+<body>
+    <div id="hud">
+        <div class="panel hero">
+            <div class="name" data-loc="demo.hero"></div>
+            <div class="bar"><div id="health-bar" class="fill health" style="width: 68%;"></div><span class="value" id="health-value">68</span></div>
+            <div class="bar small"><div class="fill stamina" style="width: 92%;"></div></div>
+            <div class="bar small"><div class="fill balance" style="width: 74%;"></div></div>
+            <div class="hint" data-loc="demo.bars"></div>
+        </div>
+        <div class="panel foe">
+            <div class="name" data-loc="demo.foe"></div>
+            <div class="bar"><div class="fill foehealth" style="width: 41%;"></div><span class="value">41</span></div>
+        </div>
+        <div class="combo" data-loc="demo.combo"></div>
+    </div>
+    <div id="menu" style="display: none;">
+        <div class="title" data-loc="demo.pause"></div>
+        <div id="btn-resume" class="button" data-loc="demo.resume"></div>
+        <div id="btn-settings" class="button" data-loc="demo.settings"></div>
+        <div id="btn-quit" class="button danger" data-loc="demo.quit"></div>
+        <div class="langs">
+            <div id="btn-lang-ru" class="button lang">RU</div>
+            <div id="btn-lang-ko" class="button lang">한국어</div>
+            <div id="btn-lang-en" class="button lang">EN</div>
+        </div>
+    </div>
+    <div class="keys" data-loc="demo.keys"></div>
+</body>
+</rml>

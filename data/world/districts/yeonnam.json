@@ -1,0 +1,44 @@
+{
+  "id": "yeonnam",
+  "numeric_id": 4,
+  "name_key": "world.district.yeonnam",
+  "kind": "city_district",
+  "bounds": [
+    [
+      353.4,
+      -998.9
+    ],
+    [
+      1413.7,
+      -998.9
+    ],
+    [
+      1413.7,
+      -222.0
+    ],
+    [
+      353.4,
+      -222.0
+    ]
+  ],
+  "sacred_allowed": false,
+  "danger": 0,
+  "tags": [
+    "cafes",
+    "park",
+    "start"
+  ],
+  "ambience": {
+    "lut": "warm_cafe",
+    "saturation": 1.2,
+    "contrast": 1.1,
+    "neon": 0.9,
+    "lamp_color": [
+      1.0,
+      0.78,
+      0.5
+    ],
+    "crowd_density": 1.1,
+    "music_key": "world.music.yeonnam"
+  }
+}
