@@ -39,6 +39,11 @@
 #include "han/ui/imgui_layer.h"
 #endif
 
+#ifdef HAN_WITH_ANIM
+#include "han/anim/character.h"
+#include "han/player/boxing_visuals.h"
+#endif
+
 namespace {
 using han::core::Mat4;
 namespace cb = han::combat;
@@ -103,7 +108,15 @@ int main(int argc, char** argv) {
     std::filesystem::path screenshotPath;
     std::string enemyId = "street_brawler";
     int foeCount = 1;
+    bool primitives = false;
+    bool streetRules = false;
+    std::string previewClip;
+    std::filesystem::path captureDirectory;
     for (int i = 1; i < argc; ++i) {
+        if (!std::strcmp(argv[i], "--primitives")) primitives = true;
+        if (!std::strcmp(argv[i], "--street")) streetRules = true;
+        if (!std::strcmp(argv[i], "--animation-preview") && i+1<argc) previewClip=argv[++i];
+        if (!std::strcmp(argv[i], "--capture-dir") && i+1<argc) captureDirectory=argv[++i];
         if (!std::strcmp(argv[i], "--no-capture")) captured = false;
         if (!std::strcmp(argv[i], "--no-ui")) noUi = true;
         if (!std::strcmp(argv[i], "--deterministic")) deterministic = true;
@@ -203,6 +216,24 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "не удалось загрузить меши\n");
         return 1;
     }
+#ifdef HAN_WITH_ANIM
+    han::anim::Character character;
+    han::player::BoxingVisuals boxingVisuals;
+    han::render::MeshId characterMesh = 0;
+    const std::string characterFile = "assets_bin/cooked/quaternius_ual/Boxing.hchar";
+    if (!primitives && std::filesystem::exists(characterFile)) {
+        if (!character.load(characterFile, error) || !boxingVisuals.load("data/combat/boxing_visuals.json", error)) {
+            std::fprintf(stderr, "A1: %s\n", error.c_str()); return 1;
+        }
+        characterMesh = renderer->uploadMesh(character.mesh());
+        if (!characterMesh) return 1;
+        if(!previewClip.empty() && character.duration(previewClip)<=0) {std::fprintf(stderr,"Нет клипа %s\n",previewClip.c_str());return 1;}
+        std::printf("A1: %d костей, %zu клипов\n", character.boneCount(), character.clips().size());
+    } else if (!primitives) std::fprintf(stderr, "A1: Boxing.hchar отсутствует, временные примитивы; см. han/tools/pipeline/MANNEQUIN.md\n");
+    std::vector<std::unique_ptr<han::anim::Pose>> poses;
+    std::vector<float> animationClock;
+    std::vector<han::player::BoxingMotion> boxingMotion;
+#endif
 
     // Ринг в физике: пол и стены-канаты.
     world->addStaticBox({0, -0.5f, 0}, {kHalf + 5.f, 0.5f, kHalf + 5.f}, contracts::SurfaceMaterial::Wood);
@@ -235,10 +266,16 @@ int main(int argc, char** argv) {
     std::vector<std::string> log;
     int heroWins = 0, enemyWins = 0;
     const auto startFight = [&] {
+#ifdef HAN_WITH_ANIM
+        poses.clear(); animationClock.assign(static_cast<std::size_t>(fighters), 0.f);
+        boxingMotion.assign(static_cast<std::size_t>(fighters), {});
+        if (characterMesh) for (int i = 0; i < fighters; ++i) poses.push_back(std::make_unique<han::anim::Pose>(character));
+#endif
         for (const auto id : phyId)
             if (id) world->destroy(id);
         ++round;
         sim = std::make_unique<cb::CombatSim>(rules, 1000u + round * 7919u);
+        sim->setOfficialRules(!streetRules);
         targets = cb::TargetSelector();
         tokens = cb::AttackTokens(2, 70);
         foeAi.clear();
@@ -278,6 +315,9 @@ int main(int argc, char** argv) {
     input.bind("space", kSpace);
     input.bind("special", kR);
     input.bind("shoulder", kQ);
+    input.bind("clinch", 8);  // SDL_SCANCODE_E
+    input.bind("duck", 6);  // C
+    input.bind("alternate", 226);  // Left Alt
     input.bind("restart", kEnter);
     input.bind("debug", kF1);
     input.bind("capture", kTab);
@@ -308,6 +348,8 @@ int main(int argc, char** argv) {
     Uint64 last = start;
     double fps = 0, accumulator = 0;
     bool screenshotFailed = false, lmbWasHeld = false, rmbWasHeld = false;
+    // Одноразовые нажатия живут до шага симуляции, включая кадры без тика и хитстоп.
+    cb::RawInput raw;
     constexpr double kStep = 1.0 / 60.0;
     for (long frame = 0; (maxFrames < 0 || frame < maxFrames) && !quit; ++frame) {
         const Uint64 now = deterministic ? start + static_cast<Uint64>(frame) * 16666667ull : SDL_GetTicksNS();
@@ -341,21 +383,27 @@ int main(int argc, char** argv) {
         yawOffset *= std::exp(-1.6f * dt);  // камера возвращается за спину
 
         // --- Ввод игрока (мышь для боя — состояние кнопок из SDL через окно; в --auto игрока ведёт ИИ) ---
-        cb::RawInput raw;
-        if (!uiKeys) {
+        if (!uiKeys && !uiMouse && !consoleOpen && captured) {
             raw.forward = (input.held("forward") ? 1.f : 0.f) - (input.held("back") ? 1.f : 0.f);
             raw.right = (input.held("right") ? 1.f : 0.f) - (input.held("left") ? 1.f : 0.f);
             raw.dash = input.held("dash");
-            raw.spacePressed = input.pressed("space");
-            raw.specialPressed = input.pressed("special");
-            raw.shoulderPressed = input.pressed("shoulder");
+            raw.spacePressed |= input.pressed("space");
+            raw.specialPressed |= input.pressed("special");
+            raw.shoulderPressed |= input.pressed("shoulder");
+            raw.clinchPressed |= input.pressed("clinch");
+            raw.duckPressed |= input.pressed("duck");
+            raw.alternate=input.held("alternate");
             const bool lmb = window->mouseButtonHeld(1), rmb = window->mouseButtonHeld(3);
             raw.lmbHeld = lmb && captured;
-            raw.lmbPressed = raw.lmbHeld && !lmbWasHeld;
+            raw.lmbPressed |= raw.lmbHeld && !lmbWasHeld;
             raw.rmbHeld = rmb && captured;
-            raw.rmbPressed = raw.rmbHeld && !rmbWasHeld;
+            raw.rmbPressed |= raw.rmbHeld && !rmbWasHeld;
             lmbWasHeld = raw.lmbHeld;
             rmbWasHeld = raw.rmbHeld;
+        } else {
+            raw = {};  // меню и освобождение мыши отменяют отложенные команды боя
+            lmbWasHeld = window->mouseButtonHeld(1);
+            rmbWasHeld = window->mouseButtonHeld(3);
         }
 
         // --- Фиксированный шаг боя и физики ---
@@ -374,8 +422,11 @@ int main(int argc, char** argv) {
             }
             cb::FighterInput heroIn = autoPlay ? heroAi->decide(*sim, 0) : scheme->map(raw, *sim, 0);
             raw.lmbPressed = raw.rmbPressed = raw.spacePressed = raw.specialPressed = raw.shoulderPressed = false;  // одноразовые нажатия — один шаг
+            raw.clinchPressed = false;
+            raw.duckPressed = false;
             std::vector<cb::FighterInput> inputs{heroIn};
             for (int k = 0; k < foeCount; ++k) inputs.push_back(foeAi[static_cast<std::size_t>(k)]->decide(*sim, k + 1));
+            if(!previewClip.empty())inputs.assign(static_cast<std::size_t>(fighters),{});
             bridge->step(inputs);  // позиции из физики, шаг боя, отброс обратно в физику
             for (const cb::ComboEvent& c : comboTracker->update(sim->events())) {
                 const auto it = ruNames.find(c.combo->nameKey);
@@ -407,7 +458,7 @@ int main(int argc, char** argv) {
                     shake = std::max(shake, e.move->shake * (e.type == cb::CombatEventType::Blocked ? 0.4f : 1.f));
                     flash[static_cast<std::size_t>(e.defender)] = e.type == cb::CombatEventType::Blocked ? 3 : 7;
                 }
-                static const char* names[] = {"удар", "блок", "уклон", "ПАРИРОВАНИЕ", "промах", "НОКДАУН", "встал", "НОКАУТ"};
+                static const char* names[] = {"удар", "блок", "уклон", "ПАРИРОВАНИЕ", "промах", "НОКДАУН", "встал", "НОКАУТ", "КЛИНЧ", "выход из клинча"};
                 std::string line = who(e.attacker, e.defender) + ": " + names[static_cast<int>(e.type)];
                 if (e.damage > 0.f) line += fmt(" %.1f", e.damage);
                 if (e.counter) line += " КОНТР";
@@ -420,6 +471,9 @@ int main(int argc, char** argv) {
             for (int i = 0; i < fighters; ++i) {  // стены и пол имеют последнее слово: позиция боя = позиция физики
                 const contracts::Vec3 p = world->state(phyId[static_cast<std::size_t>(i)]).position;
                 sim->fighterMutable(i).pos = {p.x, p.z};
+#ifdef HAN_WITH_ANIM
+                if (characterMesh) boxingVisuals.advance(boxingMotion[static_cast<std::size_t>(i)], sim->fighter(i), rules, sim->events());
+#endif
             }
         }
         for (int& fl : flash) fl = std::max(0, fl - 1);
@@ -444,6 +498,15 @@ int main(int argc, char** argv) {
             camera.pitch = std::atan2(dy, horiz) + (pitch + 0.27f);
         }
         camera.fovY = rig.fov();
+        if(!previewClip.empty()) {
+            // Фиксированная камера предпросмотра: техника целиком видна спереди
+            // и сбоку, без ракурса из-за спины второго бойца.
+            camera.position={hero.pos.x+2.2f,heroFeet.y+1.6f,hero.pos.z-2.6f};
+            const float dx=hero.pos.x-camera.position.x,dz=hero.pos.z-camera.position.z;
+            camera.yaw=std::atan2(dx,-dz);
+            camera.pitch=std::atan2(heroFeet.y+.9f-camera.position.y,std::hypot(dx,dz));
+            camera.fovY=.7f;
+        }
         int w = 0, h = 0;
         window->pixelSize(w, h);
         const float aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 1.f;
@@ -473,7 +536,8 @@ int main(int argc, char** argv) {
             lines.push_back(fmt("Счёт: ты %.0f — враг %.0f", heroWins, enemyWins));
             if (targets.teamDefeated(*sim, 0) || targets.teamDefeated(*sim, 1)) lines.push_back(hero.alive() ? ">>> ПОБЕДА! Enter — новый бой" : ">>> ПОРАЖЕНИЕ. Enter — новый бой");
             for (const std::string& l : log) lines.push_back("· " + l);
-            lines.push_back("ЛКМ — удары, ПКМ — блок, Space — уклон, Q + A/D — шолдер-ролл, R — спец, Shift — рывок, Enter — заново");
+            lines.push_back("ЛКМ — удары, ПКМ — блок, Space — уклон, C — нырок, E — клинч, Q + A/D — шолдер-ролл");
+            lines.push_back("Alt+ЛКМ — задний апперкот, Shift+W/А+ЛКМ — двойной джеб/пивот, R + S/D — печень/боло");
             ui.drawStats(lines);
             ui.drawConsole(console, consoleOpen);
             if (debugDraw) {
@@ -497,9 +561,42 @@ int main(int argc, char** argv) {
             for (const float y : {0.55f, 0.95f, 1.35f}) items.push_back({rope, base * Mat4::translation({0.f, y, 0.f})});
         }
         for (int i = 0; i < fighters; ++i) {
+            if(!previewClip.empty() && i!=0)continue;
             const cb::Fighter& f = sim->fighter(i);
             const contracts::Vec3 feet = world->state(phyId[static_cast<std::size_t>(i)]).position;
             const float heading = std::atan2(f.facing.x, -f.facing.z);
+#ifdef HAN_WITH_ANIM
+            if (characterMesh) {
+                // Clock идёт от симуляции: хитстоп замораживает позы вместе с боем.
+                const float clock = static_cast<float>(sim->frame()) / 60.f;
+                const float animationDelta = std::max(0.f, clock - animationClock[static_cast<std::size_t>(i)]);
+                animationClock[static_cast<std::size_t>(i)] = clock;
+                auto sample = boxingVisuals.choose(f, rules, clock, f.state == cb::FighterState::Moving, &boxingMotion[static_cast<std::size_t>(i)]);
+                if(!previewClip.empty()) {
+                    sample={};sample.clip=previewClip;sample.normalizedTime=std::min(1.f,clock/character.duration(previewClip));sample.fadeSeconds=0;
+                }
+                const float seconds = sample.normalizedTime * character.duration(sample.clip);
+                auto& pose = *poses[static_cast<std::size_t>(i)];
+                if (!pose.sample(sample.clip, seconds, animationDelta, sample.fadeSeconds, sample.loop,
+                                 sample.lowerBodyClip,sample.lowerBodyPhase,sample.lowerBodyWeight)) {
+                    std::fprintf(stderr, "A1: нет клипа %s\n", sample.clip.c_str()); return 1;
+                }
+                const Mat4 model=modelAt(feet.x,feet.y,feet.z,heading+3.14159265f);
+                if(sample.aimHand && f.target>=0 && sample.aimWeight>0) {
+                    const auto targetFeet=world->state(phyId[static_cast<std::size_t>(f.target)]).position;
+                    const auto towardSelf=han::core::normalize(han::core::Vec3{feet.x-targetFeet.x,0,feet.z-targetFeet.z});
+                    const han::core::Vec3 target{targetFeet.x+towardSelf.x*sample.contactRadius,targetFeet.y+sample.targetHeight,targetFeet.z+towardSelf.z*sample.contactRadius};
+                    Mat4 inverse;
+                    if(han::core::invert(model,inverse)) {
+                        const auto local=han::core::transform(inverse,target);
+                        pose.reachHand(sample.leftHand,{local.x,local.y,local.z},sample.aimWeight);
+                    }
+                }
+                // GLB смотрит вдоль +Z; бой в HAN — вдоль -Z при heading=0.
+                items.push_back({characterMesh, model, true, 0, pose.palette()});
+                continue;
+            }
+#endif
             const cb::Vec2 right{-f.facing.z, f.facing.x};
             float lean = 0.f, sway = 0.f, crouch = 1.f;
             if (f.state == cb::FighterState::Defending) {
@@ -554,8 +651,16 @@ int main(int argc, char** argv) {
         params.shadows = true;
         params.taa = false;
         params.bloomIntensity = 0.04f;
-        const bool shootNow = !screenshotPath.empty() && maxFrames > 0 && frame == maxFrames - 1;
-        if (shootNow && !renderer->requestScreenshot(screenshotPath)) screenshotFailed = true;
+        if (frame == 0 && std::getenv("HAN_ANIM_DEBUG")) {
+            std::fprintf(stderr, "A1 debug fov=%f aspect=%f sun=%f sky=%f matrix=", camera.fovY, aspect, params.sun.illuminance, params.sky.zenith.y);
+            for (float value : viewProjection.m) std::fprintf(stderr, " %f", value);
+            std::fprintf(stderr, "\n");
+        }
+        const bool sequenceCapture=!captureDirectory.empty();
+        const bool shootNow = sequenceCapture || (!screenshotPath.empty() && maxFrames > 0 && frame == maxFrames - 1);
+        std::filesystem::path shot=screenshotPath;
+        if(sequenceCapture) {std::filesystem::create_directories(captureDirectory);char name[32];std::snprintf(name,sizeof(name),"%06ld.png",frame);shot=captureDirectory/name;}
+        if (shootNow && !renderer->requestScreenshot(shot)) screenshotFailed = true;
         renderer->drawFrame(params, items, w, h);
         if (shootNow && !screenshotFailed && (renderer->screenshotPending() || !renderer->screenshotError().empty())) {
             std::fprintf(stderr, "снимок экрана не сохранён: %s\n", renderer->screenshotError().c_str());
