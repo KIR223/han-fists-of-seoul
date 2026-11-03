@@ -11,6 +11,8 @@ struct RawInput {
     bool rmbPressed = false, rmbHeld = false;
     bool spacePressed = false, specialPressed = false;
     bool shoulderPressed = false;  // Q + ← / → : шолдер-ролл (сторона по right; без направления — вправо)
+    bool clinchPressed = false;
+    bool duckPressed = false, alternate = false;
     bool dash = false;
     float forward = 0, right = 0;
 };
@@ -42,6 +44,8 @@ private:
     bool heavyFired_ = false;
     const MoveData* lastAttack_ = nullptr;
     DefenseAction lastDefense_ = DefenseAction::None;
+    DefenseAction recentDefense_ = DefenseAction::None;
+    int recentDefenseFrame_ = -1000;
 };
 }  // namespace han::combat
 // Пример: SimpleScheme scheme(moves); sim.step({scheme.map(raw, sim, 0), ai.decide(sim, 1)});

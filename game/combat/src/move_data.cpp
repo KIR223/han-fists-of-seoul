@@ -44,7 +44,7 @@ bool parseMove(const Json& j, MoveData& out, std::string& error) {
     if (!j.isObject()) return fail("ожидался объект");
     static const char* known[] = {"id", "style", "name_key", "unlock_level", "type", "trajectory", "limb", "height", "movement_variant", "frames", "cancel_window",
                                   "range", "damage", "stamina", "balance", "focus", "on_block_frames", "on_hit_frames", "armor", "unblockable", "power", "impulse",
-                                  "hitbox", "fx", "anim", "simple_rhythm_slots", "input_master", "variants", "optimal_range"};
+                                  "hitbox", "fx", "anim", "simple_rhythm_slots", "input_master", "variants", "optimal_range", "strikes"};
     for (const auto& [key, v] : j.members())
         if (std::none_of(std::begin(known), std::end(known), [&](const char* k) { return key == k; })) return fail("лишнее поле «" + key + "»");
 
@@ -71,6 +71,20 @@ bool parseMove(const Json& j, MoveData& out, std::string& error) {
     m.startup = static_cast<int>(s);
     m.active = static_cast<int>(a);
     m.recovery = static_cast<int>(r);
+    if (j.has("strikes")) {
+        if (!j["strikes"].isArray() || j["strikes"].size() < 2 || j["strikes"].size() > 8) return fail("strikes: нужно 2–8 контактов");
+        int previous = -1;
+        double sum = 0;
+        for (const auto& strike : j["strikes"].items()) {
+            const double frame = strike["frame"].asNumber(-1), scale = strike["damage_scale"].asNumber(-1);
+            const auto limb = strike["limb"].asString();
+            if (!strike.isObject() || strike.size() != 3 || frame != std::floor(frame) || frame < m.startup || frame >= m.startup + m.active || frame <= previous ||
+                !(scale > 0 && scale <= 1) || (limb != "left_hand" && limb != "right_hand")) return fail("неверный контакт strikes");
+            m.strikes.push_back({static_cast<int>(frame), limb, static_cast<float>(scale)});
+            previous = static_cast<int>(frame); sum += scale;
+        }
+        if (std::fabs(sum - 1.0) > .001) return fail("strikes: доли урона должны давать 1");
+    }
     const Json& c = j["cancel_window"];
     if (c.size() != 2 || !c.at(0).isNumber() || !c.at(1).isNumber()) return fail("cancel_window — два числа");
     m.cancelFrom = static_cast<int>(c.at(0).asNumber());

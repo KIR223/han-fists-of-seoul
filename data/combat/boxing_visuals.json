@@ -1,0 +1,68 @@
+{
+  "contact": 0.4,
+  "active_end": 0.46,
+  "fade_seconds": 0.08,
+  "attack_fade_seconds": 0.025,
+  "moves": {
+    "boxing_jab": "Boxing_Jab",
+    "boxing_cross": "Boxing_Cross",
+    "boxing_jab_body": "Boxing_JabBody",
+    "boxing_jab_retreat": "Boxing_JabRetreat",
+    "boxing_double_jab_step": "Boxing_DoubleJab",
+    "boxing_left_hook": "Boxing_LeftHook",
+    "boxing_right_hook": "Boxing_RightHook",
+    "boxing_liver_hook": "Boxing_LiverHook",
+    "boxing_uppercut": "Boxing_Uppercut",
+    "boxing_rear_uppercut": "Boxing_RearUppercut",
+    "boxing_body_uppercut": "Boxing_BodyUppercut",
+    "boxing_overhand": "Boxing_Overhand",
+    "boxing_bolo_punch": "Boxing_Bolo",
+    "boxing_pivot_hook": "Boxing_PivotHook",
+    "boxing_duck_hook": "Boxing_DuckHook",
+    "boxing_dempsey_roll": "Boxing_DempseyRoll",
+    "boxing_liver_knockout": "Boxing_LiverKnockout",
+    "boxing_pull_counter": "Boxing_PullCounter",
+    "boxing_slip_counter": "Boxing_SlipCounter",
+    "boxing_clinch": "Boxing_Clinch"
+  },
+  "defenses": {
+    "parry": "Boxing_Parry",
+    "slip_left": "Boxing_SlipLeft",
+    "slip_right": "Boxing_SlipRight",
+    "duck": "Boxing_Duck",
+    "bob_left": "Boxing_BobLeft",
+    "bob_right": "Boxing_BobRight",
+    "lean_back": "Boxing_LeanBack",
+    "step_back": "Boxing_StepBack",
+    "sidestep_left": "Boxing_SidestepLeft",
+    "sidestep_right": "Boxing_SidestepRight",
+    "shoulder_roll_left": "Boxing_ShoulderRollLeft",
+    "shoulder_roll_right": "Boxing_ShoulderRollRight"
+  },
+  "unfinished_variants": [],
+  "note": "Отдельные клипы всех 19 техник, контакты серии совпадают с strikes. Движения keyframed/IK; качество не равно mocap/active ragdoll.",
+  "contacts": {
+    "boxing_double_jab_step": [
+      0.24,
+      0.64
+    ],
+    "boxing_dempsey_roll": [
+      0.3,
+      0.55,
+      0.8
+    ]
+  },
+  "motion": {
+    "cycle_distance": 0.6176470588235293,
+    "speed_deadzone": 0.08,
+    "fall_seconds": 0.85,
+    "reaction_seconds": 0.45,
+    "stagger_damage": 14,
+    "movement_fade": 0.09,
+    "down_fade": 0.025,
+    "head_contact_height": 1.52,
+    "body_contact_height": 1.06,
+    "contact_radius": 0.24,
+    "arm_aim_weight": 0.85
+  }
+}
