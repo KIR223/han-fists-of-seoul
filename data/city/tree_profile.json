@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "source_trunk_height": 5.5,
+  "trunk_height": 3.2,
+  "crown_height": 4.5,
+  "width": 6.8,
+  "depth": 6.8,
+  "trunk_object": "tree",
+  "leaf_object": "leaves",
+  "leaf_copies": 2,
+  "leaf_rotation_degrees": 87,
+  "leaf_height_offset": 0.25,
+  "stem_samples": 24,
+  "stem_sample_vertices": 32,
+  "trunk_base_radius": 0.2,
+  "trunk_top_radius": 0.14,
+  "trunk_segments": 12
+}

@@ -26,6 +26,8 @@ public:
     int height() const { return height_; }
     // Билинейная высота; за пределами сетки — значение у края (земля не обрывается).
     float heightAt(float x, float z) const;
+    // Площадка статического района с плавным переходом к исходному рельефу; физика и рендер читают одну сетку.
+    bool flattenArea(float minX, float minZ, float maxX, float maxZ, float height, float blend);
     // Единичная нормаль по градиенту.
     void normalAt(float x, float z, float& nx, float& ny, float& nz) const;
     float minHeight() const { return minH_; }

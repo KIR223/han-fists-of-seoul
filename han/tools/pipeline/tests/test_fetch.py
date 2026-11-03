@@ -1,6 +1,8 @@
 import os
+import io
 import tempfile
 import unittest
+import urllib.error
 import zipfile
 from pathlib import Path
 from unittest import mock
@@ -31,6 +33,19 @@ class DownloadTests(unittest.TestCase):
             with self.assertRaises(fetcher.FetchError) as ctx:
                 fetcher.download(f"{server.url}/нет", Path(tmp) / "f")
             self.assertIn("404", str(ctx.exception))
+
+    def test_http_error_and_rejected_redirect_close_response(self):
+        response = io.BytesIO(b"not found")
+        error = urllib.error.HTTPError("https://example.test/a", 404, "Not Found", {}, response)
+        with mock.patch("urllib.request.build_opener") as opener:
+            opener.return_value.open.side_effect = error
+            with self.assertRaises(fetcher.FetchError):
+                fetcher._open("https://example.test/a")
+        self.assertTrue(response.closed)
+        redirect_response = io.BytesIO(b"redirect")
+        with self.assertRaises(fetcher.FetchError):
+            fetcher._SafeRedirect().redirect_request(None, redirect_response, 302, "Found", {}, "http://example.test/unsafe")
+        self.assertTrue(redirect_response.closed)
 
     def test_https_only_without_local_flag(self):
         with mock.patch.dict(os.environ, {"HAN_ALLOW_LOCAL_HTTP": "0"}):

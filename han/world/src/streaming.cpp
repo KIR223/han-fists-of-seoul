@@ -107,10 +107,12 @@ StreamingStats StreamingManager::update(float x, float z, float dirX, float dirZ
         if (stats.requestedThisFrame >= settings_.maxNewLoadsPerFrame || inFlight >= settings_.maxInFlight) break;
         if (memory + settings_.estimatedCellBytes > settings_.memoryBudgetBytes) break;
         cells_[w.cell].state = CellState::Loading;
-        memory += settings_.estimatedCellBytes;
-        ++inFlight;
         ++stats.requestedThisFrame;
         loader_.beginLoad(w.cell);
+        // Загрузчик может завершиться прямо в beginLoad: учитываем фактический результат.
+        memory = memoryBytes();
+        inFlight = 0;
+        for (const auto& [cell, e] : cells_) inFlight += e.state == CellState::Loading ? 1 : 0;
     }
 
     for (const auto& [cell, e] : cells_) {

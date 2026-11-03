@@ -29,6 +29,6 @@
             <div id="btn-lang-en" class="button lang">EN</div>
         </div>
     </div>
-    <div class="keys" data-loc="demo.keys"></div>
+    <div id="help" class="keys" data-loc="demo.keys"></div>
 </body>
 </rml>

@@ -8,9 +8,12 @@
 layout(set = 0, binding = 0) uniform sampler2D uAlbedo;  // sRGB-формат: оборудование само переводит в линейный свет
 layout(set = 2, binding = 0) uniform sampler2D uNormalMap;     // линейная, нормали OpenGL (+Y вверх), 0..1 → -1..1
 layout(set = 3, binding = 0) uniform sampler2D uRoughMap;      // линейная, шероховатость в канале R
+layout(set = 4, binding = 0) uniform sampler2D uEmissiveMap;   // sRGB, стандартная карта свечения glTF
 
 layout(push_constant) uniform FragmentPush {
     layout(offset = 64) vec4 material;  // x — металличность, y — шероховатость, z — есть карта нормалей, w — есть карта шероховатости
+    layout(offset = 80) vec4 surface;   // x — AlphaMode, y — alphaCutoff, z — doubleSided
+    layout(offset = 96) vec4 emissive;  // rgb — линейная яркость, w — есть карта свечения
 } fpc;
 
 layout(location = 0) in vec3 vWorldPos;
@@ -62,6 +65,7 @@ mat3 cotangentFrame(vec3 N, vec3 p, vec2 uv) {
 
 void main() {
     vec3 N = normalize(vNormal);
+    if (fpc.surface.z > 0.5 && !gl_FrontFacing) N = -N;
     if (fpc.material.z > 0.5) {
         vec3 tn = texture(uNormalMap, vUV).xyz * 2.0 - 1.0;
         tn.xy *= 1.0;  // сила рельефа (1 — как нарисовано)
@@ -70,7 +74,12 @@ void main() {
     vec3 V = normalize(frame.cameraPos.xyz - vWorldPos);
     vec3 L = normalize(frame.sunDir.xyz);
 
-    vec4 albedoSample = texture(uAlbedo, vUV);
+    // Манекен без текстур имеет постоянные UV. При нулевых производных
+    // явный LOD избегает неопределённого анизотропного footprint (NaN на llvmpipe).
+    vec2 uvDx = dFdx(vUV), uvDy = dFdy(vUV);
+    vec4 albedoSample = dot(uvDx, uvDx) + dot(uvDy, uvDy) < 1e-20
+        ? textureLod(uAlbedo, vUV, 0.0) : texture(uAlbedo, vUV);
+    if (fpc.surface.x > 1.5 && fpc.surface.x < 2.5 && albedoSample.a < fpc.surface.y) discard;
     vec3 albedo = albedoSample.rgb * vColor;
     if (frame.shadowParams.y > 0.5) {  // отладка: каскады разными цветами
         int c = cascadeIndex(vViewDepth);
@@ -134,23 +143,26 @@ void main() {
 
     vec3 color = direct + ambient;
     // Ночь: окна и вывески (альфа альбедо = 0) светятся; часть окон тёмная — случайно по секции и дому (оттенок дома vColor — его «номер»).
-    float night = smoothstep(0.12, -0.04, frame.sunDir.y);
+    float night = 1.0 - smoothstep(-0.04, 0.12, frame.sunDir.y);
     float emissiveMask = 1.0 - albedoSample.a;  // непрерывная маска: на мипах и под углом не рябит
-    if (night > 0.001 && emissiveMask > 0.01) {
+    if (fpc.surface.x < 0.5 && night > 0.001 && emissiveMask > 0.01) {
         vec2 cell = floor(vUV * 2.0);
         vec3 houseId = floor(vColor * 255.0 + 0.5);  // квантуем: интерполяция даёт шум ~1e-7, а хэш его усиливает
         float seed = fract(sin(dot(cell + houseId.rg * 0.37 + houseId.b * 0.11, vec2(12.9898, 78.233))) * 43758.5453);
-        bool lit = seed < 0.42;
+        bool window = albedoSample.a < 0.05;
+        bool lit = !window || seed < frame.emission.z;
         float lum = dot(albedoSample.rgb, vec3(0.299, 0.587, 0.114));
-        vec3 glow = mix(vec3(1.0, 0.78, 0.5) * 1.6, albedoSample.rgb * 3.0, smoothstep(0.2, 0.4, lum));  // яркие (вывески) светят своим цветом, стекло — тёплым
+        vec3 windowColor = mix(vec3(0.52, 0.66, 0.85), vec3(1.0, 0.76, 0.46), smoothstep(0.05, 0.42, seed));
+        vec3 glow = window ? windowColor * frame.emission.x : albedoSample.rgb * vColor * frame.emission.y;
         // Неон усиливает вывески сильнее, чем обычные окна (окна в Хондэ не выгорают в белое).
         float boost = mix(mix(1.0, frame.params.z, 0.25), frame.params.z, smoothstep(0.2, 0.4, lum));
         if (lit) color += glow * night * emissiveMask * boost;
     }
+    color += fpc.emissive.rgb * (fpc.emissive.w > 0.5 ? texture(uEmissiveMap, vUV).rgb : vec3(1.0));
     // Воздушная дымка: дальние объекты тонут в цвете горизонта, глубина города читается (при плотности 0 — без изменений).
     float dist = length(frame.cameraPos.xyz - vWorldPos);
     float fog = 1.0 - exp(-dist * frame.params.y);
     vec3 fogColor = frame.skyHorizon.rgb * 0.9 + frame.sunColor.rgb * frame.sunColor.a * 0.02;
     color = mix(color, fogColor, clamp(fog, 0.0, 0.85));
-    outColor = vec4(color, 1.0);
+    outColor = vec4(color, fpc.surface.x > 2.5 ? albedoSample.a * fpc.surface.w : 1.0);
 }

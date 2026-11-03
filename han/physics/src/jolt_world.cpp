@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
@@ -244,6 +245,28 @@ std::unique_ptr<PhysicsWorld> PhysicsWorld::create(const WorldSettings& settings
 EntityId PhysicsWorld::addStaticBox(Vec3 center, Vec3 halfExtents, contracts::SurfaceMaterial material, contracts::Quat rotation) {
     JPH::Ref<JPH::Shape> shape = new JPH::BoxShape(toJolt(halfExtents));
     return impl_->addBody(shape, center, rotation, JPH::EMotionType::Static, 0.f, material, {false, true, halfExtents, 0.f});
+}
+
+EntityId PhysicsWorld::addStaticMesh(Vec3 center, const std::vector<Vec3>& vertices, const std::vector<std::uint32_t>& indices, contracts::SurfaceMaterial material) {
+    const auto finite = [](Vec3 p) { return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z); };
+    if (!finite(center) || vertices.size() < 3 || vertices.size() > (1u << 24) || indices.empty() || indices.size() % 3 || indices.size() > (1u << 26))
+        return contracts::kNoEntity;
+    JPH::VertexList points;
+    points.reserve(vertices.size());
+    for (const auto p : vertices) {
+        if (!finite(p)) return contracts::kNoEntity;
+        points.emplace_back(p.x, p.y, p.z);
+    }
+    JPH::IndexedTriangleList triangles;
+    triangles.reserve(indices.size() / 3);
+    for (std::size_t i = 0; i < indices.size(); i += 3) {
+        if (indices[i] >= vertices.size() || indices[i + 1] >= vertices.size() || indices[i + 2] >= vertices.size()) return contracts::kNoEntity;
+        triangles.emplace_back(indices[i], indices[i + 1], indices[i + 2]);
+    }
+    JPH::MeshShapeSettings settings(std::move(points), std::move(triangles));
+    const auto result = settings.Create();
+    if (result.HasError()) return contracts::kNoEntity;
+    return impl_->addBody(result.Get(), center, {}, JPH::EMotionType::Static, 0.f, material, {false, true, {}, 0.f, true});
 }
 
 EntityId PhysicsWorld::addStaticHeightfield(float minX, float minZ, float cell, int sampleCount, const std::vector<float>& heights, contracts::SurfaceMaterial material) {

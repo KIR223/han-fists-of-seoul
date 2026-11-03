@@ -1,6 +1,7 @@
 #include "han/render/mesh_io.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -78,7 +79,7 @@ MeshBounds computeBounds(const MeshData& mesh) {
 }
 
 std::vector<std::uint8_t> serializeMesh(const MeshData& mesh) {
-    static_assert(sizeof(Vertex) == 44, "формат .hmesh v2 рассчитан на вершину в 44 байта");
+    static_assert(sizeof(Vertex) == 44, "формат .hmesh рассчитан на вершину в 44 байта");
     std::vector<std::uint8_t> out;
     out.reserve(kMeshHeaderSize + mesh.vertices.size() * sizeof(Vertex) + mesh.indices.size() * 4 + 64);
     out.insert(out.end(), kMagic, kMagic + 4);
@@ -99,6 +100,14 @@ std::vector<std::uint8_t> serializeMesh(const MeshData& mesh) {
         put32(out, static_cast<std::uint32_t>(s.texture));
         putFloat(out, s.metallic);
         putFloat(out, s.roughness);
+        put32(out, static_cast<std::uint32_t>(s.normalTexture));
+        put32(out, static_cast<std::uint32_t>(s.roughnessTexture));
+        putFloat(out, s.alphaCutoff);
+        put32(out, static_cast<std::uint32_t>(s.alphaMode));
+        put32(out, s.doubleSided ? 1u : 0u);
+        putFloat(out, s.opacity);
+        put32(out, static_cast<std::uint32_t>(s.emissiveTexture));
+        for (const float value : s.emissive) putFloat(out, value);
     }
     put32(out, static_cast<std::uint32_t>(mesh.textures.size()));
     for (const std::string& name : mesh.textures) {
@@ -122,7 +131,7 @@ bool deserializeMesh(const std::uint8_t* data, std::size_t size, MeshData& out, 
         return false;
     }
     const std::uint32_t version = r.u32();
-    if (version != kMeshFormatVersion) {
+    if (version != kMeshFormatVersion && version != 5 && version != 4 && version != 3) {
         error = "неподдерживаемая версия формата: " + std::to_string(version) + " (нужна " + std::to_string(kMeshFormatVersion) +
                 "), сварите меш заново";
         return false;
@@ -156,7 +165,7 @@ bool deserializeMesh(const std::uint8_t* data, std::size_t size, MeshData& out, 
     }
 
     const std::uint32_t submeshCount = r.u32();
-    if (!r.ok() || submeshCount > kMaxSubmeshes || static_cast<std::uint64_t>(submeshCount) * 20 > r.remaining()) {
+    if (!r.ok() || submeshCount > kMaxSubmeshes || static_cast<std::uint64_t>(submeshCount) * (version >= 6 ? 60 : (version >= 5 ? 40 : (version >= 4 ? 28 : 20))) > r.remaining()) {
         error = "повреждён список частей меша";
         return false;
     }
@@ -167,6 +176,30 @@ bool deserializeMesh(const std::uint8_t* data, std::size_t size, MeshData& out, 
         s.texture = static_cast<std::int32_t>(r.u32());
         s.metallic = r.f32();
         s.roughness = r.f32();
+        if (version >= 4) {
+            s.normalTexture = static_cast<std::int32_t>(r.u32());
+            s.roughnessTexture = static_cast<std::int32_t>(r.u32());
+        }
+        if (version >= 5) {
+            s.alphaCutoff = r.f32();
+            s.alphaMode = static_cast<AlphaMode>(r.u32());
+            const auto doubleSided = r.u32();
+            if (doubleSided > 1 || static_cast<unsigned>(s.alphaMode) > static_cast<unsigned>(version >= 6 ? AlphaMode::Blend : AlphaMode::Mask) || !(s.alphaCutoff >= 0 && s.alphaCutoff <= 1)) {
+                error = "некорректный режим альфы материала";
+                return false;
+            }
+            s.doubleSided = doubleSided != 0;
+        }
+        if (version >= 6) {
+            s.opacity = r.f32();
+            s.emissiveTexture = static_cast<std::int32_t>(r.u32());
+            for (float& value : s.emissive) value = r.f32();
+            if (!(s.opacity >= 0.f && s.opacity <= 1.f) ||
+                std::any_of(std::begin(s.emissive), std::end(s.emissive), [](float v) { return !std::isfinite(v) || v < 0.f; })) {
+                error = "некорректная прозрачность или свечение материала";
+                return false;
+            }
+        }
     }
     const std::uint32_t textureCount = r.u32();
     if (!r.ok() || textureCount > kMaxTextures) {
@@ -193,7 +226,9 @@ bool deserializeMesh(const std::uint8_t* data, std::size_t size, MeshData& out, 
             error = "части меша не покрывают индексы подряд";
             return false;
         }
-        if (s.texture < -1 || s.texture >= static_cast<std::int32_t>(textureCount)) {
+        if (s.texture < -1 || s.texture >= static_cast<std::int32_t>(textureCount) || s.normalTexture < -1 || s.normalTexture >= static_cast<std::int32_t>(textureCount) ||
+            s.roughnessTexture < -1 || s.roughnessTexture >= static_cast<std::int32_t>(textureCount) ||
+            s.emissiveTexture < -1 || s.emissiveTexture >= static_cast<std::int32_t>(textureCount)) {
             error = "часть меша ссылается на несуществующую текстуру";
             return false;
         }

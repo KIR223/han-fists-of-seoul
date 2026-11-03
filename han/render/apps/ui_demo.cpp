@@ -99,6 +99,8 @@ int main(int argc, char** argv) {
 
     bool paused = openMenu;
     rml.setVisible("menu", paused);
+    rml.setVisible("hud", !paused);
+    rml.setVisible("help", !paused);
     int clicks = 0;
     const Uint64 start = SDL_GetTicksNS();
     for (long frame = 0; (maxFrames < 0 || frame < maxFrames); ++frame) {
@@ -148,6 +150,8 @@ int main(int argc, char** argv) {
                 rml.applyLocalization(loc);
             }
         }
+        rml.setVisible("hud", !paused);
+        rml.setVisible("help", !paused);
         rml.draw();
 
         const float aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 1.f;

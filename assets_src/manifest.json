@@ -181,6 +181,417 @@
       "used_in": "шрифт интерфейса: кириллица, хангыль, латиница (RmlUi, E8)",
       "modified": "нет",
       "license_url": "https://openfontlicense.org/"
+    },
+    {
+      "id": "tx_sidewalk_seoul",
+      "name": "TX_brick_pavement_04",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:\\Users\\insf9\\Downloads\\assets\\brick_pavement_04_2k.blend.zip",
+        "page": "https://polyhaven.com/a/brick_pavement_04"
+      },
+      "author": "Charlotte Baglioni",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-02",
+      "sha256": "ce07fde49f95f05876feb275013819f866d0adc53ab8083c9d92d9a064c18e93",
+      "used_in": "тротуары торговых улиц",
+      "modified": "да — карты PBR из локального архива; линейные EXR в PNG, KTX2 с мипами",
+      "texture_maps": {
+        "diff": "textures/brick_pavement_04_diff_2k.jpg",
+        "nor": "textures/brick_pavement_04_nor_gl_2k.exr",
+        "rough": "textures/brick_pavement_04_rough_2k.exr"
+      }
+    },
+    {
+      "id": "tx_plaza_seoul",
+      "name": "TX_interlocking_concrete_pavers",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:\\Users\\insf9\\Downloads\\assets\\interlocking_concrete_pavers_2k.blend.zip",
+        "page": "https://polyhaven.com/a/interlocking_concrete_pavers"
+      },
+      "author": "Amal Kumar",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-02",
+      "sha256": "eae807e0e2ce6b34a1aef59b0e38554fc94d0fddd5cc8405e83ad0475667c029",
+      "used_in": "пешеходные площади",
+      "modified": "да — карты PBR из локального архива; линейные EXR в PNG, KTX2 с мипами",
+      "texture_maps": {
+        "diff": "textures/interlocking_concrete_pavers_diff_2k.jpg",
+        "nor": "textures/interlocking_concrete_pavers_nor_gl_2k.exr",
+        "rough": "textures/interlocking_concrete_pavers_rough_2k.exr"
+      }
+    },
+    {
+      "id": "tx_wall_red",
+      "name": "TX_red_brick",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:\\Users\\insf9\\Downloads\\assets\\red_brick_2k.blend.zip",
+        "page": "https://polyhaven.com/a/red_brick"
+      },
+      "author": "Rob Tuytel",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-02",
+      "sha256": "0d5e45dd64aae7eb7ed7a886bdf3e988ceb62c3b3dd3853673a965b7da20f9e1",
+      "used_in": "краснокирпичные жилые фасады",
+      "modified": "да — карты PBR из локального архива; линейные EXR в PNG, KTX2 с мипами",
+      "texture_maps": {
+        "diff": "textures/red_brick_diff_2k.jpg",
+        "nor": "textures/red_brick_nor_gl_2k.exr",
+        "rough": "textures/red_brick_rough_2k.exr"
+      }
+    },
+    {
+      "id": "tx_wall_worn",
+      "name": "TX_worn_brick_wall",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:\\Users\\insf9\\Downloads\\assets\\worn_brick_wall_2k.blend.zip",
+        "page": "https://polyhaven.com/a/worn_brick_wall"
+      },
+      "author": "Amal Kumar",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-02",
+      "sha256": "7bbc11db65cf3bef3377049b526d324da7eeae1d56e4029837b7ccc55cf7069d",
+      "used_in": "старые кирпичные фасады",
+      "modified": "да — карты PBR из локального архива; линейные EXR в PNG, KTX2 с мипами",
+      "texture_maps": {
+        "diff": "textures/worn_brick_wall_diff_2k.jpg",
+        "nor": "textures/worn_brick_wall_nor_gl_2k.exr",
+        "rough": "textures/worn_brick_wall_rough_2k.exr"
+      }
+    },
+    {
+      "id": "tx_wall_cladding",
+      "name": "TX_exterior_wall_cladding_02",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:\\Users\\insf9\\Downloads\\assets\\exterior_wall_cladding_02_2k.blend.zip",
+        "page": "https://polyhaven.com/a/exterior_wall_cladding_02"
+      },
+      "author": "Charlotte Baglioni",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-02",
+      "sha256": "2070577ce9214bb13a12a697f7c31431068db6818d7b53c2a7b676a920bd2bf5",
+      "used_in": "облицовка офисных зданий",
+      "modified": "да — карты PBR из локального архива; линейные EXR в PNG, KTX2 с мипами",
+      "texture_maps": {
+        "diff": "textures/exterior_wall_cladding_02_diff_2k.jpg",
+        "nor": "textures/exterior_wall_cladding_02_nor_gl_2k.exr",
+        "rough": "textures/exterior_wall_cladding_02_rough_2k.exr"
+      }
+    },
+    {
+      "id": "tx_pavement_concrete",
+      "name": "TX_concrete_pavement",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:\\Users\\insf9\\Downloads\\assets\\concrete_pavement_2k.blend.zip",
+        "page": "https://polyhaven.com/a/concrete_pavement"
+      },
+      "author": "Charlotte Baglioni",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-02",
+      "sha256": "1eb514e07bf4edbee3fc8b2ff1721c174bcede658657280cf92b65cb792e34e1",
+      "used_in": "дворы и бетонное мощение",
+      "modified": "да — карты PBR из локального архива; линейные EXR в PNG, KTX2 с мипами",
+      "texture_maps": {
+        "diff": "textures/concrete_pavement_diff_2k.jpg",
+        "nor": "textures/concrete_pavement_nor_gl_2k.exr",
+        "rough": "textures/concrete_pavement_rough_2k.exr"
+      }
+    },
+    {
+      "id": "pr_street_bench",
+      "name": "PR_painted_wooden_bench",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "polyhaven",
+        "asset_id": "painted_wooden_bench",
+        "page": "https://polyhaven.com/a/painted_wooden_bench"
+      },
+      "author": "Kirill Sannikov",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-02",
+      "sha256": "fcbcac9002c72d34310a237e1af72e8072d01ebd5c996a8c8e80419724726db1",
+      "used_in": "скамейки у магазинов",
+      "modified": "да — метры, пивот основания, бюджет 2500 треугольников, LOD1–3 и коллизия",
+      "pipeline": {
+        "budget_triangles": 2500,
+        "max_materials": 2
+      }
+    },
+    {
+      "id": "pr_street_planter",
+      "name": "PR_planter_pot_clay",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "polyhaven",
+        "asset_id": "planter_pot_clay",
+        "page": "https://polyhaven.com/a/planter_pot_clay"
+      },
+      "author": "Amal Kumar",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-02",
+      "sha256": "76ff2a58c9a81bfa0754028601b0ec901128e0b31183797a1041ac57ca9a3f01",
+      "used_in": "кашпо возле магазинов",
+      "modified": "да — метры, пивот основания, бюджет 2500 треугольников, LOD1–3 и коллизия"
+    },
+    {
+      "id": "pr_street_bin",
+      "name": "PR_metal_trash_can",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "polyhaven",
+        "asset_id": "metal_trash_can",
+        "page": "https://polyhaven.com/a/metal_trash_can"
+      },
+      "author": "GurJas Studios",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-02",
+      "sha256": "113b6cdbea99727788a3bd43507429be73052e1c01968fe349fb321d337aae6a",
+      "used_in": "урны возле уличных фонарей",
+      "modified": "да — метры, пивот основания, бюджет 2500 треугольников, LOD1–3 и коллизия; выбран один контейнер из двух вариантов, коллизия — параллелепипед, 8 вершин",
+      "pipeline": {
+        "include_objects": [
+          "metal_trash_can_handle_left",
+          "metal_trash_can_lid",
+          "metal_trash_can",
+          "metal_trash_can_handle_right"
+        ],
+        "collision_shape": "box"
+      }
+    },
+    {
+      "id": "pr_city_tree",
+      "name": "PR_CityTree",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "direct",
+        "page": "https://opengameart.org/content/tree-24",
+        "url": "https://opengameart.org/sites/default/files/tree_1.zip",
+        "filename": "tree.zip"
+      },
+      "author": "musdasch, Yughues, para",
+      "license": "CC0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "retrieved": "2026-11-02",
+      "sha256": "38984b945da4d6114edce679cc89e61dd743127ccfe3186189491df4cfd23b87",
+      "used_in": "лиственные деревья улиц и парков городского демо",
+      "modified": "да — адаптированы ствол и плотность/форма кроны по профилю уличного дерева, фото-листва и кора сохранены; LOD1–3, бюджет 20000 треугольников, коллизия ствола задаётся движком",
+      "pipeline": {
+        "budget_triangles": 20000,
+        "max_materials": 2,
+        "collision": false,
+        "lods": [
+          0.45,
+          0.15,
+          0.05
+        ],
+        "tree_profile": "data/city/tree_profile.json",
+        "pivot": "none"
+      }
+    },
+    {
+      "id": "vh_city_compact",
+      "name": "VH_CityCompact",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:/Users/insf9/Downloads/new/assets/generic-passenger-car-pack.zip",
+        "page": "https://sketchfab.com/3d-models/generic-passenger-car-pack-20f9af9b8a404d5cb022ac6fe87f21f5"
+      },
+      "author": "Comrade1280",
+      "license": "CC-BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "retrieved": "2026-11-03",
+      "sha256": "dc12df3e8dfc815e3f6dc84907e3682d4f0765fc4d141d2213c1286bbb2aabde",
+      "used_in": "вымышленные машины городского трафика",
+      "modified": "да — восстановлены PBR-карты, направление и пивот, LOD1–3, коллизия",
+      "pipeline": {
+        "entry": "source/fab.fbx",
+        "include_objects": [
+          "Compact Body",
+          "Wheel_C",
+          "Wheel_C001",
+          "Wheel_C002",
+          "Wheel_C003"
+        ],
+        "vehicle_profile": "data/city/vehicle_compact.json",
+        "budget_triangles": 8000,
+        "max_materials": 4,
+        "max_texture_size": 1024,
+        "collision_shape": "box",
+        "lods": [
+          0.5,
+          0.2,
+          0.08
+        ]
+      }
+    },
+    {
+      "id": "vh_city_sedan",
+      "name": "VH_CitySedan",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:/Users/insf9/Downloads/new/assets/generic-passenger-car-pack.zip",
+        "page": "https://sketchfab.com/3d-models/generic-passenger-car-pack-20f9af9b8a404d5cb022ac6fe87f21f5"
+      },
+      "author": "Comrade1280",
+      "license": "CC-BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "retrieved": "2026-11-03",
+      "sha256": "dc12df3e8dfc815e3f6dc84907e3682d4f0765fc4d141d2213c1286bbb2aabde",
+      "used_in": "вымышленные машины городского трафика",
+      "modified": "да — восстановлены PBR-карты, направление и пивот, LOD1–3, коллизия",
+      "pipeline": {
+        "entry": "source/fab.fbx",
+        "include_objects": [
+          "Sedan Body",
+          "Wheel_A",
+          "Wheel_A001",
+          "Wheel_A002",
+          "Wheel_A003"
+        ],
+        "vehicle_profile": "data/city/vehicle_sedan.json",
+        "budget_triangles": 8000,
+        "max_materials": 4,
+        "max_texture_size": 1024,
+        "collision_shape": "box",
+        "lods": [
+          0.5,
+          0.2,
+          0.08
+        ]
+      }
+    },
+    {
+      "id": "vh_city_minivan",
+      "name": "VH_CityMinivan",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:/Users/insf9/Downloads/new/assets/generic-passenger-car-pack.zip",
+        "page": "https://sketchfab.com/3d-models/generic-passenger-car-pack-20f9af9b8a404d5cb022ac6fe87f21f5"
+      },
+      "author": "Comrade1280",
+      "license": "CC-BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "retrieved": "2026-11-03",
+      "sha256": "dc12df3e8dfc815e3f6dc84907e3682d4f0765fc4d141d2213c1286bbb2aabde",
+      "used_in": "вымышленные машины городского трафика",
+      "modified": "да — восстановлены PBR-карты, направление и пивот, LOD1–3, коллизия",
+      "pipeline": {
+        "entry": "source/fab.fbx",
+        "include_objects": [
+          "minivan body",
+          "Wheel_D",
+          "Wheel_D001",
+          "Wheel_D002",
+          "Wheel_D003"
+        ],
+        "vehicle_profile": "data/city/vehicle_minivan.json",
+        "budget_triangles": 8000,
+        "max_materials": 4,
+        "max_texture_size": 1024,
+        "collision_shape": "box",
+        "lods": [
+          0.5,
+          0.2,
+          0.08
+        ]
+      }
+    },
+    {
+      "id": "vh_city_suv",
+      "name": "VH_CitySUV",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "C:/Users/insf9/Downloads/new/assets/generic-passenger-car-pack.zip",
+        "page": "https://sketchfab.com/3d-models/generic-passenger-car-pack-20f9af9b8a404d5cb022ac6fe87f21f5"
+      },
+      "author": "Comrade1280",
+      "license": "CC-BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "retrieved": "2026-11-03",
+      "sha256": "dc12df3e8dfc815e3f6dc84907e3682d4f0765fc4d141d2213c1286bbb2aabde",
+      "used_in": "вымышленные машины городского трафика",
+      "modified": "да — восстановлены PBR-карты, направление и пивот, LOD1–3, коллизия",
+      "pipeline": {
+        "entry": "source/fab.fbx",
+        "include_objects": [
+          "SUV Body",
+          "Wheel_E.001",
+          "Wheel_E001.001",
+          "Wheel_E002.001",
+          "Wheel_E003.001"
+        ],
+        "vehicle_profile": "data/city/vehicle_suv.json",
+        "budget_triangles": 8000,
+        "max_materials": 4,
+        "max_texture_size": 1024,
+        "collision_shape": "box",
+        "lods": [
+          0.5,
+          0.2,
+          0.08
+        ]
+      }
+    },
+    {
+      "id": "quaternius_ual",
+      "name": "CH_Mannequin",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "itch",
+        "page": "https://quaternius.itch.io/universal-animation-library",
+        "upload_id": "17958403"
+      },
+      "author": "Quaternius",
+      "license": "CC0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "retrieved": "2026-11-03",
+      "sha256": "d5b324c2668a06ea4a027564e5b7468ae97954383e7a1cb42340b7034353b428",
+      "used_in": "Манекен 180 см и исходные клипы для анимированной арены A1; GLB → Boxing.hchar",
+      "modified": "Светло-серый PBR, рост 1,80 м общим родителем; mesh, skin, веса и 43 клипа сохранены",
+      "pipeline": {
+        "profile": "skinned_mannequin",
+        "entry": "Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb",
+        "budget_triangles": 40000
+      }
     }
   ]
 }

@@ -23,6 +23,11 @@ class FakeResponse(io.BytesIO):
 
 
 class BboxTests(unittest.TestCase):
+    def test_socket_timeout_is_reported_as_download_error(self):
+        with mock.patch.object(f.urllib.request, 'urlopen', side_effect=TimeoutError('read timed out')):
+            with self.assertRaisesRegex(f.FetchError, 'read timed out'):
+                f.download(f.DEFAULT_SERVER, 'query')
+
     def test_preset_is_valid(self):
         self.assertEqual(f.validate_bbox(f.PRESETS["mapo"]), f.PRESETS["mapo"])
 

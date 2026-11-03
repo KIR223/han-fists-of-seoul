@@ -21,6 +21,8 @@ def row_for(asset: dict[str, Any]) -> str:
     url = source.get("page") or source.get("url") or "локальный файл"
     # Первая колонка: игровое имя и путь результата; CI ищет в ней путь файла или папки.
     first = f"{asset['name']} (assets_bin/cooked/{asset['name']}.hmesh)" if asset.get("kind") == "model" else f"{asset['name']} (assets_src/{asset['id']})"
+    if asset.get("pipeline", {}).get("profile") in ("skinned_mannequin", "animation_library"):
+        first = f"{asset['name']} (assets_bin/cooked/{asset['id']}/{asset['name']}.glb)"
     modified = asset.get("modified", "")
     return "| " + " | ".join(
         _cell(c) for c in (first, asset.get("author", ""), url, asset.get("license", ""), asset.get("used_in", ""), modified)

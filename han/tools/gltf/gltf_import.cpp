@@ -9,6 +9,7 @@
 #include <fstream>
 #include <map>
 #include <string>
+#include <tuple>
 
 #include "han/tools/image_decode.h"
 #include "han/tools/mesh_tools.h"
@@ -79,19 +80,17 @@ struct Importer {
     fastgltf::Asset& gltf;
     std::filesystem::path baseDir;
     ImportResult& result;
-    std::map<std::size_t, int> imageSlots;  // индекс изображения glTF → номер в result.textures (-1 — не удалось)
+    std::map<std::tuple<std::size_t, int, float, bool>, int> imageSlots;  // изображение, роль, множитель, режим мипов → слот
 
     // Номер текстуры базового цвета материала в result.textures или -1; texCoord — какой набор UV использовать.
-    int baseColorSlot(const fastgltf::Material& material, std::size_t& texCoord) {
-        if (!material.pbrData.baseColorTexture.has_value()) return -1;
-        const fastgltf::TextureInfo& info = material.pbrData.baseColorTexture.value();
-        texCoord = info.texCoordIndex;
+    int textureSlot(const fastgltf::TextureInfo& info, int role, float factor = 1.f, bool masked = false) {
         if (info.textureIndex >= gltf.textures.size()) return -1;
         const fastgltf::Texture& texture = gltf.textures[info.textureIndex];
         if (!texture.imageIndex.has_value() || texture.imageIndex.value() >= gltf.images.size()) return -1;
         const std::size_t imageIndex = texture.imageIndex.value();
 
-        if (const auto it = imageSlots.find(imageIndex); it != imageSlots.end()) return it->second;
+        const auto key = std::make_tuple(imageIndex, role, factor, masked);
+        if (const auto it = imageSlots.find(key); it != imageSlots.end()) return it->second;
         int slot = -1;
 #ifdef HAN_WITH_STB
         std::vector<std::uint8_t> fileStorage;
@@ -100,14 +99,23 @@ struct Importer {
         DecodedImage decoded;
         if (imageBytes(gltf, gltf.images[imageIndex], baseDir, fileStorage, bytes, why) && decodeImage(bytes.data, bytes.size, decoded, why)) {
             slot = static_cast<int>(result.textures.size());
-            result.textures.push_back({decoded.width, decoded.height, std::move(decoded.rgba)});
+            if (role == 0 && masked)
+                for (std::size_t i = 3; i < decoded.rgba.size(); i += 4) decoded.rgba[i] = static_cast<std::uint8_t>(std::lround(decoded.rgba[i] * factor));
+            if (role == 2) {  // glTF: шероховатость в G, металлическость в B; движок читает серую карту из R.
+                for (std::size_t i = 0; i < decoded.rgba.size(); i += 4) {
+                    const auto value = static_cast<std::uint8_t>(std::lround(decoded.rgba[i + 1] * factor));
+                    decoded.rgba[i] = decoded.rgba[i + 1] = decoded.rgba[i + 2] = value;
+                    decoded.rgba[i + 3] = 255;
+                }
+            }
+            result.textures.push_back({decoded.width, decoded.height, std::move(decoded.rgba), role == 0 || role == 3, masked});
         } else {
             result.warnings.push_back("изображение " + std::to_string(imageIndex) + " пропущено: " + why);
         }
 #else
         result.warnings.push_back("собрано без stb_image: текстуры не читаются");
 #endif
-        imageSlots[imageIndex] = slot;
+        imageSlots[key] = slot;
         return slot;
     }
 
@@ -126,29 +134,58 @@ struct Importer {
             return false;
         }
 
-        float color[3] = {0.8f, 0.8f, 0.8f};
+        float color[3] = {1.f, 1.f, 1.f};
         float metallic = 0.0f, roughness = 0.5f;
-        int slot = -1;
+        int slot = -1, normalSlot = -1, roughSlot = -1, emissiveSlot = -1;
+        float opacity = 1.f;
+        float emissive[3] = {};
+        render::AlphaMode alphaMode = render::AlphaMode::Opaque;
+        float alphaCutoff = 0.5f;
+        bool doubleSided = false;
         std::size_t texCoord = 0;
         if (prim.materialIndex.has_value() && prim.materialIndex.value() < gltf.materials.size()) {
             const fastgltf::Material& material = gltf.materials[prim.materialIndex.value()];
+            alphaMode = material.alphaMode == fastgltf::AlphaMode::Blend ? render::AlphaMode::Blend :
+                (material.alphaMode == fastgltf::AlphaMode::Mask ? render::AlphaMode::Mask : render::AlphaMode::Opaque);
+            alphaCutoff = material.alphaCutoff;
+            doubleSided = material.doubleSided;
             const auto& f = material.pbrData.baseColorFactor;
+            opacity = f[3];
+            for (int channel = 0; channel < 3; ++channel) emissive[channel] = material.emissiveFactor[channel] * material.emissiveStrength;
+            if (alphaMode == render::AlphaMode::Mask && f[3] < alphaCutoff) return true;
             color[0] = f[0];
             color[1] = f[1];
             color[2] = f[2];
             metallic = std::clamp(material.pbrData.metallicFactor, 0.0f, 1.0f);
             roughness = std::clamp(material.pbrData.roughnessFactor, 0.0f, 1.0f);
-            slot = baseColorSlot(material, texCoord);
+            if (material.pbrData.baseColorTexture.has_value()) {
+                texCoord = material.pbrData.baseColorTexture->texCoordIndex;
+                slot = textureSlot(*material.pbrData.baseColorTexture, 0, f[3], alphaMode == render::AlphaMode::Mask);
+            } else if (material.normalTexture.has_value()) texCoord = material.normalTexture->texCoordIndex;
+            else if (material.pbrData.metallicRoughnessTexture.has_value()) texCoord = material.pbrData.metallicRoughnessTexture->texCoordIndex;
+            else if (material.emissiveTexture.has_value()) texCoord = material.emissiveTexture->texCoordIndex;
+            if (material.emissiveTexture.has_value()) {
+                if (material.emissiveTexture->texCoordIndex == texCoord) emissiveSlot = textureSlot(*material.emissiveTexture, 3);
+                else result.warnings.push_back("карта свечения пропущена: другой набор UV");
+            }
+            if (material.normalTexture.has_value()) {
+                if (material.normalTexture->texCoordIndex == texCoord && material.normalTexture->scale == 1.f) normalSlot = textureSlot(*material.normalTexture, 1);
+                else result.warnings.push_back("карта нормалей пропущена: другой набор UV или неподдерживаемая сила normal.scale");
+            }
+            if (material.pbrData.metallicRoughnessTexture.has_value()) {
+                if (material.pbrData.metallicRoughnessTexture->texCoordIndex == texCoord) roughSlot = textureSlot(*material.pbrData.metallicRoughnessTexture, 2, roughness);
+                else result.warnings.push_back("карта шероховатости пропущена: другой набор UV");
+            }
         }
 
         const fastgltf::Accessor* uvAccessor = nullptr;
-        if (slot >= 0) {
+        if (slot >= 0 || normalSlot >= 0 || roughSlot >= 0 || emissiveSlot >= 0) {
             const auto* uvAttr = prim.findAttribute("TEXCOORD_" + std::to_string(texCoord));
             if (uvAttr != prim.attributes.end() && gltf.accessors[uvAttr->accessorIndex].count == posAccessor.count) {
                 uvAccessor = &gltf.accessors[uvAttr->accessorIndex];
             } else {
                 result.warnings.push_back("у примитива нет UV для текстуры: текстура пропущена");
-                slot = -1;
+                slot = normalSlot = roughSlot = emissiveSlot = -1;
             }
         }
 
@@ -165,6 +202,25 @@ struct Importer {
             v.color[2] = color[2];
             v.uv[0] = v.uv[1] = 0;
         });
+        const auto* colorAttr = prim.findAttribute("COLOR_0");
+        if (colorAttr != prim.attributes.end()) {
+            const auto& accessor = gltf.accessors[colorAttr->accessorIndex];
+            if (accessor.count != posAccessor.count ||
+                (accessor.type != fastgltf::AccessorType::Vec3 && accessor.type != fastgltf::AccessorType::Vec4)) {
+                error = "COLOR_0: ожидается VEC3/VEC4 с числом элементов POSITION";
+                return false;
+            }
+            const auto apply = [&](const auto& value, std::size_t i) {
+                auto& vertex = out.vertices[base + i];
+                for (int channel = 0; channel < 3; ++channel) vertex.color[channel] *= value[channel];
+            };
+            // glTF хранит цвета в линейном пространстве; iterateAccessor разворачивает normalized UNORM.
+            // Альфа вершины пока не представлена в Vertex, RGB сохраняется и у VEC4.
+            if (accessor.type == fastgltf::AccessorType::Vec3)
+                fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec3>(gltf, accessor, apply);
+            else
+                fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec4>(gltf, accessor, apply);
+        }
         if (uvAccessor) {
             fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec2>(gltf, *uvAccessor, [&](fastgltf::math::fvec2 uv, std::size_t i) {
                 out.vertices[base + i].uv[0] = uv[0];
@@ -215,10 +271,18 @@ struct Importer {
 
         const auto count = static_cast<std::uint32_t>(out.indices.size() - firstIndex);
         if (!out.submeshes.empty() && out.submeshes.back().texture == slot && out.submeshes.back().metallic == metallic &&
-            out.submeshes.back().roughness == roughness)
+            out.submeshes.back().roughness == roughness && out.submeshes.back().normalTexture == normalSlot && out.submeshes.back().roughnessTexture == roughSlot &&
+            out.submeshes.back().alphaMode == alphaMode && out.submeshes.back().alphaCutoff == alphaCutoff && out.submeshes.back().doubleSided == doubleSided &&
+            out.submeshes.back().opacity == opacity && out.submeshes.back().emissiveTexture == emissiveSlot &&
+            std::equal(std::begin(emissive), std::end(emissive), std::begin(out.submeshes.back().emissive)))
             out.submeshes.back().indexCount += count;  // соседний примитив с тем же материалом — одна часть
-        else
-            out.submeshes.push_back({static_cast<std::uint32_t>(firstIndex), count, slot, metallic, roughness});
+        else {
+            out.submeshes.push_back({static_cast<std::uint32_t>(firstIndex), count, slot, metallic, roughness, normalSlot, roughSlot, alphaCutoff, alphaMode, doubleSided});
+            auto& part = out.submeshes.back();
+            part.opacity = opacity;
+            part.emissiveTexture = emissiveSlot;
+            std::copy(std::begin(emissive), std::end(emissive), std::begin(part.emissive));
+        }
         return true;
     }
 };
@@ -231,7 +295,7 @@ bool importGltf(const std::filesystem::path& path, ImportResult& out, std::strin
         error = "не удалось прочитать " + path.string() + ": " + std::string(fastgltf::getErrorMessage(data.error()));
         return false;
     }
-    fastgltf::Parser parser;
+    fastgltf::Parser parser(fastgltf::Extensions::KHR_materials_emissive_strength);
     auto parsed = parser.loadGltf(data.get(), path.parent_path(), fastgltf::Options::LoadExternalBuffers);
     if (parsed.error() != fastgltf::Error::None) {
         error = "ошибка разбора glTF: " + std::string(fastgltf::getErrorMessage(parsed.error()));
@@ -272,7 +336,9 @@ bool importGltf(const std::filesystem::path& path, ImportResult& out, std::strin
     // Если все части с материалом по умолчанию и без текстуры, список частей не нужен: весь меш — одна часть.
     bool anyCustom = false;
     for (const render::Submesh& s : result.mesh.submeshes)
-        anyCustom = anyCustom || s.texture >= 0 || s.metallic != 0.0f || s.roughness != 0.5f;
+        anyCustom = anyCustom || s.texture >= 0 || s.normalTexture >= 0 || s.roughnessTexture >= 0 || s.emissiveTexture >= 0 ||
+            s.emissive[0] > 0 || s.emissive[1] > 0 || s.emissive[2] > 0 || s.metallic != 0.0f || s.roughness != 0.5f || s.doubleSided ||
+            s.alphaMode == render::AlphaMode::Mask || s.alphaMode == render::AlphaMode::Blend;
     if (!anyCustom) result.mesh.submeshes.clear();
     out = std::move(result);
     return true;

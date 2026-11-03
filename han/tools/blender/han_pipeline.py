@@ -197,8 +197,18 @@ def copy_object(obj, name):
     return dup
 
 
-def make_collision(obj, name):
+def make_collision(obj, name, shape="convex"):
     """Выпуклая оболочка не более 32 вершин (часть 48.1); без материалов, чтобы в файл не попали текстуры."""
+    if shape == "box":
+        mesh = bpy.data.meshes.new(name)
+        mesh.from_pydata([tuple(v) for v in obj.bound_box], [], [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1), (3, 2, 6, 7), (0, 3, 7, 4), (1, 5, 6, 2)])
+        mesh.update()
+        hull = bpy.data.objects.new(name, mesh)
+        hull.matrix_world = obj.matrix_world.copy()
+        bpy.context.scene.collection.objects.link(hull)
+        return hull, 8
+    if shape != "convex":
+        fail("неизвестный тип коллизии: " + str(shape))
     hull = copy_object(obj, name)
     hull.data.materials.clear()
     # Оболочка из тысяч точек получается с лишними гранями, и упрощать её бесполезно. Сначала упрощаем исходную чистую сетку.
@@ -247,8 +257,86 @@ def main():
     warnings = []
 
     import_model(params["input"])
+    # Некоторые glTF содержат витрину с несколькими вариантами предмета.
+    # В игровой ассет берём явно перечисленные части одного варианта.
+    wanted = cfg.get("include_objects")
+    if wanted is not None:
+        if not isinstance(wanted, list) or not wanted or any(not isinstance(n, str) for n in wanted):
+            fail("include_objects: нужен непустой список имён мешей")
+        existing = {obj.name for obj in mesh_objects()}
+        if set(wanted) - existing:
+            fail("include_objects: не найдены части " + ", ".join(sorted(set(wanted) - existing)))
+        for obj in list(mesh_objects()):
+            if obj.name not in wanted:
+                bpy.data.objects.remove(obj, do_unlink=True)
+    if params.get("vehicle_profile"):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import vehicle_materials
+        vehicle_materials.prepare_vehicle(params["input"], params["vehicle_profile"], mesh_objects())
     brand_hits = scan_brands(params.get("brand_blocklist"))
     normalize(float(cfg.get("scale", 1.0)), warnings)
+    if params.get("tree_profile"):
+        with open(params["tree_profile"], encoding="utf-8") as profile_file:
+            profile = json.load(profile_file)
+        keys = ("source_trunk_height", "trunk_height", "crown_height", "width", "depth")
+        if profile.get("version") != 1 or any(not isinstance(profile.get(k), (int, float)) or not math.isfinite(profile[k]) or profile[k] <= 0 for k in keys):
+            fail("некорректный профиль дерева")
+        leaves = next((item for item in mesh_objects() if item.name == profile.get("leaf_object")), None)
+        stem = next((item for item in mesh_objects() if item.name == profile.get("trunk_object")), None)
+        copies, samples, sample_vertices = profile.get("leaf_copies", 1), profile.get("stem_samples", 24), profile.get("stem_sample_vertices", 32)
+        if not leaves or not stem or not isinstance(copies, int) or not 1 <= copies <= 3 or not isinstance(samples, int) or not 2 <= samples <= 64 or not isinstance(sample_vertices, int) or not 4 <= sample_vertices <= 128:
+            fail("некорректные части дерева или параметры профиля ствола")
+        for index in range(1, copies):
+            extra = copy_object(leaves, leaves.name + "_density" + str(index))
+            angle = math.radians(profile["leaf_rotation_degrees"]) * index
+            extra.data.transform(Matrix.Translation(Vector((0, 0, profile["leaf_height_offset"] * index))) @ Matrix.Rotation(angle, 4, "Z"))
+        points = [v.co for item in mesh_objects() for v in item.data.vertices]
+        lower = [min(p[i] for p in points) for i in range(3)]
+        upper = [max(p[i] for p in points) for i in range(3)]
+        source_trunk = profile["source_trunk_height"]
+        if source_trunk >= upper[2] - lower[2] or upper[0] <= lower[0] or upper[1] <= lower[1]:
+            fail("профиль дерева не соответствует исходной геометрии")
+        stem_points = [v.co.copy() for v in stem.data.vertices if v.co.z <= lower[2] + source_trunk]
+        if not stem_points: fail("не найдены вершины основания ствола")
+        centers = []
+        for index in range(samples):
+            z = lower[2] + source_trunk * index / (samples - 1)
+            ring = sorted(stem_points, key=lambda point: abs(point.z - z))[:sample_vertices]
+            centers.append([sum(point[axis] for point in ring) / len(ring) for axis in (0, 1)])
+        for item in mesh_objects():
+            for v in item.data.vertices:
+                z = v.co.z - lower[2]
+                phase = max(0, min(samples - 1, z / source_trunk * (samples - 1)))
+                first = min(samples - 2, int(phase)); mix = phase - first
+                center = [centers[first][axis] * (1 - mix) + centers[first + 1][axis] * mix for axis in (0, 1)]
+                v.co.x = (v.co.x - center[0]) * profile["width"] / (upper[0] - lower[0])
+                v.co.y = (v.co.y - center[1]) * profile["depth"] / (upper[1] - lower[1])
+                v.co.z = z * profile["trunk_height"] / source_trunk if z <= source_trunk else profile["trunk_height"] + (z - source_trunk) * profile["crown_height"] / (upper[2] - lower[2] - source_trunk)
+            item.data.update()
+        # Для подрезанного уличного дерева заменяем нижний извилистый участок ствола
+        # плавно наклонённым стволом с исходным PBR-материалом коры; ветви сохраняются.
+        height = profile["trunk_height"]
+        bark = stem.data.materials[0] if stem.data.materials else None
+        bm = bmesh.new(); bm.from_mesh(stem.data)
+        result = bmesh.ops.bisect_plane(bm, geom=list(bm.verts) + list(bm.edges) + list(bm.faces),
+                                       plane_co=Vector((0, 0, height)), plane_no=Vector((0, 0, 1)), clear_inner=True)
+        ring = [v.co.copy() for v in bm.verts if abs(v.co.z - height) < 0.001]
+        ring.sort(key=lambda p: p.x * p.x + p.y * p.y)
+        ring = ring[:sample_vertices]
+        top = Vector((sum(v.x for v in ring) / len(ring), sum(v.y for v in ring) / len(ring), height)) if ring else Vector((0, 0, height))
+        bm.to_mesh(stem.data); bm.free(); stem.data.update()
+        if any(v.co.z < height - 0.001 for v in stem.data.vertices): fail("ствол дерева не обрезан по профилю")
+        bpy.ops.mesh.primitive_cone_add(vertices=int(profile["trunk_segments"]), radius1=profile["trunk_base_radius"], radius2=profile["trunk_top_radius"], depth=height, location=(0, 0, height * 0.5))
+        trunk = bpy.context.object
+        trunk.name = "HAN_StreetTrunk"
+        trunk.data.transform(trunk.matrix_world); trunk.matrix_world = Matrix.Identity(4)
+        for v in trunk.data.vertices:
+            v.co.x += top.x * v.co.z / height
+            v.co.y += top.y * v.co.z / height
+        for polygon in trunk.data.polygons: polygon.use_smooth = True
+        if bark: trunk.data.materials.append(bark)
+        trunk.data.update()
+        warnings.append("крона и высота ствола адаптированы по профилю уличного дерева")
     obj = join_all(name)
     if cfg.get("pivot", "base_center") == "base_center":
         set_pivot_base_center(obj)
@@ -279,7 +367,7 @@ def main():
 
     collision_verts = None
     if cfg.get("collision", True):
-        hull, collision_verts = make_collision(obj, f"{name}_col")
+        hull, collision_verts = make_collision(obj, f"{name}_col", cfg.get("collision_shape", "convex"))
         files["collision"] = f"{name}.col.glb"
         export_object(hull, os.path.join(out_dir, files["collision"]))
 

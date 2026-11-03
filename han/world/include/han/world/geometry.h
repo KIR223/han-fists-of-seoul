@@ -24,8 +24,8 @@ struct GeoVertex {
 };
 
 // Материал части сетки: рендер выбирает по нему текстуру (han_world от графики не зависит).
-enum class GeoMaterial : unsigned char { None, Road, Park, Water, WallPlaster, WallBrick, WallConcrete, Roof, Marking, Storefront, Sidewalk, Trunk, Leaves, Metal, Terrain };
-constexpr int kGeoMaterialCount = 15;
+enum class GeoMaterial : unsigned char { None, Road, Park, Water, WallPlaster, WallBrick, WallConcrete, Roof, Marking, Storefront, Sidewalk, Trunk, Leaves, Metal, Terrain, BladeSign, LampGlass, RoofPaint, WallRedBrick, WallWornBrick, WallCladding, Plaza };
+constexpr int kGeoMaterialCount = 22;
 
 // Подряд идущие индексы одного материала.
 struct GeoRange {

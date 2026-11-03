@@ -131,9 +131,10 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "%s\nСкачайте данные: python han/tools/pipeline/han_osm_fetch.py\n", error.c_str());
         return 1;
     }
-    const world::GeoProjection projection(37.5572, 126.9230);
+    const world::GeoProjection projection(han::render::citytex::style().originLat, han::render::citytex::style().originLon);
     world::CityStats cityStats;
     world::CityBuildSettings citySettings;
+    citySettings.style = han::render::citytex::style();
     citySettings.shopTileMeters = han::render::citytex::shopTileMeters();
     const auto chunks = world::buildCity(osm, projection, citySettings, &cityStats);
     const auto footprints = world::buildingFootprints(osm, projection);

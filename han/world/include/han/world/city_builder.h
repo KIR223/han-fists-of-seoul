@@ -8,9 +8,11 @@
 #include "han/world/osm.h"
 #include "han/world/streaming.h"
 #include "han/world/terrain.h"
+#include "han/world/city_style.h"
 
 namespace han::world {
 struct CityBuildSettings {
+    CityStyle style;
     float cellSize = 256.f;
     float defaultBuildingHeight = 9.f;   // если нет ни height, ни building:levels
     float levelHeight = 3.2f;
@@ -23,6 +25,7 @@ struct CityBuildSettings {
     float shopTileMeters = 19.2f;        // длина стены на одну плитку текстуры витрин (атлас брендов из 16 секций — 76,8)
     bool buildingDetail = true;          // витрины, парапеты, надстройки на крышах и тротуар вокруг домов
     bool streetProps = true;             // деревья и фонари вдоль улиц
+    bool instanceTrees = false;         // экземпляры вместо процедурных крон; прежние потребители сохраняют геометрию
     float junctionSides = 10;            // сторон «диска» в стыках сегментов дороги (закрывает щели на поворотах)
 };
 
@@ -37,14 +40,19 @@ struct WallCollider {
     Vec3 half;
     float yaw = 0.f;
 };
+struct CityTree {
+    Vec3 position;
+    float height = 0.f, yaw = 0.f;
+};
 
 struct CityChunk {
     GeoMesh ground;     // дороги, парки, вода
     GeoMesh buildings;  // стены и крыши
     std::vector<Vec3> lamps;  // головки фонарей (точки света ночью)
     std::vector<WallCollider> walls;  // коллайдеры стен зданий (физика: игрок, машины, толчки)
+    std::vector<CityTree> trees;      // экземпляры деревьев: модели выбирает рендер, коллизии стволов — в walls
     int roadSegments = 0, buildingCount = 0, areaCount = 0;
-    bool empty() const { return ground.empty() && buildings.empty(); }
+    bool empty() const { return ground.empty() && buildings.empty() && trees.empty(); }
 };
 
 struct CityStats {
@@ -54,6 +62,7 @@ struct CityStats {
 
 // Ширина дороги (м) по классу highway; 0 — не рисовать (например, служебные линии).
 float roadWidth(std::string_view highway);
+float roadWidth(const OsmWay& way);  // явная ширина из данных; иначе — по классу
 // Высота здания по тегам (height, building:levels) или значению по умолчанию.
 float buildingHeight(const OsmWay& way, const CityBuildSettings& settings);
 

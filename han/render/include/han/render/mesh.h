@@ -7,6 +7,7 @@
 #include "han/core/math.h"
 
 namespace han::render {
+enum class AlphaMode : std::uint32_t { EmissiveMask, Opaque, Mask, Blend };
 
 struct Vertex {
     float position[3];
@@ -25,6 +26,13 @@ struct Submesh {
     float roughness = 0.5f;
     // Карты материала (номера в MeshData::textures, -1 — нет): нормали (OpenGL, +Y вверх, линейные) и шероховатость (линейная, серый).
     std::int32_t normalTexture = -1, roughnessTexture = -1;
+    // EmissiveMask — маска окон/вывесок города; Opaque — альфа не используется; Mask — вырезание листвы.
+    float alphaCutoff = 0.5f;
+    AlphaMode alphaMode = AlphaMode::EmissiveMask;
+    bool doubleSided = false;
+    float opacity = 1.f;
+    std::int32_t emissiveTexture = -1;
+    float emissive[3] = {0.f, 0.f, 0.f};  // линейный glTF emissiveFactor * emissiveStrength
 };
 
 struct MeshData {
@@ -35,6 +43,12 @@ struct MeshData {
     // Имена файлов текстур (.ktx2) относительно файла меша; han_cooker называет их по содержимому ("tex_<WxH>_<хэш>.ktx2"),
     // поэтому LOD-ы и разные ассеты в одной папке делят общие файлы.
     std::vector<std::string> textures;
+    struct Influence {
+        std::uint32_t joints[4]{};
+        float weights[4]{};
+    };
+    // Только skinned mesh; пусто для статических. Порядок совпадает с vertices.
+    std::vector<Influence> skin;
 };
 
 // Части меша для рисования: submeshes или одна часть на весь меш.

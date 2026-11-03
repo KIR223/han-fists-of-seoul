@@ -1,0 +1,46 @@
+{
+  "id": "kandam",
+  "numeric_id": 5,
+  "name_key": "world.district.kandam",
+  "kind": "city_district",
+  "bounds": [
+    [
+      9660.0,
+      6260.0
+    ],
+    [
+      10380.0,
+      6260.0
+    ],
+    [
+      10380.0,
+      6860.0
+    ],
+    [
+      9660.0,
+      6860.0
+    ]
+  ],
+  "sacred_allowed": false,
+  "danger": 2,
+  "tags": [
+    "business",
+    "towers",
+    "led_screens",
+    "nightlife",
+    "alleys"
+  ],
+  "ambience": {
+    "lut": "cool_neon",
+    "saturation": 0.9,
+    "contrast": 1.1,
+    "neon": 2.2,
+    "lamp_color": [
+      1.0,
+      0.75,
+      0.45
+    ],
+    "crowd_density": 1.4,
+    "music_key": "world.music.kandam"
+  }
+}

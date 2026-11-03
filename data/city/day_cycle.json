@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "start_hour": 14.0,
+  "seconds_per_day": 7200.0,
+  "keys": [
+    {"hour":3.0,"elevation":-20.0,"azimuth":45.0,"kelvin":4100.0,"exposure":1.2,"lit_windows":0.12},
+    {"hour":5.5,"elevation":-4.0,"azimuth":75.0,"kelvin":2500.0,"exposure":1.1,"lit_windows":0.25},
+    {"hour":7.0,"elevation":8.0,"azimuth":90.0,"kelvin":3500.0,"exposure":1.0,"lit_windows":0.1},
+    {"hour":10.0,"elevation":35.0,"azimuth":125.0,"kelvin":5200.0,"exposure":1.0,"lit_windows":0.1},
+    {"hour":13.0,"elevation":60.0,"azimuth":180.0,"kelvin":5800.0,"exposure":0.85,"lit_windows":0.1},
+    {"hour":17.0,"elevation":25.0,"azimuth":250.0,"kelvin":4300.0,"exposure":1.0,"lit_windows":0.2},
+    {"hour":18.67,"elevation":3.0,"azimuth":275.0,"kelvin":2800.0,"exposure":1.05,"lit_windows":0.5},
+    {"hour":19.5,"elevation":-6.0,"azimuth":285.0,"kelvin":4000.0,"exposure":1.1,"lit_windows":0.7},
+    {"hour":23.0,"elevation":-15.0,"azimuth":330.0,"kelvin":4100.0,"exposure":1.15,"lit_windows":0.55}
+  ]
+}

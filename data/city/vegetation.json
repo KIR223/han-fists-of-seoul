@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "mesh": "PR_CityTree.hmesh",
+  "draw_radius": 240,
+  "shadow_radius": 90,
+  "lod_near": 25,
+  "lod_far": 75,
+  "max_draws": 400
+}

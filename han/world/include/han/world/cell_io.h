@@ -4,8 +4,13 @@
 // вершина — 3 x uint16 позиция в сантиметрах (x, z от угла ячейки со смещением 10 м, y со смещением 100 м), 3 x int8 нормаль, 3 x uint8 цвет, 2 x float32 UV;
 // индексы uint32; части: uint32 first, count, uint8 материал. Затем фонари (float32 x3) и коллайдеры стен (center x3, half x3, yaw).
 // Точность позиции 1 см; нормали 1/127.
+// HCL2 отличается только позицией вершины: float32 x,y,z вместо uint16.
+// HCL3: после заголовка uint32 wide (0 — позиции HCL1, 1 — HCL2), после коллайдеров uint32 count и деревья:
+// float32 x,y,z,height,yaw. HCL1/HCL2 читаются без экземпляров деревьев.
+// saveCell выбирает HCL2, если хотя бы одна вершина не помещается в HCL1; старые HCL1 читаются.
 #pragma once
 #include <string>
+#include <future>
 
 #include "han/world/city_builder.h"
 
@@ -16,6 +21,14 @@ bool saveCell(const std::string& file, CellCoord cell, float cellSize, const Cit
 bool loadCell(const std::string& file, CellCoord& cell, float& cellSize, CityChunk& chunk, std::string& error);
 // Имя файла ячейки в папке: c_<x>_<z>.hcell.
 std::string cellFileName(CellCoord cell);
+
+struct CellReadResult {
+    CityChunk chunk;
+    std::string error;
+    bool ok = false;
+};
+// Чтение/декодирование на рабочем потоке; результат проверяется до передачи рендеру и физике.
+std::future<CellReadResult> loadCellAsync(std::string file, CellCoord expected, float expectedSize);
 
 }  // namespace han::world
 // Пример: saveCell(dir + "/" + cellFileName(c), c, 256.f, chunk, err); CityChunk back; loadCell(path, c2, size, back, err);

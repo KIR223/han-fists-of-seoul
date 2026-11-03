@@ -11,7 +11,8 @@ body {
 #hud { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .panel {
     position: absolute;
-    width: 360dp;
+    width: 36%;
+    box-sizing: border-box;
     padding: 12dp 16dp;
     background-color: #101418cc;
     border-width: 2dp;
@@ -34,7 +35,7 @@ body {
     position: absolute;
     left: 50%;
     margin-left: -230dp;
-    top: 120dp;
+    top: 190dp;
     width: 460dp;
     text-align: center;
     padding: 10dp;
@@ -46,7 +47,8 @@ body {
 }
 .keys {
     position: absolute;
-    left: 28dp;
+    left: 5%;
+    right: 5%;
     bottom: 22dp;
     font-size: 15dp;
     color: #d8d4ca;
@@ -61,6 +63,7 @@ body {
     margin-left: -220dp;
     margin-top: -150dp;
     width: 440dp;
+    box-sizing: border-box;
     padding: 22dp;
     background-color: #0c1014e6;
     border-width: 2dp;
@@ -83,4 +86,14 @@ body {
 .button.danger:hover { background-color: #b03f3f; border-color: #ff9c9c; }
 .button:focus { background-color: #3f6fb0; border-color: #ffd34d; }
 .langs { margin-top: 8dp; overflow: hidden; }
-.button.lang { float: left; width: 28%; margin: 0 2% 0 2%; padding: 8dp 4dp; font-size: 18dp; }
+.button.lang { float: left; box-sizing: border-box; width: 28%; margin: 0 2% 0 2%; padding: 8dp 4dp; font-size: 18dp; }
+
+@media (max-height: 600px) {
+    body { font-size: 14dp; }
+    #menu { width: 360dp; margin-left: -180dp; margin-top: -140dp; padding: 12dp; }
+    .title { font-size: 22dp; margin-bottom: 8dp; }
+    .button { padding: 6dp 12dp; margin-bottom: 6dp; font-size: 16dp; }
+    .button.lang { padding: 4dp; font-size: 14dp; }
+    .combo { top: 160dp; font-size: 18dp; }
+    .keys { font-size: 12dp; bottom: 12dp; }
+}

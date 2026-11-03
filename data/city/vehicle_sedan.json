@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "body_object": "Sedan Body",
+  "yaw_degrees": 180,
+  "albedo": "SedanYellow.png",
+  "optics_albedo": "lights.jpg",
+  "body_texture_prefix": "Sedan",
+  "wheel_texture_prefix": "Wheel_A",
+  "glass_opacity": 0.92,
+  "glass_roughness": 0.08,
+  "optics_roughness": 0.12,
+  "optics_emission": 0.4
+}

@@ -38,6 +38,20 @@ class CheckReportTests(unittest.TestCase):
 
 
 class FindEntryTests(unittest.TestCase):
+    def test_texture_archive_roles_preserve_linear_maps_and_reject_traversal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "textures").mkdir()
+            (root / "textures" / "wall_diff.jpg").write_bytes(b"jpg")
+            (root / "textures" / "wall_normal.exr").write_bytes(b"exr")
+            asset = {"texture_maps": {"diff": "textures/wall_diff.jpg", "nor": "textures/wall_normal.exr"}}
+            inputs = han_fetch.texture_inputs(asset, root)
+            self.assertEqual([r for r, _ in inputs], ["diff", "nor"])
+            self.assertEqual(inputs[1][1].suffix, ".exr")
+            for maps in ({"diff": "../outside.jpg"}, {"diff": "missing.jpg"}, {"nor": "textures/wall_normal.exr"}, {"diff": "textures/wall_diff.jpg", "foo": "textures/wall_diff.jpg"}):
+                with self.assertRaises(han_fetch.PipelineError):
+                    han_fetch.texture_inputs({"texture_maps": maps}, root)
+
     def test_prefers_glb_then_gltf_then_fbx_and_shallowest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -99,6 +113,20 @@ class ProcessWithFakesTests(unittest.TestCase):
         self.assertTrue(credits.has_row(self.paths.credits, self.asset))
         self.assertEqual(self.last_entry.name, "b.glb")
         self.assertEqual(len(self.asset["sha256"]), 64)  # загрузка выполнилась автоматически
+
+    def test_tree_profile_cannot_read_outside_repository(self):
+        asset = dict(self.asset, pipeline={"tree_profile": "../outside.json"})
+        with mock.patch.object(han_fetch.subprocess, "run") as run:
+            with self.assertRaises(han_fetch.PipelineError):
+                han_fetch.run_blender("blender", self.paths, asset, self.root / "inbox" / "b.glb", self.root / "processed")
+            run.assert_not_called()
+
+    def test_vehicle_profile_cannot_read_outside_repository(self):
+        asset = dict(self.asset, pipeline={"vehicle_profile": "../outside.json"})
+        with mock.patch.object(han_fetch.subprocess, "run") as run:
+            with self.assertRaises(han_fetch.PipelineError):
+                han_fetch.run_blender("blender", self.paths, asset, self.root / "inbox" / "b.glb", self.root / "processed")
+            run.assert_not_called()
 
     def test_over_budget_stops_before_cooking_and_credits(self):
         with mock.patch.object(han_fetch, "run_blender", self.fake_blender(fake_report(lod0=99999))):
@@ -208,6 +236,34 @@ class ProcessWithFakesTests(unittest.TestCase):
 @unittest.skipUnless(han_fetch.find_blender(), "Blender не установлен")
 class RealBlenderTests(unittest.TestCase):
     """Настоящий Blender: высокополигональная модель в сантиметрах проходит весь конвейер до GLB."""
+
+    def test_vehicle_restores_material_maps_direction_and_transparency(self):
+        blender = han_fetch.find_blender()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run([blender, '--background', '--factory-startup', '--disable-autoexec', '--python',
+                            str(Path(__file__).with_name('make_vehicle_fixture.py')), '--', str(root)],
+                           check=True, capture_output=True, timeout=120)
+            asset = sample_asset(name='VH_TestCompact', id='vh_test_compact', pipeline={
+                'budget_triangles': 8000, 'max_materials': 4, 'vehicle_profile': 'data/city/vehicle_compact.json', 'collision_shape': 'box'})
+            report = han_fetch.run_blender(blender, han_fetch.Paths(REPO), asset, root / 'source/fab.fbx', root / 'out')
+            self.assertAlmostEqual(report['size_meters']['x'], 2.3, delta=.1)
+            self.assertAlmostEqual(report['size_meters']['z'], 4, delta=.1)
+            self.assertEqual(report['materials'], 4)
+            data = (root / 'out/VH_TestCompact.glb').read_bytes()
+            import struct
+            length = struct.unpack_from('<I', data, 12)[0]
+            scene = json.loads(data[20:20 + length])
+            glass = next(mat for mat in scene['materials'] if mat['name'] == 'HAN_Glass')
+            self.assertEqual(glass['alphaMode'], 'BLEND')
+            self.assertAlmostEqual(glass['pbrMetallicRoughness']['baseColorFactor'][3], .92, delta=.001)
+            body = next(mat for mat in scene['materials'] if mat['name'] == 'HAN_Body')
+            self.assertIn('metallicRoughnessTexture', body['pbrMetallicRoughness'])
+            optics = next(mat for mat in scene['materials'] if mat['name'] == 'HAN_Optics')
+            self.assertNotEqual(optics['pbrMetallicRoughness']['baseColorTexture']['index'],
+                                body['pbrMetallicRoughness']['baseColorTexture']['index'])
+            self.assertIn('emissiveTexture', optics)
+            self.assertGreater(len(scene['images']), 2)
 
     def test_pipeline_meets_budget_and_produces_lods_and_collision(self):
         blender = han_fetch.find_blender()

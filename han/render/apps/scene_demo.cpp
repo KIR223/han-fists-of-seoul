@@ -6,6 +6,7 @@
 #include <SDL3/SDL_timer.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iterator>
 #include <cstdio>
@@ -51,13 +52,15 @@ int main(int argc, char** argv) {
     bool captured = true, nullOverlay = false;
     float sunArgs[3] = {38.0f, 125.0f, 5200.0f};  // высота, азимут, кельвины; по умолчанию дневное солнце из таблицы 34.1 (10:00)
     float exposureArg = 1.0f;
-    bool shadowsArg = true, cascadesArg = false, taaArg = true, noUi = false, deterministic = false;
+    bool shadowsArg = true, cascadesArg = false, taaArg = true, noUi = false, deterministic = false, meshStress = false, alphaTest = false;
     int windowSize[2] = {1280, 720};
     std::filesystem::path screenshotPath;
     float bloomArg = 0.08f;
     float cameraArgs[5] = {0.0f, 2.6f, 9.5f, 0.0f, -8.0f};  // x y z, рыскание и тангаж в градусах
     std::filesystem::path meshPath;
     for (int i = 1; i < argc; ++i) {
+        if (!std::strcmp(argv[i], "--mesh-lifetime-test")) meshStress = true;
+        if (!std::strcmp(argv[i], "--alpha-test")) alphaTest = true;
         if (!std::strcmp(argv[i], "--null-overlay")) nullOverlay = true;
         if (!std::strcmp(argv[i], "--no-shadows")) shadowsArg = false;
         if (!std::strcmp(argv[i], "--cascades")) cascadesArg = true;
@@ -130,8 +133,27 @@ int main(int argc, char** argv) {
         return m;
     };
     const auto ground = renderer->uploadMesh(textured(han::render::makePlane(60.f, {0.55f, 0.75f, 0.55f}, 30.f), 0.9f), checkerSlots);
-    const auto cube = renderer->uploadMesh(textured(han::render::makeBox({0.5f, 0.5f, 0.5f}, {1.0f, 0.55f, 0.4f}), 0.7f), checkerSlots);
+    auto cube = renderer->uploadMesh(textured(han::render::makeBox({0.5f, 0.5f, 0.5f}, {1.0f, 0.55f, 0.4f}), 0.7f), checkerSlots);
     const auto pillar = renderer->uploadMesh(material(han::render::makeBox({0.4f, 2.f, 0.4f}, {0.7f, 0.7f, 0.75f}), 0.0f, 0.6f));
+    han::render::MeshId cutout = 0;
+    if (alphaTest) {
+        std::vector<std::uint8_t> pixels(32 * 32 * 4, 255);
+        for (std::size_t y = 0; y < 32; ++y)
+            for (std::size_t x = 0; x < 32; ++x) pixels[(y * 32 + x) * 4 + 3] = ((x / 8 + y / 8) % 2) ? 0 : 255;
+        auto tex = han::render::makeTexture(32, 32, std::move(pixels), true);
+        han::render::generateMips(tex);
+        const std::array<han::render::TextureId, 1> ids{renderer->uploadTexture(tex)};
+        han::render::MeshData card;
+        card.vertices = {{{-1.5f, 0.3f, 0}, {0, 0, 1}, {0.12f, 0.55f, 0.08f}, {0, 1}},
+                         {{1.5f, 0.3f, 0}, {0, 0, 1}, {0.12f, 0.55f, 0.08f}, {1, 1}},
+                         {{1.5f, 3.3f, 0}, {0, 0, 1}, {0.12f, 0.55f, 0.08f}, {1, 0}},
+                         {{-1.5f, 3.3f, 0}, {0, 0, 1}, {0.12f, 0.55f, 0.08f}, {0, 0}}};
+        card.indices = {0, 1, 2, 0, 2, 3};
+        card.textures = {"cutout_test"};
+        card.submeshes = {{0, 6, 0, 0.f, 0.8f, -1, -1, 0.5f, han::render::AlphaMode::Mask, true}};
+        cutout = renderer->uploadMesh(card, ids);
+        if (!ids[0] || !cutout) return 3;
+    }
     // Ряд сфер: шероховатость от 0,05 до 1 — слева диэлектрик (красный пластик), справа металл (золото).
     const float roughnessRow[] = {0.05f, 0.2f, 0.4f, 0.6f, 0.8f, 1.0f};
     std::vector<han::render::MeshId> plastic, gold;
@@ -307,6 +329,14 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (meshStress) {
+            const auto mesh = textured(han::render::makeBox({0.5f, 0.5f, 0.5f}, {1.0f, 0.55f, 0.4f}), 0.7f);
+            if (frame % 2 == 0) {
+                renderer->releaseMesh(cube);
+                cube = renderer->uploadMesh(mesh, checkerSlots);
+                if (!cube) return 3;
+            } else if (!renderer->replaceMesh(cube, mesh, checkerSlots)) return 3;
+        }
         std::vector<han::render::DrawItem> items;
         items.push_back({ground, Mat4::identity()});
         if (custom.id) items.push_back({custom.id, Mat4::translation({-8.f, -custom.bounds.min.y, -3.f})});
@@ -321,6 +351,7 @@ int main(int argc, char** argv) {
                 items.push_back({cube, Mat4::translation({x * 4.f, 0.5f, -8.f - z * 4.f}) * Mat4::rotationY(spin)});
             }
         items.push_back({pillar, Mat4::translation({7.f, 2.f, -3.f})});
+        if (alphaTest) items = {{ground, Mat4::identity()}, {cutout, Mat4::translation({-8.f, 0.f, -3.f})}};
 
         int w = 0, h = 0;
         window->pixelSize(w, h);

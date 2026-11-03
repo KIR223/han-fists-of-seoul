@@ -229,6 +229,9 @@ bool RmlLayer::loadDocument(const std::string& path) {
 
 void RmlLayer::closeAll() {
     Impl& s = *impl_;
+    if (s.focus) s.focus->SetPseudoClass("focus", false);
+    s.focus = nullptr;
+    s.clicked.clear();
     for (Rml::ElementDocument* d : s.documents) d->Close();
     s.documents.clear();
 }

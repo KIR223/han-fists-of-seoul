@@ -5,6 +5,37 @@
 #include <cmath>
 
 namespace han::render {
+bool applyGlassSurface(TextureData& map, const TextureData& albedo, bool normalMap, float roughness) {
+    if (!map.valid() || !albedo.valid() || map.srgb || !std::isfinite(roughness) || roughness < 0 || roughness > 1) return false;
+    for (std::uint32_t y = 0; y < map.height; ++y)
+        for (std::uint32_t x = 0; x < map.width; ++x) {
+            const auto ax = static_cast<std::uint64_t>(x) * albedo.width / map.width;
+            const auto ay = static_cast<std::uint64_t>(y) * albedo.height / map.height;
+            const auto alpha = albedo.mips[0][(ay * albedo.width + ax) * 4 + 3];
+            auto* pixel = &map.mips[0][(static_cast<std::size_t>(y) * map.width + x) * 4];
+            for (int c = 0; c < 3; ++c) {
+                const float target = normalMap ? (c == 2 ? 255.f : 128.f) : roughness * 255.f;
+                pixel[c] = static_cast<std::uint8_t>(std::lround((pixel[c] * alpha + target * (255 - alpha)) / 255.f));
+            }
+        }
+    generateMips(map);
+    return true;
+}
+bool retileTexture(TextureData& texture, int repeats) {
+    if (!texture.valid() || repeats < 1 || repeats > 8) return false;
+    if (repeats == 1) return true;
+    const auto source = texture.mips[0];
+    for (std::uint32_t y = 0; y < texture.height; ++y)
+        for (std::uint32_t x = 0; x < texture.width; ++x) {
+            const auto sx = (x * static_cast<std::uint32_t>(repeats)) % texture.width;
+            const auto sy = (y * static_cast<std::uint32_t>(repeats)) % texture.height;
+            for (std::size_t c = 0; c < 4; ++c)
+                texture.mips[0][(static_cast<std::size_t>(y) * texture.width + x) * 4 + c] = source[(static_cast<std::size_t>(sy) * texture.width + sx) * 4 + c];
+        }
+    texture.mips.resize(1);
+    generateMips(texture);
+    return true;
+}
 namespace {
 
 // sRGB → линейный свет по таблице (256 значений) и обратно.
@@ -60,7 +91,7 @@ TextureData makeTexture(std::uint32_t width, std::uint32_t height, std::vector<s
     return t;
 }
 
-void generateMips(TextureData& texture) {
+void generateMips(TextureData& texture, bool alphaWeighted) {
     if (texture.width == 0 || texture.height == 0 || texture.mips.empty() ||
         texture.mips[0].size() != static_cast<std::size_t>(texture.width) * texture.height * 4)
         return;
@@ -79,12 +110,13 @@ void generateMips(TextureData& texture) {
                 float sum[4] = {0, 0, 0, 0};
                 for (int k = 0; k < 4; ++k) {
                     const std::uint8_t* p = &src[(static_cast<std::size_t>(ys[k]) * w + xs[k]) * 4];
-                    for (int c = 0; c < 3; ++c) sum[c] += texture.srgb ? toLinear[p[c]] : static_cast<float>(p[c]) / 255.0f;
+                    const float weight = alphaWeighted ? static_cast<float>(p[3]) / 255.f : 1.f;
+                    for (int c = 0; c < 3; ++c) sum[c] += (texture.srgb ? toLinear[p[c]] : static_cast<float>(p[c]) / 255.0f) * weight;
                     sum[3] += static_cast<float>(p[3]) / 255.0f;  // альфа всегда линейная
                 }
                 std::uint8_t* q = &dst[(static_cast<std::size_t>(y) * nw + x) * 4];
                 for (int c = 0; c < 3; ++c) {
-                    const float avg = sum[c] * 0.25f;
+                    const float avg = alphaWeighted ? (sum[3] > 0 ? sum[c] / sum[3] : 0.f) : sum[c] * 0.25f;
                     q[c] = texture.srgb ? linearToSrgb(avg) : static_cast<std::uint8_t>(std::lround(std::clamp(avg, 0.0f, 1.0f) * 255.0f));
                 }
                 q[3] = static_cast<std::uint8_t>(std::lround(std::clamp(sum[3] * 0.25f, 0.0f, 1.0f) * 255.0f));

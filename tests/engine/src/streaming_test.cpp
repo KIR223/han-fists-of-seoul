@@ -251,6 +251,28 @@ TEST_CASE("streaming: странные настройки приводятся �
     CHECK(m.settings().maxInFlight >= 1);
 }
 
+TEST_CASE("streaming: синхронное завершение учитывает реальную память и освобождает слот загрузки") {
+    struct SyncLoader final : ICellLoader {
+        StreamingManager* manager = nullptr;
+        std::uint64_t bytes = 150;
+        void beginLoad(CellCoord c) override { manager->onLoaded(c, bytes); }
+        void unload(CellCoord) override {}
+    } loader;
+    auto settings = smallSettings();
+    settings.maxInFlight = 1;
+    settings.maxNewLoadsPerFrame = 4;
+    settings.estimatedCellBytes = 100;
+    settings.memoryBudgetBytes = 250;
+    StreamingManager manager(settings, loader);
+    loader.manager = &manager;
+    const auto stats = manager.update(50.f, 50.f, 0.f, 0.f);
+    CHECK(stats.requestedThisFrame == 2);
+    CHECK(stats.loading == 0);
+    CHECK(stats.memoryBytes == manager.memoryBytes());
+    // Размер может превысить оценку; следующая загрузка уже не должна стартовать.
+    CHECK(stats.memoryBytes == 300);
+}
+
 TEST_CASE("lod: уровни по расстоянию, гистерезис, смещение качества") {
     LodSelector lod({50.f, 120.f, 300.f}, 0.1f);
     CHECK(lod.levelCount() == 4);

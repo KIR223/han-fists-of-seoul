@@ -1,5 +1,6 @@
 // Тесты трафика (G7): дорожный граф, правостороннее движение, следование за лидером, перекрёстки, 30 минут без зависаний.
 #include <doctest/doctest.h>
+#include <algorithm>
 
 #include <cmath>
 #include <filesystem>
@@ -10,6 +11,66 @@
 #include "han/world/osm.h"
 
 using namespace han::ai;
+
+TEST_CASE("traffic: дорога внешнего района участвует в графе, машины обходят разделительную полосу") {
+    han::world::OsmData data;
+    data.nodes = {{1, {37.5, 127}}, {2, {37.5, 127.002}}};
+    han::world::OsmWay way;
+    way.id = 1; way.nodes = {1, 2};
+    way.tags = {{"highway", "primary"}, {"width", "48"}, {"lanes", "8"}, {"han:median_half_width", "2.25"}, {"han:visual", "external"}};
+    data.ways = {way};
+    const auto graph = RoadGraph::build(data, han::world::GeoProjection(37.5, 127));
+    REQUIRE(graph.edges().size() == 2);
+    CHECK(graph.edges()[0].lanes == 4); CHECK(graph.edges()[0].centerOffset == 2.25f);
+    TrafficSettings settings; settings.maxCars = 8;
+    TrafficSim sim(graph, settings); sim.setFocus({80, 0});
+    for (int step = 0; step < 100; ++step) sim.update(.1f);
+    REQUIRE_FALSE(sim.cars().empty());
+    for (const auto& car : sim.cars()) CHECK(std::abs(car.pos.z) >= 4.f);
+}
+
+TEST_CASE("traffic: локальная расширенная карта содержит автомобильный маршрут из Мапо в Кандам") {
+    const auto file = std::filesystem::path(HAN_REPO_DIR) / "assets_src/osm/seoul_connected.osm";
+    if (!std::filesystem::exists(file)) return;  // исходные данные ODbL скачиваются отдельно и не хранятся в Git
+    han::world::OsmData data;
+    std::string error;
+    REQUIRE_MESSAGE(han::world::loadOsmFile(file.string(), data, error), error);
+    CHECK(data.waysWithMissingNodes == 0);
+    const auto graph = RoadGraph::build(data, han::world::GeoProjection(37.557, 126.914));
+    const auto from = graph.nearestNode({0, 0}), to = graph.nearestNode({10020, 6560});
+    REQUIRE(from >= 0); REQUIRE(to >= 0);
+    const auto route = graph.shortestPath(from, to);
+    REQUIRE_FALSE(route.empty());
+    float length = 0;
+    for (const auto edge : route) length += graph.edges()[edge].length;
+    CHECK(length > 10000);
+    CHECK(length < 40000);
+    MESSAGE("Мапо → Кандам: " << route.size() << " участков, " << length << " м, граф " << graph.edges().size() << " рёбер");
+}
+
+TEST_CASE("traffic: далёкие дороги не мешают заселению возле игрока, перенос фокуса обновляет выбор") {
+    std::vector<RoadGraph::Line> lines;
+    for (int i = 0; i < 10000; ++i) {
+        const float z = 10000.f + i * 20.f;
+        lines.push_back({{{0, z}, {300, z}}, RoadClass::Local, false, 1});
+    }
+    lines.push_back({{{-200, 0}, {200, 0}}, RoadClass::Primary, false, 2});
+    const auto graph = RoadGraph::fromLines(lines);
+    TrafficSettings settings; settings.maxCars = 8; settings.spawnRadius = 250; settings.despawnRadius = 400;
+    TrafficSim sim(graph, settings);
+    sim.setFocus({0, 0});
+    for (int i = 0; i < 10; ++i) sim.update(.1f);
+    REQUIRE(sim.cars().size() == 8);
+    for (const auto& car : sim.cars()) CHECK(std::abs(car.pos.z) < 10);
+    CHECK(sim.overlaps() == 0);
+    sim.setFocus({0, 10000});
+    for (int i = 0; i < 10; ++i) sim.update(.1f);
+    REQUIRE(sim.cars().size() == 8);
+    for (const auto& car : sim.cars()) CHECK(car.pos.z > 9700);
+    sim.setFocus({100000, -100000});
+    sim.update(.1f);
+    CHECK(sim.cars().empty());
+}
 
 namespace {
 // Сетка n x n улиц с шагом step м: отрезок на каждый квартал, двусторонние дороги.

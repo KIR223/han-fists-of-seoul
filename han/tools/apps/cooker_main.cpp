@@ -5,6 +5,8 @@
 // FBX переводится в GLB через Blender (han/tools/blender/fbx_to_glb.py). Коды выхода: 0 — готово, 1 — ошибка, 2 — неверный запуск.
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -87,11 +89,18 @@ int cookTexture(const fs::path& input, const fs::path& output, bool srgb) {
 
 int main(int argc, char** argv) {
     bool optimize = true, textureMode = false, linear = false;
+    float spatialSize = 0;
     std::vector<std::string> args;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--no-optimize")) optimize = false;
         else if (!std::strcmp(argv[i], "--texture")) textureMode = true;
         else if (!std::strcmp(argv[i], "--linear")) linear = true;
+        else if (!std::strcmp(argv[i], "--spatial-size")) {
+            char* end = nullptr;
+            if (++i >= argc) return 2;
+            spatialSize = std::strtof(argv[i], &end);
+            if (!end || *end || !std::isfinite(spatialSize) || spatialSize < 1.f || spatialSize > 10000.f) return 2;
+        }
         else args.emplace_back(argv[i]);
     }
     if (textureMode) {
@@ -155,14 +164,16 @@ int main(int argc, char** argv) {
     // Текстуры: "tex_<ширина>x<высота>_<хэш содержимого>.ktx2" рядом с мешем, с полной цепочкой мипов (sRGB: усреднение в
     // линейном свете). Имя зависит только от содержимого, поэтому LOD-ы одного ассета и разные ассеты делят один файл.
     for (std::size_t i = 0; i < imported.textures.size(); ++i) {
-        const std::string name = textureFileName(imported.textures[i].width, imported.textures[i].height, imported.textures[i].rgba);
+        std::string name = textureFileName(imported.textures[i].width, imported.textures[i].height, imported.textures[i].rgba);
+        if (!imported.textures[i].srgb) name.insert(name.size() - 5, "_linear");  // одинаковые пиксели разных цветовых пространств не делят файл
+        if (imported.textures[i].alphaWeighted) name.insert(name.size() - 5, "_cutout");
         const fs::path file = output.parent_path() / name;
         if (fs::exists(file, ec)) {
             std::printf("текстура: %s (уже есть)\n", name.c_str());
         } else {
             render::TextureData texture = render::makeTexture(imported.textures[i].width, imported.textures[i].height,
-                                                              std::move(imported.textures[i].rgba), true);
-            render::generateMips(texture);
+                                                              std::move(imported.textures[i].rgba), imported.textures[i].srgb);
+            render::generateMips(texture, imported.textures[i].alphaWeighted);
             if (!render::saveKtx2File(file, texture, error)) {
                 std::fprintf(stderr, "%s\n", error.c_str());
                 return 1;
@@ -173,6 +184,9 @@ int main(int argc, char** argv) {
     }
 #endif
 
+    if (spatialSize > 0 && !tools::partitionMesh(mesh, spatialSize)) {
+        std::fprintf(stderr, "не удалось разделить меш на пространственные части\n"); return 1;
+    }
     if (optimize) tools::optimizeMesh(mesh);
     if (!render::saveMeshFile(output, mesh, error)) {  // меш пишется последним: по нему горячая перезагрузка видит готовый ассет
         std::fprintf(stderr, "%s\n", error.c_str());

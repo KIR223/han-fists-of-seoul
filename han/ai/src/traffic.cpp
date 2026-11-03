@@ -173,13 +173,19 @@ RoadGraph RoadGraph::build(const world::OsmData& data, const world::GeoProjectio
         if (onewayTag == "no") oneway = false;
         else if (onewayTag.empty() && cls == RoadClass::Motorway) oneway = true;
         const bool backwards = onewayTag == "-1";
-        const float width = std::max(world::roadWidth(highway), 4.f);
+        const float width = std::max(world::roadWidth(w), 4.f);
+        float centerOffset = 0.f;
+        const auto median = w.tag("han:median_half_width");
+        if (!median.empty()) {
+            const float value = std::strtof(std::string(median).c_str(), nullptr);
+            if (std::isfinite(value) && value >= 0 && value < width * .5f) centerOffset = value;
+        }
         int lanesTag = 0;
         const std::string_view lt = w.tag("lanes");
         if (!lt.empty()) lanesTag = std::atoi(std::string(lt).c_str());
         int perDir = lanesTag > 0 ? (oneway ? lanesTag : std::max(1, lanesTag / 2)) : (width >= 10.f || cls == RoadClass::Motorway ? 2 : 1);
         perDir = std::clamp(perDir, 1, 4);
-        const float laneW = std::clamp(width / static_cast<float>(oneway ? perDir : 2 * perDir), 2.6f, 3.6f);
+        const float laneW = std::clamp((width - 2 * centerOffset) / static_cast<float>(oneway ? perDir : 2 * perDir), 2.6f, 3.6f);
 
         std::size_t start = 0;
         for (std::size_t i = 1; i < pts.size(); ++i) {
@@ -197,6 +203,7 @@ RoadGraph RoadGraph::build(const world::OsmData& data, const world::GeoProjectio
                 e.cls = cls;
                 e.lanes = perDir;
                 e.laneWidth = laneW;
+                e.centerOffset = centerOffset;
                 e.speed = speedOf(cls, highway);
                 g.edges_.push_back(std::move(e));
             };
@@ -318,10 +325,35 @@ void TrafficSim::removeCar(std::size_t index) {
 
 void TrafficSim::spawnCars() {
     if (g_.edges().empty()) return;
+    if (cfg_.spawnRadius > 0.f) {
+        const float dx = focus_.x - spawnFocus_.x, dz = focus_.z - spawnFocus_.z;
+        const float margin = cfg_.spawnRadius * .25f;
+        if (!spawnCandidatesReady_ || dx * dx + dz * dz > margin * margin) {
+            spawnCandidates_.clear();
+            spawnFocus_ = focus_;
+            const float radius = cfg_.spawnRadius + margin;
+            for (std::size_t index = 0; index < g_.edges().size(); ++index) {
+                const auto& edge = g_.edges()[index];
+                if (edge.length < 12.f || edge.pts.empty()) continue;
+                float minX = edge.pts[0].x, maxX = minX, minZ = edge.pts[0].z, maxZ = minZ;
+                for (const auto& point : edge.pts) {
+                    minX = std::min(minX, point.x); maxX = std::max(maxX, point.x);
+                    minZ = std::min(minZ, point.z); maxZ = std::max(maxZ, point.z);
+                }
+                if (maxX >= focus_.x - radius && minX <= focus_.x + radius && maxZ >= focus_.z - radius && minZ <= focus_.z + radius)
+                    spawnCandidates_.push_back(index);
+            }
+            spawnCandidatesReady_ = true;
+        }
+        if (spawnCandidates_.empty()) return;
+    }
     std::uniform_real_distribution<float> u(0.f, 1.f);
     int attempts = 12;
     while (static_cast<int>(cars_.size()) < cfg_.maxCars && attempts-- > 0) {
-        const std::size_t ei = static_cast<std::size_t>(u(rng_) * static_cast<float>(g_.edges().size())) % g_.edges().size();
+        // На большой карте выбор из всех дорог почти всегда попадал за радиус игрока: улицы оставались пустыми.
+        const auto count = cfg_.spawnRadius > 0.f ? spawnCandidates_.size() : g_.edges().size();
+        const auto picked = static_cast<std::size_t>(u(rng_) * static_cast<float>(count)) % count;
+        const std::size_t ei = cfg_.spawnRadius > 0.f ? spawnCandidates_[picked] : picked;
         const RoadEdge& e = g_.edges()[ei];
         if (e.length < 12.f) continue;
         const float s = e.length * (0.1f + 0.8f * u(rng_));
@@ -505,7 +537,7 @@ void TrafficSim::step(float dt) {
             remove.push_back(i);
             continue;
         }
-        const float off = (static_cast<float>(c.lane) + 0.5f) * e->laneWidth;
+        const float off = e->centerOffset + (static_cast<float>(c.lane) + 0.5f) * e->laneWidth;
         const float mid = std::max(0.f, c.s - c.length * 0.5f);
         c.pos = e->pointAt(mid, off);
         const Vec2 d = e->directionAt(mid);

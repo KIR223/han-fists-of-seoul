@@ -22,7 +22,10 @@ public:
 
     NavGrid() = default;
     // Область [minX, maxX] x [minZ, maxZ]; клетка непроходима, если её центр внутри любого контура (контуры объединяются).
-    static NavGrid build(float minX, float minZ, float maxX, float maxZ, const std::vector<std::vector<Vec2>>& obstacles, const Settings& settings = {});
+    static NavGrid build(float minX, float minZ, float maxX, float maxZ, const std::vector<std::vector<Vec2>>& obstacles, const Settings& settings);
+    static NavGrid build(float minX, float minZ, float maxX, float maxZ, const std::vector<std::vector<Vec2>>& obstacles) {
+        return build(minX, minZ, maxX, maxZ, obstacles, Settings{});
+    }
 
     int width() const { return width_; }
     int height() const { return height_; }

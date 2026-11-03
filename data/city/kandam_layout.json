@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "origin": [10020, 6560],
+  "half_size": [360, 300],
+  "perimeter_half_size": [375, 335],
+  "clearance": 8,
+  "cross_x": [-270, -80, 100, 280],
+  "cross_z": [-200, 0, 200],
+  "boulevard_width": 48,
+  "boulevard_lanes": 8,
+  "boulevard_median_half_width": 2.25,
+  "cross_width": 22,
+  "cross_lanes": 4,
+  "secondary_width": 20,
+  "secondary_lanes": 4,
+  "perimeter_width": 12,
+  "perimeter_lanes": 2
+}

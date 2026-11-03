@@ -34,6 +34,11 @@ public:
     contracts::EntityId addStaticBox(contracts::Vec3 center, contracts::Vec3 halfExtents,
                                      contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Concrete,
                                      contracts::Quat rotation = {});
+    // Статическая геометрия района: локальные вершины и тройки индексов, перенос center в мировые метры.
+    // Некорректная/вырожденная геометрия возвращает kNoEntity без создания тела.
+    contracts::EntityId addStaticMesh(contracts::Vec3 center, const std::vector<contracts::Vec3>& vertices,
+                                      const std::vector<std::uint32_t>& indices,
+                                      contracts::SurfaceMaterial material = contracts::SurfaceMaterial::Concrete);
     // Рельеф (E17): квадратная сетка высот sampleCount x sampleCount (чётное, до 256) с углом (minX, minZ), шагом cell метров, строки по z, высоты абсолютные.
     // Для больших карт создаётся по плитке рядом с игроком и убирается через destroy().
     contracts::EntityId addStaticHeightfield(float minX, float minZ, float cell, int sampleCount, const std::vector<float>& heights,
