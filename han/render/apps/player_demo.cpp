@@ -25,6 +25,10 @@
 #include "han/render/lighting.h"
 #include "han/render/mesh.h"
 #include "han/render/renderer.h"
+#ifdef HAN_WITH_ANIM
+#include "han/anim/character.h"
+#include "han/player/common_visuals.h"
+#endif
 #ifdef HAN_WITH_IMGUI
 #include "han/ui/imgui_layer.h"
 #endif
@@ -121,6 +125,19 @@ int main(int argc, char** argv) {
     const auto ground = renderer->uploadMesh(groundData, checkerSlots);
     const auto heroMesh = renderer->uploadMesh(material(han::render::makeBox({0.28f, 0.9f, 0.2f}, {0.95f, 0.8f, 0.2f}), 0.0f, 0.6f));
     if (!ground || !heroMesh) return 1;
+#ifdef HAN_WITH_ANIM
+    han::anim::Character animatedCharacter;
+    han::render::MeshId animatedMesh=0;
+    std::unique_ptr<han::anim::Pose> animatedPose;
+    pl::CommonVisuals commonVisuals;pl::CommonSample commonSample;
+    if(std::filesystem::exists("assets_bin/cooked/quaternius_ual/Boxing.hchar")) {
+        if(!animatedCharacter.load("assets_bin/cooked/quaternius_ual/Boxing.hchar",error) || !commonVisuals.load("data/combat/common_visuals.json",error)) {std::fprintf(stderr,"анимация игрока: %s\n",error.c_str());return 1;}
+        animatedMesh=renderer->uploadMesh(animatedCharacter.mesh());if(!animatedMesh)return 1;
+        animatedPose=std::make_unique<han::anim::Pose>(animatedCharacter);
+        std::printf("A1 player: %d костей\n",animatedCharacter.boneCount());
+    }
+    float visualStep=0;
+#endif
 
     // --- Полигон: каждый блок — тело физики и меш ---
     struct Block {
@@ -221,6 +238,9 @@ int main(int argc, char** argv) {
                 hero = world->create({}, spawn);
                 player = std::make_unique<pl::PlayerController>(hero, *world, *world, ps);
                 rig.snapTo(spawn, world.get());
+#ifdef HAN_WITH_ANIM
+                commonVisuals.reset();
+#endif
             }
         }
         const auto pos = world->state(hero).position;
@@ -238,6 +258,13 @@ int main(int argc, char** argv) {
             player->update(static_cast<float>(kStep), in, rig.yaw());
             in.jumpPressed = false;
             world->step(static_cast<float>(kStep));
+#ifdef HAN_WITH_ANIM
+            if(animatedMesh) {
+                const auto state=world->state(hero);
+                commonSample=commonVisuals.advance(static_cast<float>(kStep),state.grounded,state.velocity.y,player->horizontalSpeed(),player->action()==pl::PlayerAction::Sprinting);
+                visualStep+=static_cast<float>(kStep);
+            }
+#endif
             accumulator -= kStep;
         }
         const auto st = world->state(hero);
@@ -280,6 +307,14 @@ int main(int argc, char** argv) {
         std::vector<han::render::DrawItem> items;
         items.push_back({ground, Mat4::identity()});
         for (const Block& b : blocks) items.push_back({b.mesh, b.transform});
+#ifdef HAN_WITH_ANIM
+        if(animatedMesh) {
+            if(commonSample.clip.empty())commonSample=commonVisuals.advance(0,st.grounded,st.velocity.y,player->horizontalSpeed(),false);
+            if(!animatedPose->sample(commonSample.clip,commonSample.phase*animatedCharacter.duration(commonSample.clip),visualStep,commonSample.fadeSeconds,commonSample.loop))return 1;
+            visualStep=0;
+            items.push_back({animatedMesh,Mat4::translation({st.position.x,st.position.y,st.position.z})*Mat4::rotationY(3.14159265f-player->facingYaw()),animatedPose->palette()});
+        } else
+#endif
         items.push_back({heroMesh, Mat4::translation({st.position.x, st.position.y + 0.9f, st.position.z}) * Mat4::rotationY(-player->facingYaw())});
 
         han::render::FrameParams params;
