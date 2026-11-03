@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 
 #include "han/world/city_builder.h"
 #include "han/world/osm.h"
@@ -21,6 +22,22 @@ Heightmap slope() {
     return Heightmap::fromGrid(0.f, 0.f, 25.f, 41, 21, h);
 }
 }  // namespace
+
+TEST_CASE("terrain: район выравнивается, переход плавный, дальний рельеф сохраняется") {
+    auto map = slope();
+    const auto original = map;
+    REQUIRE(map.flattenArea(200, 100, 400, 300, 25, 100));
+    CHECK(map.heightAt(200, 100) == doctest::Approx(25));
+    CHECK(map.heightAt(399, 299) == doctest::Approx(25));
+    CHECK(map.heightAt(300, 200) == doctest::Approx(25));
+    CHECK(map.heightAt(900, 200) == original.heightAt(900, 200));
+    CHECK(map.heightAt(475, 200) > 25);
+    CHECK(map.heightAt(475, 200) < original.heightAt(475, 200));
+    CHECK_FALSE(map.flattenArea(400, 100, 200, 300, 25, 100));
+    CHECK_FALSE(map.flattenArea(200, 100, 400, 300, 25, 0));
+    CHECK_FALSE(map.flattenArea(200, 100, 400, 300, std::nanf(""), 100));
+    CHECK(map.heightAt(300, 200) == doctest::Approx(25));
+}
 
 TEST_CASE("terrain: билинейная высота, края не обрываются, нормаль наклонена против склона") {
     const Heightmap m = slope();
@@ -310,6 +327,102 @@ TEST_CASE("city colliders: у дома четыре тонкие стены; в 
 }
 
 #include "han/world/cell_io.h"
+
+TEST_CASE("cell_io: большие объекты и высотный рельеф сохраняются без зажима, HCL1 совместим") {
+    const auto file = (std::filesystem::temp_directory_path() / "han_cell_wide.hcell").string();
+    for (const bool wide : {false, true}) {
+        CityChunk original, loaded;
+        GeoVertex v{};
+        v.position[0] = wide ? -30.f : 20.f;
+        v.position[1] = wide ? 1200.f : 10.f;
+        v.position[2] = wide ? 1200.f : 20.f;
+        original.ground.vertices = {v};
+        original.ground.indices = {0, 0, 0};
+        original.ground.ranges = {{0, 3, GeoMaterial::Road}};
+        std::string error;
+        REQUIRE_MESSAGE(saveCell(file, {0, 0}, 256.f, original, error), error);
+        char magic[4]{};
+        std::ifstream(file, std::ios::binary).read(magic, 4);
+        CHECK(std::string(magic, 4) == (wide ? "HCL2" : "HCL1"));
+        CellCoord c;
+        float size = 0.f;
+        REQUIRE_MESSAGE(loadCell(file, c, size, loaded, error), error);
+        REQUIRE(loaded.ground.vertices.size() == 1);
+        for (int k = 0; k < 3; ++k) CHECK(loaded.ground.vertices[0].position[k] == doctest::Approx(v.position[k]));
+    }
+    std::filesystem::remove(file);
+}
+
+TEST_CASE("cell_io: переполнение, дыры и неполные треугольники в диапазонах отклоняются") {
+    const auto file = (std::filesystem::temp_directory_path() / "han_cell_ranges.hcell").string();
+    CityChunk chunk, loaded;
+    chunk.ground.vertices = {GeoVertex{}};
+    chunk.ground.indices = {0, 0, 0};
+    chunk.ground.ranges = {{0, 3, GeoMaterial::Road}};
+    std::string error;
+    REQUIRE(saveCell(file, {0, 0}, 256.f, chunk, error));
+    std::ifstream in(file, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(in)), {});
+    in.close();
+    // Заголовок 16, числа элементов 12, вершина HCL1 20, индексы 12.
+    constexpr std::size_t rangeOffset = 16 + 12 + 20 + 12;
+    for (const auto [first, count] : {std::pair<std::uint32_t, std::uint32_t>{0xffffffffu, 3}, {1, 2}, {0, 2}, {0, 6}}) {
+        std::string damaged = bytes;
+        for (int k = 0; k < 4; ++k) {
+            damaged[rangeOffset + k] = static_cast<char>(first >> (k * 8));
+            damaged[rangeOffset + 4 + k] = static_cast<char>(count >> (k * 8));
+        }
+        std::ofstream(file, std::ios::binary).write(damaged.data(), static_cast<std::streamsize>(damaged.size()));
+        CellCoord c;
+        float size = 0.f;
+        CHECK_FALSE(loadCell(file, c, size, loaded, error));
+        chunk.ground.ranges = {{first, count, GeoMaterial::Road}};
+        CHECK_FALSE(saveCell(file, {0, 0}, 256.f, chunk, error));
+    }
+    std::filesystem::remove(file);
+}
+
+TEST_CASE("cell_io: NaN и бесконечный размер не записываются") {
+    const auto file = (std::filesystem::temp_directory_path() / "han_cell_nan.hcell").string();
+    CityChunk chunk;
+    chunk.ground.vertices = {GeoVertex{}};
+    chunk.ground.indices = {0, 0, 0};
+    std::string error;
+    chunk.ground.vertices[0].position[0] = std::numeric_limits<float>::quiet_NaN();
+    CHECK_FALSE(saveCell(file, {0, 0}, 256.f, chunk, error));
+    chunk.ground.vertices.clear();
+    chunk.ground.indices.clear();
+    CHECK_FALSE(saveCell(file, {0, 0}, std::numeric_limits<float>::infinity(), chunk, error));
+    chunk.lamps = {{0.f, std::numeric_limits<float>::infinity(), 0.f}};
+    CHECK_FALSE(saveCell(file, {0, 0}, 256.f, chunk, error));
+    chunk.lamps.clear();
+    chunk.walls = {{{0, 0, 0}, {1, -1, 1}, 0}};
+    CHECK_FALSE(saveCell(file, {0, 0}, 256.f, chunk, error));
+}
+
+TEST_CASE("cell_io: фоновое чтение проверяет координаты, размер и ошибки файла") {
+    const auto file = (std::filesystem::temp_directory_path() / "han_cell_async.hcell").string();
+    CityChunk chunk;
+    std::string error;
+    REQUIRE(saveCell(file, {-2, 3}, 256.f, chunk, error));
+    CHECK(loadCellAsync(file, {-2, 3}, 256.f).get().ok);
+    const auto wrongCell = loadCellAsync(file, {2, 3}, 256.f).get();
+    CHECK_FALSE(wrongCell.ok);
+    CHECK_FALSE(wrongCell.error.empty());
+    CHECK_FALSE(loadCellAsync(file, {-2, 3}, 128.f).get().ok);
+    std::ofstream(file, std::ios::binary | std::ios::app) << 'x';
+    CellCoord unchanged{8, 9};
+    float unchangedSize = 128.f;
+    chunk.lamps = {{1, 2, 3}};
+    CHECK_FALSE(loadCell(file, unchanged, unchangedSize, chunk, error));
+    CHECK(unchanged == CellCoord{8, 9});
+    CHECK(unchangedSize == 128.f);
+    CHECK(chunk.lamps.size() == 1);
+    std::filesystem::remove(file);
+    const auto missing = loadCellAsync(file, {-2, 3}, 256.f).get();
+    CHECK_FALSE(missing.ok);
+    CHECK_FALSE(missing.error.empty());
+}
 
 TEST_CASE("cell_io: запечённая ячейка читается обратно — те же индексы и части, позиции до 1 см, фонари и коллайдеры совпадают; плохие файлы отклоняются") {
     const Heightmap m = slope();

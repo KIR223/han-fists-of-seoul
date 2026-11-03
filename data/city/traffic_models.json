@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "meshes": ["VH_CityCompact.hmesh", "VH_CitySedan.hmesh", "VH_CityMinivan.hmesh", "VH_CitySUV.hmesh"],
+  "lod_near": 25,
+  "lod_mid": 65,
+  "lod_far": 140,
+  "shadow_radius": 90,
+  "warmup_seconds": 60
+}

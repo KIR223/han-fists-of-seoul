@@ -9,6 +9,8 @@
 #include "han/render/generated/mesh_frag.h"
 #include "han/render/generated/mesh_vert.h"
 #include "han/render/generated/shadow_vert.h"
+#include "han/render/generated/shadow_mask_vert.h"
+#include "han/render/generated/shadow_mask_frag.h"
 #include "han/render/generated/sky_frag.h"
 #include "han/render/generated/sky_vert.h"
 #include "han/render/renderer.h"
@@ -25,6 +27,7 @@ using vk::fail;
 using vk::PipelineDesc;
 
 constexpr int kFramesInFlight = 2;
+constexpr std::uint32_t kPaletteCapacity = 32768;
 constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 constexpr VkFormat kHdrFormat = VK_FORMAT_R16G16B16A16_SFLOAT;  // сцена рисуется в линейном HDR, затем тонмаппинг в экран
@@ -35,6 +38,8 @@ struct VertexPush {
 };
 struct FragmentPush {
     float material[4];
+    float surface[4];
+    float emissive[4];
 };
 constexpr std::uint32_t kFragmentPushOffset = sizeof(VertexPush);
 
@@ -56,8 +61,9 @@ struct FrameUbo {
     float lightPos[32][4];       // точечные источники: xyz — позиция, w — радиус действия (м)
     float lightColor[32][4];     // rgb — цвет, умноженный на яркость
     float lightInfo[4];          // x — сколько источников, y — влажность поверхностей 0..1
+    float emission[4];           // x — окна, y — вывески (раздельные интенсивности)
 };
-static_assert(sizeof(FrameUbo) == 1520, "FrameUbo должен совпадать с std140-блоком Frame");
+static_assert(sizeof(FrameUbo) == 1536, "FrameUbo должен совпадать с std140-блоком Frame");
 
 // Push constants теневого прохода (vertex): матрица модели и номер каскада.
 struct ShadowPush {
@@ -84,6 +90,14 @@ struct GpuSubmesh {
     TextureId texture = 0;  // 0 — белая текстура
     float metallic = 0.0f, roughness = 0.5f;
     TextureId normalTexture = 0, roughnessTexture = 0;  // 0 — нет карты
+    float alphaCutoff = 0.5f;
+    AlphaMode alphaMode = AlphaMode::EmissiveMask;
+    bool doubleSided = false;
+    float opacity = 1.f;
+    TextureId emissiveTexture = 0;
+    float emissive[3] = {};
+    core::Vec3 center{};
+    float boundsMin[3] = {}, boundsMax[3] = {};
 };
 
 
@@ -138,6 +152,8 @@ struct GpuMesh {
     VkDeviceMemory vertexMemory = VK_NULL_HANDLE, indexMemory = VK_NULL_HANDLE;
     std::uint32_t indexCount = 0;
     std::vector<GpuSubmesh> submeshes;
+    bool skinned = false;
+    std::uint32_t maxJoint = 0;
 };
 
 struct GpuTexture {
@@ -199,6 +215,9 @@ struct Renderer::Impl {
     std::array<VkDeviceMemory, kFramesInFlight> frameMemory{};
     std::array<void*, kFramesInFlight> frameMapped{};
     std::array<VkDescriptorSet, kFramesInFlight> frameSets{};
+    std::array<VkBuffer, kFramesInFlight> skinBuffers{};
+    std::array<VkDeviceMemory, kFramesInFlight> skinMemory{};
+    std::array<void*, kFramesInFlight> skinMapped{};
     VkSampler clampSampler = VK_NULL_HANDLE;  // для чтения HDR: линейная фильтрация без повтора
 
     // Каскадные карты теней: одно изображение-массив из kShadowCascades слоёв, по виду на слой для записи и общий вид для чтения.
@@ -210,6 +229,9 @@ struct Renderer::Impl {
     VkSampler shadowSampler = VK_NULL_HANDLE;  // сравнивающий: аппаратный PCF
     VkPipelineLayout shadowLayout = VK_NULL_HANDLE;
     VkPipeline shadowPipeline = VK_NULL_HANDLE;
+    VkPipeline doubleSidedPipeline = VK_NULL_HANDLE, shadowDoublePipeline = VK_NULL_HANDLE;
+    VkPipeline blendPipeline = VK_NULL_HANDLE, blendDoublePipeline = VK_NULL_HANDLE;
+    VkPipeline shadowMaskPipeline = VK_NULL_HANDLE, shadowMaskDoublePipeline = VK_NULL_HANDLE;
 
     VkCommandPool pool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, kFramesInFlight> cmds{};
@@ -218,6 +240,8 @@ struct Renderer::Impl {
     int frame = 0;
 
     std::vector<GpuMesh> meshes;  // MeshId = индекс + 1
+    struct RetiredMesh { GpuMesh mesh; unsigned pendingFrames; };
+    std::vector<RetiredMesh> retiredMeshes;
     IOverlay* overlay = nullptr;
 
     // Текстуры: общий сэмплер, один набор дескрипторов на текстуру. TextureId = индекс + 1; освобождённые слоты пустые.
@@ -352,6 +376,15 @@ bool Renderer::Impl::pickDevice(std::string& err) {
     VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     f13.dynamicRendering = VK_TRUE;
     f13.synchronization2 = VK_TRUE;
+    VkPhysicalDeviceVulkan13Features supported13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    VkPhysicalDeviceFeatures2 supportedFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    supportedFeatures.pNext = &supported13;
+    vkGetPhysicalDeviceFeatures2(physical, &supportedFeatures);
+    if (!supported13.shaderDemoteToHelperInvocation) {
+        err = "GPU не поддерживает shaderDemoteToHelperInvocation для вырезаемых материалов";
+        return false;
+    }
+    f13.shaderDemoteToHelperInvocation = VK_TRUE;
 
     VkPhysicalDeviceFeatures supported{};
     vkGetPhysicalDeviceFeatures(physical, &supported);
@@ -597,7 +630,7 @@ bool Renderer::Impl::createSwapchain(int width, int height, std::string& err) {
 bool Renderer::Impl::createPipeline(std::string& err) {
     // Меши и небо: set 0 — текстура материала, set 1 — данные кадра; push constants — матрица модели и материал.
     // set 2 — карта нормалей, set 3 — карта шероховатости (тот же layout: одна комбинированная текстура).
-    const std::array<VkDescriptorSetLayout, 4> sceneSets{setLayout, frameLayout, setLayout, setLayout};
+    const std::array<VkDescriptorSetLayout, 5> sceneSets{setLayout, frameLayout, setLayout, setLayout, setLayout};
     const std::array<VkPushConstantRange, 2> scenePush{{
         {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VertexPush)},
         {VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(FragmentPush)},
@@ -624,14 +657,27 @@ bool Renderer::Impl::createPipeline(std::string& err) {
     mesh.cull = VK_CULL_MODE_BACK_BIT;
     r = buildPipeline(device, mesh, pipeline);
     if (r != VK_SUCCESS) return fail(err, "конвейер мешей", r);
+    mesh.cull = VK_CULL_MODE_NONE;
+    r = buildPipeline(device, mesh, doubleSidedPipeline);
+    if (r != VK_SUCCESS) return fail(err, "двусторонние меши", r);
+    mesh.alphaBlend = true;
+    mesh.depthWrite = false;
+    r = buildPipeline(device, mesh, blendDoublePipeline);
+    if (r != VK_SUCCESS) return fail(err, "двустороннее стекло", r);
+    mesh.cull = VK_CULL_MODE_BACK_BIT;
+    r = buildPipeline(device, mesh, blendPipeline);
+    if (r != VK_SUCCESS) return fail(err, "прозрачные меши", r);
 
     // Тени: тот же набор дескрипторов (set 1 — данные кадра), push constants — модель и номер каскада; только вершинный шейдер.
-    const VkPushConstantRange shadowPush{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPush)};
+    const std::array<VkPushConstantRange, 2> shadowPush{{
+        {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPush)},
+        {VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(ShadowPush), sizeof(float)},
+    }};
     VkPipelineLayoutCreateInfo sli{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     sli.setLayoutCount = static_cast<std::uint32_t>(sceneSets.size());
     sli.pSetLayouts = sceneSets.data();
-    sli.pushConstantRangeCount = 1;
-    sli.pPushConstantRanges = &shadowPush;
+    sli.pushConstantRangeCount = static_cast<std::uint32_t>(shadowPush.size());
+    sli.pPushConstantRanges = shadowPush.data();
     r = vkCreatePipelineLayout(device, &sli, nullptr, &shadowLayout);
     if (r != VK_SUCCESS) return fail(err, "vkCreatePipelineLayout (тени)", r);
 
@@ -648,6 +694,20 @@ bool Renderer::Impl::createPipeline(std::string& err) {
     shadow.depthBias = true;
     r = buildPipeline(device, shadow, shadowPipeline);
     if (r != VK_SUCCESS) return fail(err, "конвейер теней", r);
+    shadow.cull = VK_CULL_MODE_NONE;
+    r = buildPipeline(device, shadow, shadowDoublePipeline);
+    if (r != VK_SUCCESS) return fail(err, "двусторонние тени", r);
+    shadow.vert = shaders::k_shadow_mask_vert;
+    shadow.vertBytes = sizeof(shaders::k_shadow_mask_vert);
+    shadow.frag = shaders::k_shadow_mask_frag;
+    shadow.fragBytes = sizeof(shaders::k_shadow_mask_frag);
+    shadow.positionOnly = false;
+    shadow.positionUvOnly = true;
+    r = buildPipeline(device, shadow, shadowMaskDoublePipeline);
+    if (r != VK_SUCCESS) return fail(err, "двусторонние тени листвы", r);
+    shadow.cull = VK_CULL_MODE_BACK_BIT;
+    r = buildPipeline(device, shadow, shadowMaskPipeline);
+    if (r != VK_SUCCESS) return fail(err, "вырезаемые тени", r);
 
     PipelineDesc sky;  // небо — на дальней плоскости, поэтому «меньше или равно» и без записи глубины
     sky.vert = shaders::k_sky_vert;
@@ -742,6 +802,10 @@ bool Renderer::Impl::createFrameData(std::string& err) {
         vkBindBufferMemory(device, frameBuffers[i], frameMemory[i], 0);
         r = vkMapMemory(device, frameMemory[i], 0, sizeof(FrameUbo), 0, &frameMapped[i]);
         if (r != VK_SUCCESS) return fail(err, "vkMapMemory (данные кадра)", r);
+        const VkDeviceSize paletteBytes = kPaletteCapacity * sizeof(core::Mat4);
+        if (!createBuffer(nullptr, paletteBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, skinBuffers[i], skinMemory[i], err)) return false;
+        r = vkMapMemory(device, skinMemory[i], 0, paletteBytes, 0, &skinMapped[i]);
+        if (r != VK_SUCCESS) return fail(err, "vkMapMemory (палитры)", r);
 
         VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         dai.descriptorPool = descriptorPool;
@@ -751,7 +815,8 @@ bool Renderer::Impl::createFrameData(std::string& err) {
         if (r != VK_SUCCESS) return fail(err, "vkAllocateDescriptorSets (данные кадра)", r);
         VkDescriptorBufferInfo info{frameBuffers[i], 0, sizeof(FrameUbo)};
         VkDescriptorImageInfo shadowInfo{shadowSampler, shadowArrayView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
-        std::array<VkWriteDescriptorSet, 2> writes{};
+        VkDescriptorBufferInfo skinInfo{skinBuffers[i], 0, paletteBytes};
+        std::array<VkWriteDescriptorSet, 3> writes{};
         writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         writes[0].dstSet = frameSets[i];
         writes[0].dstBinding = 0;
@@ -764,6 +829,12 @@ bool Renderer::Impl::createFrameData(std::string& err) {
         writes[1].descriptorCount = 1;
         writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         writes[1].pImageInfo = &shadowInfo;
+        writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[2].dstSet = frameSets[i];
+        writes[2].dstBinding = 2;
+        writes[2].descriptorCount = 1;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[2].pBufferInfo = &skinInfo;
         vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
     return true;
@@ -829,7 +900,8 @@ bool Renderer::Impl::createTextureObjects(std::string& err) {
     shadowBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     shadowBinding.descriptorCount = 1;
     shadowBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    const std::array<VkDescriptorSetLayoutBinding, 2> frameBindings{frameBinding, shadowBinding};
+    const VkDescriptorSetLayoutBinding skinBinding{2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+    const std::array<VkDescriptorSetLayoutBinding, 3> frameBindings{frameBinding, shadowBinding, skinBinding};
     VkDescriptorSetLayoutCreateInfo fli{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     fli.bindingCount = static_cast<std::uint32_t>(frameBindings.size());
     fli.pBindings = frameBindings.data();
@@ -838,8 +910,9 @@ bool Renderer::Impl::createTextureObjects(std::string& err) {
 
     // 1024 текстуры, плюс запас на HDR-цель; отдельные места под данные кадра.
     constexpr std::uint32_t kMaxTextures = 1024 + 16;
-    const std::array<VkDescriptorPoolSize, 2> sizes{{{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxTextures},
-                                                     {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kFramesInFlight}}};
+    const std::array<VkDescriptorPoolSize, 3> sizes{{{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxTextures},
+                                                     {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kFramesInFlight},
+                                                     {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kFramesInFlight}}};
     VkDescriptorPoolCreateInfo pci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     pci.maxSets = kMaxTextures + kFramesInFlight;
@@ -1040,6 +1113,24 @@ bool Renderer::Impl::createTexture(const TextureData& data, GpuTexture& out, std
 }
 
 bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId> textureIds, GpuMesh& out, std::string& err) {
+    if (!mesh.skin.empty() && mesh.skin.size() != mesh.vertices.size()) { err = "skin/vertices: разные размеры"; return false; }
+    out.skinned = !mesh.skin.empty();
+    std::vector<vk::GpuVertex> vertices(mesh.vertices.size());
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        vertices[i].vertex = mesh.vertices[i];
+        if (out.skinned) {
+            vertices[i].skin = mesh.skin[i];
+            float sum = 0;
+            for (int k = 0; k < 4; ++k) {
+                const auto j = mesh.skin[i].joints[k];
+                const float w = mesh.skin[i].weights[k];
+                if (j >= 128 || !std::isfinite(w) || w < 0) { err = "неверные joint/weight"; return false; }
+                out.maxJoint = std::max(out.maxJoint, j);
+                sum += w;
+            }
+            if (std::fabs(sum - 1.f) > 0.001f) { err = "веса skin не нормализованы"; return false; }
+        }
+    }
     out.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
     if (!mesh.vertices.empty()) {
         for (int a = 0; a < 3; ++a) out.boundsMin[a] = out.boundsMax[a] = mesh.vertices[0].position[a];
@@ -1055,9 +1146,27 @@ bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId>
         const auto pick = [&](std::int32_t index) -> TextureId {
             return index >= 0 && static_cast<std::size_t>(index) < textureIds.size() ? textureIds[static_cast<std::size_t>(index)] : 0;
         };
-        out.submeshes.push_back({s.firstIndex, s.indexCount, tex, s.metallic, s.roughness, pick(s.normalTexture), pick(s.roughnessTexture)});
+        out.submeshes.push_back({s.firstIndex, s.indexCount, tex, s.metallic, s.roughness, pick(s.normalTexture), pick(s.roughnessTexture), s.alphaCutoff, s.alphaMode, s.doubleSided});
+        auto& part = out.submeshes.back();
+        part.opacity = s.opacity;
+        part.emissiveTexture = pick(s.emissiveTexture);
+        std::copy(std::begin(s.emissive), std::end(s.emissive), std::begin(part.emissive));
+        if (s.indexCount) {
+            core::Vec3 low{}, high{};
+            for (std::uint32_t i = 0; i < s.indexCount; ++i) {
+                const auto& vertex = mesh.vertices[mesh.indices[s.firstIndex + i]];
+                if (i == 0) low = high = {vertex.position[0], vertex.position[1], vertex.position[2]};
+                else {
+                    low = {std::min(low.x, vertex.position[0]), std::min(low.y, vertex.position[1]), std::min(low.z, vertex.position[2])};
+                    high = {std::max(high.x, vertex.position[0]), std::max(high.y, vertex.position[1]), std::max(high.z, vertex.position[2])};
+                }
+            }
+            part.center = {(low.x + high.x) * .5f, (low.y + high.y) * .5f, (low.z + high.z) * .5f};
+            part.boundsMin[0] = low.x; part.boundsMin[1] = low.y; part.boundsMin[2] = low.z;
+            part.boundsMax[0] = high.x; part.boundsMax[1] = high.y; part.boundsMax[2] = high.z;
+        }
     }
-    const bool ok = createBuffer(mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    const bool ok = createBuffer(vertices.data(), vertices.size() * sizeof(vk::GpuVertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                  out.vertexBuffer, out.vertexMemory, err) &&
                     createBuffer(mesh.indices.data(), mesh.indices.size() * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                                  out.indexBuffer, out.indexMemory, err);
@@ -1069,6 +1178,7 @@ void Renderer::Impl::destroyAll() {
     if (device) {
         vkDeviceWaitIdle(device);
         for (GpuMesh& m : meshes) destroyMesh(m);
+        for (auto& retired : retiredMeshes) destroyMesh(retired.mesh);
         for (int i = 0; i < kFramesInFlight; ++i) {
             if (imageAvailable[i]) vkDestroySemaphore(device, imageAvailable[i], nullptr);
             if (inFlight[i]) vkDestroyFence(device, inFlight[i], nullptr);
@@ -1081,6 +1191,9 @@ void Renderer::Impl::destroyAll() {
             if (frameMapped[i]) vkUnmapMemory(device, frameMemory[i]);
             if (frameBuffers[i]) vkDestroyBuffer(device, frameBuffers[i], nullptr);
             if (frameMemory[i]) vkFreeMemory(device, frameMemory[i], nullptr);
+            if (skinMapped[i]) vkUnmapMemory(device, skinMemory[i]);
+            if (skinBuffers[i]) vkDestroyBuffer(device, skinBuffers[i], nullptr);
+            if (skinMemory[i]) vkFreeMemory(device, skinMemory[i], nullptr);
         }
         if (frameLayout) vkDestroyDescriptorSetLayout(device, frameLayout, nullptr);
         if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
@@ -1088,6 +1201,8 @@ void Renderer::Impl::destroyAll() {
         if (clampSampler) vkDestroySampler(device, clampSampler, nullptr);
         if (pool) vkDestroyCommandPool(device, pool, nullptr);
         if (shadowPipeline) vkDestroyPipeline(device, shadowPipeline, nullptr);
+        for (auto extraPipeline : {doubleSidedPipeline, blendPipeline, blendDoublePipeline, shadowDoublePipeline, shadowMaskPipeline, shadowMaskDoublePipeline})
+            if (extraPipeline) vkDestroyPipeline(device, extraPipeline, nullptr);
         if (shadowLayout) vkDestroyPipelineLayout(device, shadowLayout, nullptr);
         if (shadowSampler) vkDestroySampler(device, shadowSampler, nullptr);
         for (const VkImageView view : shadowLayerViews)
@@ -1210,8 +1325,8 @@ MeshId Renderer::uploadMesh(const MeshData& mesh, std::span<const TextureId> tex
 void Renderer::releaseMesh(MeshId id) {
     Impl& s = *impl_;
     if (id == 0 || id > s.meshes.size() || s.meshes[id - 1].indexCount == 0) return;
-    vkDeviceWaitIdle(s.device);  // буферы могут ещё использоваться предыдущими кадрами
-    s.destroyMesh(s.meshes[id - 1]);
+    s.retiredMeshes.push_back({std::move(s.meshes[id - 1]), (1u << kFramesInFlight) - 1u});
+    s.meshes[id - 1] = {};
 }
 
 bool Renderer::replaceMesh(MeshId id, const MeshData& mesh, std::span<const TextureId> textures) {
@@ -1223,8 +1338,7 @@ bool Renderer::replaceMesh(MeshId id, const MeshData& mesh, std::span<const Text
         std::fprintf(stderr, "replaceMesh: %s\n", err.c_str());
         return false;
     }
-    vkDeviceWaitIdle(s.device);  // старые буферы могут ещё использоваться предыдущими кадрами
-    s.destroyMesh(s.meshes[id - 1]);
+    s.retiredMeshes.push_back({std::move(s.meshes[id - 1]), (1u << kFramesInFlight) - 1u});
     s.meshes[id - 1] = fresh;
     return true;
 }
@@ -1245,6 +1359,29 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
 
     const int f = s.frame;
     vkWaitForFences(s.device, 1, &s.inFlight[f], VK_TRUE, UINT64_MAX);
+    for (auto it = s.retiredMeshes.begin(); it != s.retiredMeshes.end();) {
+        it->pendingFrames &= ~(1u << f);
+        if (it->pendingFrames == 0) {
+            s.destroyMesh(it->mesh);
+            it = s.retiredMeshes.erase(it);
+        } else ++it;
+    }
+    // Нулевой instance — статический mesh. Остальные — смещение палитры в SSBO.
+    std::vector<std::uint32_t> paletteOffsets(items.size(), 0);
+    std::uint32_t paletteEnd = 1;
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        const auto& item = items[i];
+        if (!item.mesh || item.mesh > s.meshes.size()) continue;
+        const auto& mesh = s.meshes[item.mesh - 1];
+        if (!mesh.skinned) continue;
+        if (item.bones.size() <= mesh.maxJoint || item.bones.size() > 128 || paletteEnd + item.bones.size() > kPaletteCapacity) {
+            std::fprintf(stderr, "drawFrame: неверная или переполненная палитра skin\n"); return false;
+        }
+        for (const auto& matrix : item.bones) for (float v : matrix.m) if (!std::isfinite(v)) return false;
+        paletteOffsets[i] = paletteEnd;
+        std::memcpy(static_cast<core::Mat4*>(s.skinMapped[f]) + paletteEnd, item.bones.data(), item.bones.size_bytes());
+        paletteEnd += static_cast<std::uint32_t>(item.bones.size());
+    }
 
     std::uint32_t index = 0;
     VkResult r = vkAcquireNextImageKHR(s.device, s.swapchain, UINT64_MAX, s.imageAvailable[f], VK_NULL_HANDLE, &index);
@@ -1284,6 +1421,9 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     ubo.params[0] = frame.exposure;
     ubo.params[1] = frame.fogDensity;
     ubo.params[2] = frame.neonBoost;
+    ubo.emission[0] = frame.windowEmission;
+    ubo.emission[1] = frame.signEmission;
+    ubo.emission[2] = std::clamp(frame.litWindowFraction, 0.f, 1.f);
     {
         const std::size_t count = std::min<std::size_t>(frame.pointLights.size(), 32);
         for (std::size_t i = 0; i < count; ++i) {
@@ -1378,22 +1518,42 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
             vkCmdSetScissor(cmd, 0, 1, &shadowScissor);
             vkCmdSetDepthBias(cmd, 1.25f, 0.0f, 1.75f);  // постоянное и наклонное смещение против «лесенки»
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowPipeline);
+            VkPipeline boundShadow = s.shadowPipeline;
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowLayout, 1, 1, &s.frameSets[f], 0, nullptr);
             ShadowPush shadowPush{};
             shadowPush.cascade = cascade;
             // Отсечение по пирамиде каскада без ближней плоскости: отбрасывающие тень объекты могут стоять между светом и кадром.
             const Frustum cascadeFrustum = Frustum::from(ubo.lightViewProj[cascade], false);
             for (const DrawItem& item : items) {
-                if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
-                const GpuMesh& mesh = s.meshes[item.mesh - 1];
+                const auto shadowMesh = item.shadowMesh ? item.shadowMesh : item.mesh;
+                if (!item.castsShadow || shadowMesh == 0 || shadowMesh > s.meshes.size()) continue;
+                const GpuMesh& mesh = s.meshes[shadowMesh - 1];
                 if (mesh.indexCount == 0) continue;
-                if (!cascadeFrustum.sees(item.model.m, mesh.boundsMin, mesh.boundsMax)) continue;
+                if (!mesh.skinned && !cascadeFrustum.sees(item.model.m, mesh.boundsMin, mesh.boundsMax)) continue;
                 std::memcpy(shadowPush.model, item.model.m, sizeof(shadowPush.model));
                 const VkDeviceSize offset = 0;
                 vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
                 vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
                 vkCmdPushConstants(cmd, s.shadowLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(shadowPush), &shadowPush);
-                vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);  // материалы тени не нужны: весь меш одним вызовом
+                const bool simple = std::none_of(mesh.submeshes.begin(), mesh.submeshes.end(), [](const auto& p) { return p.alphaMode == AlphaMode::Mask || p.alphaMode == AlphaMode::Blend || p.doubleSided; });
+                if (simple) {
+                    if (boundShadow != s.shadowPipeline) vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowPipeline);
+                    boundShadow = s.shadowPipeline;
+                    vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, paletteOffsets[static_cast<std::size_t>(&item - items.data())]);
+                } else for (const auto& part : mesh.submeshes) {
+                    if (part.alphaMode == AlphaMode::Blend) continue;
+                    if (!mesh.skinned && !cascadeFrustum.sees(item.model.m, part.boundsMin, part.boundsMax)) continue;
+                    const bool masked = part.alphaMode == AlphaMode::Mask;
+                    const auto target = masked ? (part.doubleSided ? s.shadowMaskDoublePipeline : s.shadowMaskPipeline) : (part.doubleSided ? s.shadowDoublePipeline : s.shadowPipeline);
+                    if (boundShadow != target) vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, target);
+                    boundShadow = target;
+                    if (masked) {
+                        const auto texture = s.descriptorFor(part.texture);
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowLayout, 0, 1, &texture, 0, nullptr);
+                        vkCmdPushConstants(cmd, s.shadowLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(ShadowPush), sizeof(float), &part.alphaCutoff);
+                    }
+                    vkCmdDrawIndexed(cmd, part.indexCount, 1, part.firstIndex, 0, paletteOffsets[static_cast<std::size_t>(&item - items.data())]);
+                }
             }
         }
         vkCmdEndRendering(cmd);
@@ -1455,35 +1615,67 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
 
     VertexPush vertexPush{};
     VkDescriptorSet boundSet = VK_NULL_HANDLE;
+    VkPipeline boundMeshPipeline = s.pipeline;
     const Frustum viewFrustum = Frustum::from(frame.viewProjection.m, true);
+    struct TransparentDraw { const DrawItem* item; const GpuMesh* mesh; const GpuSubmesh* part; float distance; };
+    std::vector<TransparentDraw> transparent;
+    const GpuMesh* boundSceneMesh = nullptr;
+    const DrawItem* boundSceneItem = nullptr;
+    const auto drawPart = [&](const DrawItem& item, const GpuMesh& mesh, const GpuSubmesh& part) {
+        if (boundSceneMesh != &mesh) {
+            const VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
+            vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            boundSceneMesh = &mesh;
+        }
+        if (boundSceneItem != &item) {
+            std::memcpy(vertexPush.model, item.model.m, sizeof(vertexPush.model));
+            vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vertexPush), &vertexPush);
+            boundSceneItem = &item;
+        }
+        const bool blend = part.alphaMode == AlphaMode::Blend;
+        const auto targetPipeline = blend ? (part.doubleSided ? s.blendDoublePipeline : s.blendPipeline) :
+            (part.doubleSided ? s.doubleSidedPipeline : s.pipeline);
+        if (boundMeshPipeline != targetPipeline) vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, targetPipeline);
+        boundMeshPipeline = targetPipeline;
+        const VkDescriptorSet set = s.descriptorFor(part.texture);
+        if (set != boundSet) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 0, 1, &set, 0, nullptr);
+            boundSet = set;
+        }
+        const VkDescriptorSet extra[3] = {s.descriptorFor(part.normalTexture), s.descriptorFor(part.roughnessTexture), s.descriptorFor(part.emissiveTexture)};
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 2, 3, extra, 0, nullptr);
+        const FragmentPush material{{part.metallic, part.roughness, part.normalTexture != 0 ? 1.0f : 0.0f, part.roughnessTexture != 0 ? 1.0f : 0.0f},
+                                    {static_cast<float>(part.alphaMode), part.alphaCutoff, part.doubleSided ? 1.f : 0.f, part.opacity},
+                                    {part.emissive[0], part.emissive[1], part.emissive[2], part.emissiveTexture != 0 ? 1.f : 0.f}};
+        vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(material), &material);
+        vkCmdDrawIndexed(cmd, part.indexCount, 1, part.firstIndex, 0, paletteOffsets[static_cast<std::size_t>(&item - items.data())]);
+    };
     for (const DrawItem& item : items) {
         if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
         const GpuMesh& mesh = s.meshes[item.mesh - 1];
         if (mesh.indexCount == 0) continue;
-        if (!viewFrustum.sees(item.model.m, mesh.boundsMin, mesh.boundsMax)) continue;  // вне кадра
-        std::memcpy(vertexPush.model, item.model.m, sizeof(vertexPush.model));
-        const VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
-        vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vertexPush), &vertexPush);
+        if (!mesh.skinned && !viewFrustum.sees(item.model.m, mesh.boundsMin, mesh.boundsMax)) continue;  // вне кадра
         for (const GpuSubmesh& part : mesh.submeshes) {
             if (part.indexCount == 0) continue;
-            const VkDescriptorSet set = s.descriptorFor(part.texture);
-            if (set != boundSet) {
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 0, 1, &set, 0, nullptr);
-                boundSet = set;
-            }
-            const VkDescriptorSet normalSet = s.descriptorFor(part.normalTexture), roughSet = s.descriptorFor(part.roughnessTexture);
-            const VkDescriptorSet extra[2] = {normalSet, roughSet};
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.pipelineLayout, 2, 2, extra, 0, nullptr);
-            const FragmentPush material{{part.metallic, part.roughness, part.normalTexture != 0 ? 1.0f : 0.0f, part.roughnessTexture != 0 ? 1.0f : 0.0f}};
-            vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(material), &material);
-            vkCmdDrawIndexed(cmd, part.indexCount, 1, part.firstIndex, 0, 0);
+            if (!mesh.skinned && !viewFrustum.sees(item.model.m, part.boundsMin, part.boundsMax)) continue;
+            if (part.alphaMode == AlphaMode::Blend) {
+                const auto& m = item.model.m;
+                const auto p = part.center;
+                const float x = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12] - frame.cameraPosition.x;
+                const float y = m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13] - frame.cameraPosition.y;
+                const float z = m[2] * p.x + m[6] * p.y + m[10] * p.z + m[14] - frame.cameraPosition.z;
+                transparent.push_back({&item, &mesh, &part, x * x + y * y + z * z});
+            } else drawPart(item, mesh, part);
         }
     }
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.skyPipeline);  // небо поверх незакрытых пикселей
     vkCmdDraw(cmd, 3, 1, 0, 0);
+    // Стекло рисуется после неба и непрозрачной геометрии, с проверкой глубины, без её записи.
+    std::stable_sort(transparent.begin(), transparent.end(), [](const auto& a, const auto& b) { return a.distance > b.distance; });
+    boundMeshPipeline = s.skyPipeline;
+    for (const auto& draw : transparent) drawPart(*draw.item, *draw.mesh, *draw.part);
     vkCmdEndRendering(cmd);
 
     // --- Проход 2: постобработка (bloom → тонмаппинг AgX) пишет итог в изображение swapchain.

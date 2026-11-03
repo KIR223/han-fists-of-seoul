@@ -1,6 +1,8 @@
 #include "han/tools/mesh_tools.h"
 
 #include <cstring>
+#include <cmath>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -66,6 +68,40 @@ void optimizeMesh(render::MeshData& mesh) {
     mesh.vertices = std::move(fetched);
     mesh.indices = std::move(optimized);
 #endif
+}
+
+bool partitionMesh(render::MeshData& mesh, float cellSize) {
+    if (!std::isfinite(cellSize) || cellSize < 1.f || cellSize > 10000.f || mesh.indices.size() % 3 != 0) return false;
+    for (const auto index : mesh.indices) if (index >= mesh.vertices.size()) return false;
+    for (const auto& vertex : mesh.vertices)
+        for (const float value : vertex.position) if (!std::isfinite(value) || std::abs(value) / cellSize > 1000000.f) return false;
+    std::vector<std::uint32_t> indices;
+    std::vector<render::Submesh> parts;
+    indices.reserve(mesh.indices.size());
+    for (const auto& part : render::effectiveSubmeshes(mesh)) {
+        if (part.firstIndex > mesh.indices.size() || part.indexCount > mesh.indices.size() - part.firstIndex || part.indexCount % 3) return false;
+        std::map<std::pair<int, int>, std::vector<std::uint32_t>> cells;
+        for (std::size_t i = part.firstIndex; i < static_cast<std::size_t>(part.firstIndex) + part.indexCount; i += 3) {
+            float x = 0, z = 0;
+            for (int corner = 0; corner < 3; ++corner) {
+                const auto& vertex = mesh.vertices[mesh.indices[i + corner]];
+                x += vertex.position[0] / 3.f; z += vertex.position[2] / 3.f;
+            }
+            auto& list = cells[{static_cast<int>(std::floor(x / cellSize)), static_cast<int>(std::floor(z / cellSize))}];
+            list.insert(list.end(), mesh.indices.begin() + i, mesh.indices.begin() + i + 3);
+        }
+        for (const auto& [cell, list] : cells) {
+            auto result = part;
+            result.firstIndex = static_cast<std::uint32_t>(indices.size());
+            result.indexCount = static_cast<std::uint32_t>(list.size());
+            indices.insert(indices.end(), list.begin(), list.end());
+            parts.push_back(result);
+        }
+    }
+    if (indices.size() != mesh.indices.size() || parts.size() > (1u << 16)) return false;
+    mesh.indices = std::move(indices);
+    mesh.submeshes = std::move(parts);
+    return true;
 }
 
 }  // namespace han::tools

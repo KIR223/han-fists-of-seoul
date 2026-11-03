@@ -5,6 +5,8 @@ HTTP разрешён исключительно для 127.0.0.1/localhost и �
 from __future__ import annotations
 
 import hashlib
+import http.cookiejar
+import re
 import json
 import os
 import shutil
@@ -46,7 +48,11 @@ class _SafeRedirect(urllib.request.HTTPRedirectHandler):
     """Не даёт перенаправить с HTTPS на небезопасный адрес."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
-        check_url(newurl)
+        try:
+            check_url(newurl)
+        except FetchError:
+            fp.close()
+            raise
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -64,6 +70,7 @@ def _open(url: str, headers: dict[str, str] | None = None):
     try:
         return opener.open(request, timeout=TIMEOUT_SECONDS)
     except urllib.error.HTTPError as e:
+        e.close()  # HTTPError владеет телом ответа и сокетом даже при ошибке статуса.
         raise FetchError(f"{url}: HTTP {e.code}") from e
     except urllib.error.URLError as e:
         raise FetchError(f"{url}: {e.reason}") from e
@@ -167,6 +174,47 @@ class Resolved:
     files: list[tuple[str, str]] = field(default_factory=list)  # (url, относительный путь в каталоге загрузки)
     headers: dict[str, str] = field(default_factory=dict)
     meta: dict[str, str] = field(default_factory=dict)          # author, license, page — для сверки с манифестом
+
+
+def resolve_itch(page: str, upload_id: str) -> Resolved:
+    """Обычная анонимная загрузка бесплатного файла itch.io; без оплаты и аккаунта.
+
+    ID берётся с бесплатной страницы загрузки, лицензия проверяется отдельно.
+    В манифест не записываются временные ссылки CDN или cookie.
+    """
+    parsed = urllib.parse.urlsplit(page)
+    if parsed.scheme != "https" or not (parsed.hostname or "").endswith(".itch.io") or not str(upload_id).isdigit():
+        raise FetchError("itch: нужна HTTPS-страница автора и числовой upload_id")
+    page = page.rstrip("/")
+    opener = urllib.request.build_opener(_SafeRedirect, urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+    def request(url, data=None):
+        check_url(url)
+        req = urllib.request.Request(url, data=data, headers={"User-Agent": USER_AGENT, "Referer": page})
+        with opener.open(req, timeout=TIMEOUT_SECONDS) as response:
+            raw = response.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024:
+            raise FetchError("itch: слишком большой ответ")
+        return raw.decode("utf-8")
+
+    def token(html):
+        match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+        if not match:
+            raise FetchError("itch: страница не содержит CSRF-токен анонимной загрузки")
+        return urllib.parse.urlencode({"csrf_token": match[1]}).encode()
+
+    try:
+        landing = request(page)
+        info = json.loads(request(page + "/download_url", token(landing)))
+        download_page = request(info["url"])
+        # Платные файлы не появляются на этой странице при анонимной бесплатной загрузке.
+        if f'data-upload_id="{upload_id}"' not in download_page:
+            raise FetchError("itch: выбранного файла нет среди бесплатных загрузок")
+        result = json.loads(request(page + "/file/" + str(upload_id), token(download_page)))
+        check_url(result["url"])
+        return Resolved(files=[(result["url"], "standard.zip")])
+    except (urllib.error.URLError, KeyError, ValueError) as e:
+        raise FetchError("itch: не удалось получить бесплатную загрузку; проверьте страницу автора") from e
 
 
 def resolve_polyhaven(asset_id: str, resolution: str = "1k", api: str = POLYHAVEN_API) -> Resolved:

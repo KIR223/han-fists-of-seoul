@@ -6,8 +6,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include "han/render/mesh.h"
 
 namespace han::render::vk {
+struct GpuVertex {
+    Vertex vertex;
+    MeshData::Influence skin;
+};
 
 // Записывает в err «что (VkResult N)» и возвращает false — для удобных цепочек `return fail(...)`.
 bool fail(std::string& err, const char* what, VkResult r);
@@ -43,7 +48,9 @@ struct PipelineDesc {
     VkCompareOp depthOp = VK_COMPARE_OP_LESS;
     VkCullModeFlags cull = VK_CULL_MODE_NONE;
     bool depthBias = false;      // динамическое смещение глубины (карта теней)
+    bool positionUvOnly = false; // вырезаемая тень: только позиция и UV
     bool additiveBlend = false;  // результат прибавляется к тому, что уже в цели (подъём уровней bloom)
+    bool alphaBlend = false;
 };
 
 VkResult buildPipeline(VkDevice device, const PipelineDesc& desc, VkPipeline& out);

@@ -16,7 +16,7 @@ import license_rules
 
 MANIFEST_VERSION = 1
 KINDS = ("model", "texture", "font", "sound")
-SOURCE_TYPES = ("direct", "polyhaven", "sketchfab", "local")
+SOURCE_TYPES = ("direct", "polyhaven", "sketchfab", "local", "itch")
 ZONES = ("A", "B")
 ID_RE = re.compile(r"^[a-z0-9_]{2,64}$")
 # Имена по каталогу (часть 48.1): CH_ CL_ HR_ VH_ PR_ BL_ LM_ INT_ FX_ и т. п. + латиница, цифры, подчёркивание.
@@ -120,10 +120,12 @@ def validate(data: dict[str, Any]) -> list[str]:
         stype = source.get("type")
         if stype not in SOURCE_TYPES:
             errors.append(f"{where}: source.type должен быть одним из {SOURCE_TYPES}")
-        if stype in ("direct", "polyhaven", "sketchfab") and not _is_https(str(source.get("page", ""))):
+        if stype in ("direct", "polyhaven", "sketchfab", "itch") and not _is_https(str(source.get("page", ""))):
             errors.append(f"{where}: source.page — ссылка на страницу ассета (https), чтобы автор и лицензия проверялись людьми")
         if stype == "direct" and not _is_https(str(source.get("url", ""))):
             errors.append(f"{where}: для direct нужен source.url (https)")
+        if stype == "itch" and not str(source.get("upload_id", "")).isdigit():
+            errors.append(f"{where}: для itch нужен числовой source.upload_id бесплатного файла")
         if stype in ("polyhaven", "sketchfab") and not source.get("asset_id"):
             errors.append(f"{where}: для {stype} нужен source.asset_id")
 
@@ -155,4 +157,9 @@ def validate(data: dict[str, Any]) -> list[str]:
             lods = pipeline.get("lods")
             if lods is not None and (not isinstance(lods, list) or any(not isinstance(x, (int, float)) or not 0 < x < 1 for x in lods)):
                 errors.append(f"{where}: pipeline.lods — список долей от 0 до 1 (не включая границы)")
+            if pipeline.get("collision_shape", "convex") not in ("convex", "box"):
+                errors.append(f"{where}: pipeline.collision_shape — convex или box")
+            selected = pipeline.get("include_objects")
+            if selected is not None and (not isinstance(selected, list) or not selected or any(not isinstance(n, str) or not n.strip() for n in selected)):
+                errors.append(f"{where}: pipeline.include_objects — непустой список имён мешей")
     return errors

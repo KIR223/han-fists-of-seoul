@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "body_object": "SUV Body",
+  "yaw_degrees": 180,
+  "albedo": "SUVBlack.png",
+  "optics_albedo": "lights.jpg",
+  "body_texture_prefix": "SUV",
+  "wheel_texture_prefix": "wheel_E",
+  "glass_opacity": 0.92,
+  "glass_roughness": 0.08,
+  "optics_roughness": 0.12,
+  "optics_emission": 0.4
+}

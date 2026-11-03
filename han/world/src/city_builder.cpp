@@ -151,18 +151,53 @@ int addStripe(GeoMesh& mesh, Vec2 a, Vec2 b, float offset, float w, float y, Col
 }
 
 // Разметка по классу дороги: широкие — жёлтая сплошная осевая и белые краевые; магистрали — ещё белые пунктиры полос.
-void addRoadMarkings(GeoMesh& mesh, Vec2 a, Vec2 b, float width, std::string_view highway, float roadY) {
+void addRoadMarkings(GeoMesh& mesh, Vec2 a, Vec2 b, float width, std::string_view highway, float roadY, bool doubleCenter = false) {
     if (width < 8.f || highway == "footway" || highway == "pedestrian" || highway == "path" || highway == "steps" || highway == "cycleway") return;
     const float y = roadY + 0.06f;
     const Color yellow{0.95f, 0.78f, 0.12f}, white{0.92f, 0.92f, 0.90f};
     const float half = width * 0.5f;
-    addStripe(mesh, a, b, 0.f, 0.18f, y, yellow, 0.f, 0.f, 3.5f);
+    if (doubleCenter) {
+        addStripe(mesh, a, b, -0.14f, 0.12f, y, yellow, 0.f, 0.f, 3.5f);
+        addStripe(mesh, a, b, 0.14f, 0.12f, y, yellow, 0.f, 0.f, 3.5f);
+    } else addStripe(mesh, a, b, 0.f, 0.18f, y, yellow, 0.f, 0.f, 3.5f);
     addStripe(mesh, a, b, half - 0.3f, 0.14f, y, white, 0.f, 0.f, 3.5f);
     addStripe(mesh, a, b, -(half - 0.3f), 0.14f, y, white, 0.f, 0.f, 3.5f);
     if (width >= 10.f) {  // полосы: пунктир на четвертях ширины
         addStripe(mesh, a, b, half * 0.5f, 0.12f, y, white, 3.f, 6.f, 3.5f);
         addStripe(mesh, a, b, -half * 0.5f, 0.12f, y, white, 3.f, 6.f, 3.5f);
     }
+}
+
+void addWallQuad(GeoMesh& mesh, Vec2 a, Vec2 b, float y0, float y1, float nx, float nz, Color c, float u0, float u1, float v0, float v1, bool groundBottom = false);
+
+void addStreetEdges(GeoMesh& mesh, Vec2 a, Vec2 b, float width, float roadY, const CityStyle& style) {
+    const float length = std::hypot(b.x - a.x, b.y - a.y);
+    if (length < 1.f) return;
+    const float nx = -(b.y - a.y) / length, nz = (b.x - a.x) / length;
+    const float half = width * 0.5f;
+    for (const float sign : {-1.f, 1.f}) {
+        const Vec2 left{a.x + nx * half * sign, a.y + nz * half * sign};
+        const Vec2 right{b.x + nx * half * sign, b.y + nz * half * sign};
+        const auto first = static_cast<std::uint32_t>(mesh.indices.size());
+        const auto start = mesh.vertices.size();
+        addFlatPolygon(mesh, {left, right, {right.x + nx * style.sidewalkWidth * sign, right.y + nz * style.sidewalkWidth * sign},
+                             {left.x + nx * style.sidewalkWidth * sign, left.y + nz * style.sidewalkWidth * sign}},
+                       roadY + style.curbHeight, {0.92f, 0.91f, 0.88f}, 4.f);
+        planarUv(mesh, start, 4.f);
+        mesh.tag(GeoMaterial::Sidewalk, first);
+        const auto curb = static_cast<std::uint32_t>(mesh.indices.size());
+        addWallQuad(mesh, left, right, roadY, roadY + style.curbHeight, -nx * sign, -nz * sign, {0.7f, 0.71f, 0.69f}, 0, length / 2.f, 0, 0.04f);
+        // Обратная грань: порядок контура дороги может быть любым.
+        addWallQuad(mesh, right, left, roadY, roadY + style.curbHeight, nx * sign, nz * sign, {0.7f, 0.71f, 0.69f}, 0, length / 2.f, 0, 0.04f);
+        mesh.tag(GeoMaterial::Terrain, curb);
+    }
+}
+
+void addCrosswalk(GeoMesh& mesh, Vec2 center, float ux, float uz, float width, float y, const CityStyle& style) {
+    const Vec2 a{center.x - ux * style.crosswalkLength * 0.5f, center.y - uz * style.crosswalkLength * 0.5f};
+    const Vec2 b{center.x + ux * style.crosswalkLength * 0.5f, center.y + uz * style.crosswalkLength * 0.5f};
+    for (float offset = -width * 0.5f + style.crosswalkSpacing; offset < width * 0.5f - style.crosswalkBar; offset += style.crosswalkSpacing)
+        addStripe(mesh, a, b, offset, style.crosswalkBar, y, {0.92f, 0.91f, 0.87f}, 0, 0, 0);
 }
 
 Vec2 centroid(const std::vector<Vec2>& p) {
@@ -185,7 +220,7 @@ bool insidePolygon(const std::vector<Vec2>& poly, float x, float z) {
 }
 
 // Вертикальная плоскость a-b от y0 до y1 с нормалью (nx, nz); UV: u — метры вдоль / uTile, v — (y1 - y) / vTile + vOffset.
-void addWallQuad(GeoMesh& mesh, Vec2 a, Vec2 b, float y0, float y1, float nx, float nz, Color c, float u0, float u1, float v0, float v1, bool groundBottom = false) {
+void addWallQuad(GeoMesh& mesh, Vec2 a, Vec2 b, float y0, float y1, float nx, float nz, Color c, float u0, float u1, float v0, float v1, bool groundBottom) {
     const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
     const bool saved = gFixed;
     gFixed = gHaveBase && !groundBottom;  // низ стены садится на землю, верх и промежуточные отметки — на основание здания
@@ -215,16 +250,36 @@ void addBox(GeoMesh& mesh, float cx, float cz, float hx, float hz, float y0, flo
     mesh.tag(material, first);
 }
 
+void addOrientedBox(GeoMesh& mesh, float cx, float cz, float hx, float hz, float y0, float y1, float ux, float uz, Color color, GeoMaterial material) {
+    const auto begin = mesh.vertices.size();
+    addBox(mesh, 0.f, 0.f, hx, hz, y0, y1, color, material, kWallTile);
+    for (std::size_t i = begin; i < mesh.vertices.size(); ++i) {
+        auto& v = mesh.vertices[i];
+        const float x = v.position[0], z = v.position[2];
+        const float nx = v.normal[0], nz = v.normal[2];
+        v.position[0] = cx + x * ux - z * uz;
+        v.position[2] = cz + x * uz + z * ux;
+        if (!gFixed) v.position[1] += groundAt(v.position[0], v.position[2]) - groundAt(x, z);
+        v.normal[0] = nx * ux - nz * uz;
+        v.normal[2] = nx * uz + nz * ux;
+    }
+}
+
+void addPrism(GeoMesh& mesh, float cx, float cz, float r, float y0, float y1, Color color, GeoMaterial material);
+
 struct BuildingLook {
     GeoMaterial wall = GeoMaterial::None;
+    GeoMaterial roof = GeoMaterial::Roof;
     bool shop = false;      // первый этаж — витрины и вывески
     bool parapet = true;    // бортик по краю крыши
     bool rooftop = true;    // лестничная клетка / бак на крыше
     float shopTile = 19.2f; // метров стены на одну плитку текстуры витрин
+    const CityStyle* style = nullptr;
+    std::uint32_t seed = 0;
 };
 
 // Здание: стены (наружу) + плоская крыша, витрины на первом этаже, парапет и надстройка на крыше. Контур — любого направления обхода.
-bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color wall, Color roof, const BuildingLook& look, std::vector<WallCollider>* colliders = nullptr) {
+bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color wall, Color roof, const BuildingLook& look, std::vector<WallCollider>* colliders = nullptr, std::vector<Vec3>* lights = nullptr) {
     if (footprint.size() >= 2 && footprint.front().x == footprint.back().x && footprint.front().y == footprint.back().y) footprint.pop_back();
     if (footprint.size() < 3) return false;
     const auto roofTri = triangulate(footprint);
@@ -277,8 +332,35 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
         if (shop && len > 2.f) {
             const auto shopFirst = static_cast<std::uint32_t>(mesh.indices.size());
             // Витрина: нейтральный цвет (оттенок дома не красит вывески), u — в плитках по 19,2 м; со сдвигом по дому, чтобы вывески различались.
-            const float shift = std::fmod(std::fabs(a.x * 0.37f + a.y * 0.61f), 1.f);
-            addWallQuad(mesh, a, b, 0.f, kShopHeight, nx, nz, {1.f, 1.f, 1.f}, shift - along / kShopBay, shift - (along + len) / kShopBay, 0.f, 1.f, true);  // u убывает вдоль обхода: снаружи надписи читаются слева направо
+            if (look.style) {
+                const auto& s = *look.style;
+                const int bays = std::max(1, static_cast<int>(std::floor(len / s.shopBayWidth)));
+                for (int bay = 0; bay < bays; ++bay) {
+                    const float t0 = static_cast<float>(bay) / static_cast<float>(bays), t1 = static_cast<float>(bay + 1) / static_cast<float>(bays);
+                    const int sign = static_cast<int>((look.seed + static_cast<unsigned>(i * 7 + bay)) % static_cast<unsigned>(s.signBays));
+                    const float u = static_cast<float>(sign) / static_cast<float>(s.signBays), du = 1.f / static_cast<float>(s.signBays);
+                    const Vec2 bayA{a.x + dx * t0, a.y + dz * t0}, bayB{a.x + dx * t1, a.y + dz * t1};
+                    addWallQuad(mesh, bayA, bayB, 0.f, kShopHeight, nx, nz,
+                                {1, 1, 1}, u + du, u, 0.f, 1.f, true);
+                    if ((look.seed + static_cast<unsigned>(bay)) % 3 != 0) {
+                        const auto start = static_cast<std::uint32_t>(mesh.vertices.size());
+                        const float slope = s.acHeight * 0.22f;
+                        const float normalLength = std::hypot(slope, s.canopyDepth);
+                        const Color color{1, 1, 1};
+                        pushVertex(mesh, bayA.x, s.canopyHeight + slope, bayA.y, nx * slope / normalLength, s.canopyDepth / normalLength, nz * slope / normalLength, color, u + du, 0.22f);
+                        pushVertex(mesh, bayB.x, s.canopyHeight + slope, bayB.y, nx * slope / normalLength, s.canopyDepth / normalLength, nz * slope / normalLength, color, u, 0.22f);
+                        pushVertex(mesh, bayB.x + nx * s.canopyDepth, s.canopyHeight, bayB.y + nz * s.canopyDepth, nx * slope / normalLength, s.canopyDepth / normalLength, nz * slope / normalLength, color, u, 0.27f);
+                        pushVertex(mesh, bayA.x + nx * s.canopyDepth, s.canopyHeight, bayA.y + nz * s.canopyDepth, nx * slope / normalLength, s.canopyDepth / normalLength, nz * slope / normalLength, color, u + du, 0.27f);
+                        mesh.indices.insert(mesh.indices.end(), {start, start + 2, start + 1, start, start + 3, start + 2,
+                                                              start, start + 1, start + 2, start, start + 2, start + 3});
+                        addWallQuad(mesh, {bayA.x + nx * s.canopyDepth, bayA.y + nz * s.canopyDepth}, {bayB.x + nx * s.canopyDepth, bayB.y + nz * s.canopyDepth},
+                                    s.canopyHeight - slope, s.canopyHeight, nx, nz, color, u + du, u, 0.22f, 0.27f);
+                    }
+                }
+            } else {
+                const float shift = std::fmod(std::fabs(a.x * 0.37f + a.y * 0.61f), 1.f);
+                addWallQuad(mesh, a, b, 0.f, kShopHeight, nx, nz, {1, 1, 1}, shift - along / kShopBay, shift - (along + len) / kShopBay, 0.f, 1.f, true);
+            }
             mesh.tag(GeoMaterial::Storefront, shopFirst);
         } else if (shop) {
             const auto shopFirst = static_cast<std::uint32_t>(mesh.indices.size());
@@ -286,6 +368,59 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
             mesh.tag(look.wall, shopFirst);
         }
         along += len;
+    }
+    if (look.style) {
+        const auto& s = *look.style;
+        int blades = 0;
+        for (std::size_t edge = 0; edge < n; ++edge) {
+            const auto a = footprint[edge], b = footprint[(edge + 1) % n];
+            const float dx = b.x - a.x, dz = b.y - a.y, length = std::hypot(dx, dz);
+            if (length < s.shopBayWidth) continue;
+            const float ux = dx / length, uz = dz / length, nx = uz, nz = -ux;
+            // Наружные блоки кондиционеров, кронштейны и решётки: отдельный объём, а не рисунок стены.
+            if ((look.seed + edge) % 3 != 0 && height > s.floorHeight * 2.f) {
+                const float px = a.x + ux * std::min(length * 0.7f, s.acSpacing), pz = a.y + uz * std::min(length * 0.7f, s.acSpacing);
+                const float y = s.floorHeight * (1.f + static_cast<float>((look.seed + edge) % 2)) + s.acHeight;
+                if (y + s.acHeight < height) {
+                    addOrientedBox(mesh, px + nx * s.acDepth, pz + nz * s.acDepth, s.acWidth * 0.5f, s.acDepth * 0.5f,
+                                   y, y + s.acHeight, ux, uz, {0.68f, 0.7f, 0.69f}, GeoMaterial::Metal);
+                    for (int bar = 0; bar < 3; ++bar) {
+                        const float by = y + s.acHeight * (0.25f + static_cast<float>(bar) * 0.2f);
+                        addOrientedBox(mesh, px + nx * s.acDepth * 1.55f, pz + nz * s.acDepth * 1.55f, s.acWidth * 0.38f, s.acDepth * 0.04f,
+                                       by, by + s.acHeight * 0.045f, ux, uz, {0.18f, 0.2f, 0.2f}, GeoMaterial::Metal);
+                    }
+                }
+            }
+            if (!shop || blades >= s.maxBlades || height < s.bladeBase + s.bladeHeight) continue;
+            const float cx = a.x + ux * std::min(length * 0.65f, s.shopBayWidth), cz = a.y + uz * std::min(length * 0.65f, s.shopBayWidth);
+            addOrientedBox(mesh, cx + nx * s.bladeOffset * 0.5f, cz + nz * s.bladeOffset * 0.5f, s.bladeWidth * 0.10f, s.bladeOffset * 0.5f,
+                           s.bladeBase + s.bladeHeight * 0.8f, s.bladeBase + s.bladeHeight * 0.84f, ux, uz, {0.23f, 0.25f, 0.27f}, GeoMaterial::Metal);
+            const float offset = s.bladeOffset, half = s.bladeWidth * 0.5f;
+            const Vec2 left{cx + nx * (offset - half), cz + nz * (offset - half)};
+            const Vec2 right{cx + nx * (offset + half), cz + nz * (offset + half)};
+            const auto first = static_cast<std::uint32_t>(mesh.indices.size());
+            const float u = static_cast<float>((look.seed + edge * 3) % static_cast<unsigned>(s.signBays)) / static_cast<float>(s.signBays);
+            const float du = 1.f / static_cast<float>(s.signBays);
+            addWallQuad(mesh, left, right, s.bladeBase, s.bladeBase + s.bladeHeight, -ux, -uz, {1, 1, 1}, u + du, u, 0, 1);
+            addWallQuad(mesh, right, left, s.bladeBase, s.bladeBase + s.bladeHeight, ux, uz, {1, 1, 1}, u + du, u, 0, 1);
+            mesh.tag(GeoMaterial::BladeSign, first);
+            if (lights) lights->push_back({cx + nx * s.bladeOffset, baseTop + s.bladeBase - s.acHeight, cz + nz * s.bladeOffset});
+            // Горизонтальная вывеска второго этажа: целый бренд, без обрезанных букв на углу здания.
+            if (height > s.floorHeight * 3.f) {
+                const float y = s.floorHeight * 2.f;
+                const float width = std::min(length * 0.7f, s.shopBayWidth * 1.3f);
+                const Vec2 sa{cx - ux * width * 0.5f + nx * 0.06f, cz - uz * width * 0.5f + nz * 0.06f};
+                const Vec2 sb{cx + ux * width * 0.5f + nx * 0.06f, cz + uz * width * 0.5f + nz * 0.06f};
+                const auto signFirst = static_cast<std::uint32_t>(mesh.indices.size());
+                addWallQuad(mesh, sa, sb, y, y + s.acHeight, nx, nz, {1, 1, 1}, u + du, u, 0.03f, 0.18f);
+                mesh.tag(GeoMaterial::Storefront, signFirst);
+            }
+            ++blades;
+        }
+        const auto center = centroid(footprint);
+        const float radius = s.acWidth * 0.65f;
+        if (height < 30.f && insidePolygon(footprint, center.x - radius, center.y - radius) && insidePolygon(footprint, center.x + radius, center.y + radius))
+            addPrism(mesh, center.x, center.y, radius, height + 0.15f, height + s.floorHeight * 0.55f, {0.52f, 0.57f, 0.56f}, GeoMaterial::Metal);
     }
     // Парапет: бортик 0,8 м по краю крыши (наружная и внутренняя грани).
     if (look.parapet && height < 60.f) {
@@ -319,7 +454,7 @@ bool addBuilding(GeoMesh& mesh, std::vector<Vec2> footprint, float height, Color
         mesh.indices.push_back(base + roofTriOriented[i + 2]);
         mesh.indices.push_back(base + roofTriOriented[i + 1]);
     }
-    mesh.tag(look.wall == GeoMaterial::None ? GeoMaterial::None : GeoMaterial::Roof, roofFirst);
+    mesh.tag(look.wall == GeoMaterial::None ? GeoMaterial::None : look.roof, roofFirst);
     // Надстройка на крыше: лестничная клетка / бак 3,4 x 3,4 м, если четыре угла внутри контура и крыша достаточно большая.
     if (look.rooftop && look.wall != GeoMaterial::None && std::fabs(signedArea(footprint)) > 90.f && height > 7.f) {
         const Vec2 c = centroid(footprint);
@@ -380,7 +515,7 @@ void addPrism(GeoMesh& mesh, float cx, float cz, float r, float y0, float y1, Co
 
 // Крона дерева: сплюснутая UV-сфера радиуса r с центром (cx, cy, cz).
 void addCrown(GeoMesh& mesh, float cx, float cy, float cz, float r, Color c) {
-    constexpr int kSeg = 8, kRings = 5;
+    constexpr int kSeg = 12, kRings = 7;
     const auto first = static_cast<std::uint32_t>(mesh.indices.size());
     const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
     for (int i = 0; i <= kRings; ++i) {
@@ -388,8 +523,10 @@ void addCrown(GeoMesh& mesh, float cx, float cy, float cz, float r, Color c) {
         for (int j = 0; j <= kSeg; ++j) {
             const float u = 2.f * kPi * static_cast<float>(j) / kSeg;
             const float nx = sv * std::cos(u), ny = cv, nz = sv * std::sin(u);
-            const float shade = 0.75f + 0.25f * (ny * 0.5f + 0.5f);  // верх светлее: объём без освещения
-            pushVertex(mesh, cx + nx * r, cy + ny * r * 0.8f, cz + nz * r, nx, ny, nz, {c.r * shade, c.g * shade, c.b * shade});
+            const float irregular = 1.f + 0.12f * std::sin(u * 3.f + v * 5.f) + 0.08f * std::cos(u * 5.f - v * 4.f);
+            const float shade = 0.68f + 0.32f * (ny * 0.5f + 0.5f);
+            pushVertex(mesh, cx + nx * r * irregular, cy + ny * r * 0.8f * irregular, cz + nz * r * irregular, nx, ny, nz,
+                       {c.r * shade, c.g * shade, c.b * shade}, u * 2.f, v * 2.f);
         }
     }
     for (int i = 0; i < kRings; ++i)
@@ -400,7 +537,15 @@ void addCrown(GeoMesh& mesh, float cx, float cy, float cz, float r, Color c) {
     mesh.tag(GeoMaterial::Leaves, first);
 }
 
-void addTree(GeoMesh& mesh, float x, float z, std::uint32_t seed) {
+void addTree(CityChunk& chunk, float x, float z, std::uint32_t seed, const CityBuildSettings& settings) {
+    if (settings.style.enabled && settings.instanceTrees) {
+        const auto& style = settings.style;
+        const float height = style.treeHeight + style.treeHeightVariation * static_cast<float>(seed % 7) / 6.f;
+        chunk.trees.push_back({{x, groundAt(x, z), z}, height, static_cast<float>(seed % 360) * kPi / 180.f});
+        if (settings.colliders) chunk.walls.push_back({{x, groundAt(x, z) + style.treeHeight * 0.2f, z}, {style.treeTrunkRadius, style.treeHeight * 0.2f, style.treeTrunkRadius}, 0.f});
+        return;
+    }
+    auto& mesh = chunk.buildings;
     const float h = 3.2f + static_cast<float>(seed % 5) * 0.35f, r = 1.9f + static_cast<float>((seed >> 3) % 4) * 0.3f;
     addPrism(mesh, x, z, 0.14f, 0.f, h, {0.32f, 0.22f, 0.14f}, GeoMaterial::Trunk);
     const float g = 0.26f + static_cast<float>((seed >> 5) % 5) * 0.03f;
@@ -411,6 +556,29 @@ void addTree(GeoMesh& mesh, float x, float z, std::uint32_t seed) {
 void addLamp(GeoMesh& mesh, float x, float z, float towardX, float towardZ) {
     addPrism(mesh, x, z, 0.09f, 0.f, 7.f, {0.30f, 0.31f, 0.33f}, GeoMaterial::Metal);
     addBox(mesh, x + towardX * 0.7f, z + towardZ * 0.7f, 0.45f, 0.45f, 6.9f, 7.15f, {0.34f, 0.35f, 0.37f}, GeoMaterial::Metal, 4.f);
+    addBox(mesh, x + towardX * 0.7f, z + towardZ * 0.7f, 0.38f, 0.32f, 6.86f, 6.91f, {1.f, 0.96f, 0.86f}, GeoMaterial::LampGlass, 1.f);
+}
+
+void addStreetFurniture(CityChunk& chunk, float x, float z, float ux, float uz, const CityStyle& style, bool bench, bool colliders) {
+    const float h = style.benchHeight, length = style.benchLength;
+    if (bench) {
+        for (int slat = 0; slat < 3; ++slat) {
+            const float offset = (static_cast<float>(slat) - 1.f) * h * 0.22f;
+            addOrientedBox(chunk.buildings, x - uz * offset, z + ux * offset, length * 0.5f, h * 0.09f, h, h * 1.12f,
+                           ux, uz, {0.38f, 0.24f, 0.13f}, GeoMaterial::Trunk);
+        }
+        addOrientedBox(chunk.buildings, x + uz * h * 0.34f, z - ux * h * 0.34f, length * 0.5f, h * 0.06f, h * 1.2f, h * 1.95f,
+                       ux, uz, {0.38f, 0.24f, 0.13f}, GeoMaterial::Trunk);
+        for (const float side : {-1.f, 1.f})
+            addOrientedBox(chunk.buildings, x + ux * length * 0.34f * side, z + uz * length * 0.34f * side, h * 0.07f, h * 0.40f, 0, h,
+                           ux, uz, {0.16f, 0.18f, 0.19f}, GeoMaterial::Metal);
+        if (colliders) chunk.walls.push_back({{x, groundAt(x, z) + h, z}, {length * 0.5f, h, h * 0.40f}, std::atan2(-uz, ux)});
+    } else {
+        const float half = style.planterSize * 0.5f;
+        addOrientedBox(chunk.buildings, x, z, half, half, 0, style.planterSize * 0.65f, ux, uz, {0.72f, 0.72f, 0.69f}, GeoMaterial::Terrain);
+        addCrown(chunk.buildings, x, style.planterSize * 0.85f, z, half * 1.15f, {0.17f, 0.31f, 0.11f});
+        if (colliders) chunk.walls.push_back({{x, groundAt(x, z) + style.planterSize * 0.325f, z}, {half, style.planterSize * 0.325f, half}, std::atan2(-uz, ux)});
+    }
 }
 
 float parseMeters(std::string_view text) {
@@ -435,6 +603,13 @@ float roadWidth(std::string_view h) {
     if (h == "footway" || h == "path" || h == "steps") return 2.f;
     if (h == "cycleway") return 2.5f;
     return 0.f;
+}
+
+float roadWidth(const OsmWay& way) {
+    const float fallback = roadWidth(way.tag("highway"));
+    if (fallback <= 0) return 0;
+    const float specified = parseMeters(way.tag("width"));
+    return std::isfinite(specified) && specified >= 1.f && specified <= 80.f ? specified : fallback;
 }
 
 float buildingHeight(const OsmWay& way, const CityBuildSettings& s) {
@@ -497,9 +672,20 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
         return pts;
     };
     const auto chunkAt = [&](Vec2 p) -> CityChunk& { return chunks[grid.cellOf(p.x, p.y)]; };
+    std::unordered_map<std::int64_t, int> roadDegree;
+    if (settings.style.enabled) {
+        for (const auto& way : data.ways) {
+            if (way.tag("han:visual") == "external" || roadWidth(way) < 6.f || way.tag("area") == "yes") continue;
+            for (std::size_t i = 0; i + 1 < way.nodes.size(); ++i) {
+                ++roadDegree[way.nodes[i]];
+                ++roadDegree[way.nodes[i + 1]];
+            }
+        }
+    }
 
     std::vector<std::vector<Vec2>> footprints;  // построенные здания: деревья и фонари не ставятся внутрь
     for (const OsmWay& way : data.ways) {
+        if (way.tag("han:visual") == "external") continue;
         const std::string_view highway = way.tag("highway"), building = way.tag("building");
         const bool isWater = way.tag("natural") == "water" || way.tag("waterway") == "riverbank" || way.tag("landuse") == "reservoir";
         const bool isPark = way.tag("leisure") == "park" || way.tag("leisure") == "garden" || way.tag("landuse") == "grass" || way.tag("landuse") == "forest" ||
@@ -515,11 +701,22 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             BuildingLook look;
             look.wall = wallMaterial(way.id, height);
             const std::uint32_t seed = static_cast<std::uint32_t>((way.id < 0 ? -way.id : way.id) * 2246822519u) >> 7;
+            if (settings.style.enabled) {
+                if (look.wall == GeoMaterial::WallBrick) look.wall = seed % 2 ? GeoMaterial::WallRedBrick : GeoMaterial::WallWornBrick;
+                if (look.wall == GeoMaterial::WallConcrete && seed % 3 == 0) look.wall = GeoMaterial::WallCladding;
+            }
             look.shop = settings.buildingDetail && height <= 45.f && seed % 4 != 0;  // у трёх домов из четырёх на первом этаже лавки
             look.parapet = settings.buildingDetail && seed % 7 != 0;
             look.rooftop = settings.buildingDetail;
             look.shopTile = settings.shopTileMeters;
-            if (addBuilding(chunk.buildings, pts, height, wallTint(way.id), {1.f, 1.f, 1.f}, look, settings.colliders ? &chunk.walls : nullptr)) {
+            look.style = settings.style.enabled ? &settings.style : nullptr;
+            look.seed = seed;
+            Color roof{1, 1, 1};
+            if (settings.style.enabled && height < settings.style.floorHeight * 6.f && seed % 3 != 0) {
+                look.roof = GeoMaterial::RoofPaint;
+                roof = {settings.style.roofR, settings.style.roofG, settings.style.roofB};
+            }
+            if (addBuilding(chunk.buildings, pts, height, wallTint(way.id), roof, look, settings.colliders ? &chunk.walls : nullptr, settings.style.enabled ? &chunk.lamps : nullptr)) {
                 if (settings.buildingDetail) addApron(chunk.ground, pts, 1.6f, 0.09f);
                 footprints.push_back(pts);
                 ++chunk.buildingCount;
@@ -529,10 +726,32 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 ++st.skipped;
             }
         } else if (!highway.empty()) {
-            const float width = roadWidth(highway);
+            const float width = roadWidth(way);
             if (width <= 0.f) continue;
             auto pts = project(way);
             if (pts.size() < 2) continue;
+            const bool walking = highway == "pedestrian" || highway == "footway" || highway == "path" || highway == "steps" || highway == "cycleway";
+            if (walking && way.closed() && way.tag("area") == "yes") {
+                auto& chunk = chunkAt(centroid(pts));
+                const auto first = static_cast<std::uint32_t>(chunk.ground.indices.size());
+                if (addFlatPolygon(chunk.ground, pts, settings.roadLift + 0.10f, {0.94f, 0.92f, 0.88f}, 4.f)) {
+                    chunk.ground.tag(settings.style.enabled ? GeoMaterial::Plaza : GeoMaterial::Sidewalk, first);
+                    if (settings.style.enabled && settings.streetProps) {
+                        const auto center = centroid(pts);
+                        for (std::size_t edge = 0; edge + 1 < pts.size(); ++edge) {
+                            const float length = std::hypot(pts[edge + 1].x - pts[edge].x, pts[edge + 1].y - pts[edge].y);
+                            if (length < settings.style.benchLength * 2.f) continue;
+                            const float x = ((pts[edge].x + pts[edge + 1].x) * 0.5f) * 0.85f + center.x * 0.15f;
+                            const float z = ((pts[edge].y + pts[edge + 1].y) * 0.5f) * 0.85f + center.y * 0.15f;
+                            addStreetFurniture(chunk, x, z, (pts[edge + 1].x - pts[edge].x) / length, (pts[edge + 1].y - pts[edge].y) / length,
+                                               settings.style, edge % 2 == 0, settings.colliders);
+                        }
+                    }
+                    ++chunk.areaCount;
+                    for (const auto& p : pts) grow(p.x, p.y);
+                }
+                continue;
+            }
             // Дорога делится по ячейкам: каждый сегмент идёт в ячейку своей середины, стыки добавляются вместе с сегментом.
             const float lift = settings.roadLift + (14.f - width) * 0.002f;  // шире — ниже, чтобы перекрытия не мерцали
             const Color color = roadColor(highway);
@@ -553,10 +772,20 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 }
                 for (int k = 0; k < sides; ++k)
                     chunk.ground.indices.insert(chunk.ground.indices.end(), {base, base + 1 + static_cast<std::uint32_t>((k + 1) % sides), base + 1 + static_cast<std::uint32_t>(k)});
-                planarUv(chunk.ground, vertsBefore, kRoadTile);
-                chunk.ground.tag(GeoMaterial::Road, indexBefore);
+                planarUv(chunk.ground, vertsBefore, walking ? 4.f : kRoadTile);
+                chunk.ground.tag(walking ? GeoMaterial::Sidewalk : GeoMaterial::Road, indexBefore);
+                if (settings.style.enabled && width >= 8.f && highway != "motorway" && highway != "trunk")
+                    addStreetEdges(chunk.ground, pts[i], pts[i + 1], width, lift, settings.style);
                 const auto markFirst = static_cast<std::uint32_t>(chunk.ground.indices.size());
-                addRoadMarkings(chunk.ground, pts[i], pts[i + 1], width, highway, lift);
+                addRoadMarkings(chunk.ground, pts[i], pts[i + 1], width, highway, lift, settings.style.enabled);
+                if (settings.style.enabled && width >= 8.f && highway != "motorway" && highway != "trunk" && pts.size() == way.nodes.size()) {
+                    const float dx = pts[i + 1].x - pts[i].x, dz = pts[i + 1].y - pts[i].y, length = std::hypot(dx, dz);
+                    const float inset = settings.style.crosswalkLength * 0.75f + 1.f;
+                    if (length > inset * 3.f) {
+                        if (roadDegree[way.nodes[i]] >= 3) addCrosswalk(chunk.ground, {pts[i].x + dx / length * inset, pts[i].y + dz / length * inset}, dx / length, dz / length, width, lift + 0.08f, settings.style);
+                        if (roadDegree[way.nodes[i + 1]] >= 3) addCrosswalk(chunk.ground, {pts[i + 1].x - dx / length * inset, pts[i + 1].y - dz / length * inset}, dx / length, dz / length, width, lift + 0.08f, settings.style);
+                    }
+                }
                 chunk.ground.tag(GeoMaterial::Marking, markFirst);
                 grow(pts[i].x, pts[i].y);
                 grow(pts[i + 1].x, pts[i + 1].y);
@@ -593,27 +822,38 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
         }
     }
     // Уличные объекты: деревья и фонари вдоль дорог (после зданий, чтобы не попадать внутрь).
+    struct FootprintBounds { float minX, maxX, minZ, maxZ; };
+    std::vector<FootprintBounds> footprintBounds;
+    std::map<CellCoord, std::vector<std::size_t>> footprintCells;
+    footprintBounds.reserve(footprints.size());
+    for (std::size_t index = 0; index < footprints.size(); ++index) {
+        FootprintBounds bounds{1e9f, -1e9f, 1e9f, -1e9f};
+        for (const auto& p : footprints[index]) {
+            bounds.minX = std::min(bounds.minX, p.x); bounds.maxX = std::max(bounds.maxX, p.x);
+            bounds.minZ = std::min(bounds.minZ, p.y); bounds.maxZ = std::max(bounds.maxZ, p.y);
+        }
+        footprintBounds.push_back(bounds);
+        const auto first = grid.cellOf(bounds.minX - 1.f, bounds.minZ - 1.f), last = grid.cellOf(bounds.maxX + 1.f, bounds.maxZ + 1.f);
+        for (int z = first.z; z <= last.z; ++z) for (int x = first.x; x <= last.x; ++x) footprintCells[{x, z}].push_back(index);
+    }
     const auto insideAnyBuilding = [&](float x, float z) {
-        for (const auto& fp : footprints) {
-            float minX = 1e9f, maxX = -1e9f, minZ = 1e9f, maxZ = -1e9f;
-            for (const Vec2& p : fp) {
-                minX = std::min(minX, p.x);
-                maxX = std::max(maxX, p.x);
-                minZ = std::min(minZ, p.y);
-                maxZ = std::max(maxZ, p.y);
-            }
-            if (x < minX - 1.f || x > maxX + 1.f || z < minZ - 1.f || z > maxZ + 1.f) continue;
-            if (insidePolygon(fp, x, z)) return true;
+        const auto found = footprintCells.find(grid.cellOf(x, z));
+        if (found == footprintCells.end()) return false;
+        for (const auto index : found->second) {
+            const auto bounds = footprintBounds[index];
+            if (x < bounds.minX - 1.f || x > bounds.maxX + 1.f || z < bounds.minZ - 1.f || z > bounds.maxZ + 1.f) continue;
+            if (insidePolygon(footprints[index], x, z)) return true;
         }
         return false;
     };
     if (settings.streetProps) {
         for (const OsmWay& way : data.ways) {
+            if (way.tag("han:visual") == "external") continue;
             const std::string_view highway = way.tag("highway");
-            const float width = highway.empty() ? 0.f : roadWidth(highway);
+            const float width = highway.empty() ? 0.f : roadWidth(way);
             if (width < 6.f || highway == "motorway" || highway == "trunk" || highway == "service") continue;
             const auto pts = project(way);
-            float sinceTree = 8.f, sinceLamp = 15.f;
+            float sinceTree = 8.f, sinceLamp = 15.f, sinceFurniture = 0.f;
             int side = 1;
             for (std::size_t i = 0; i + 1 < pts.size(); ++i) {
                 const Vec2 a = pts[i], b = pts[i + 1];
@@ -623,12 +863,13 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 for (float t = 0.f; t < len; t += 2.f) {
                     sinceTree += 2.f;
                     sinceLamp += 2.f;
+                    sinceFurniture += 2.f;
                     const float px = a.x + ux * t, pz = a.y + uz * t;
                     if (sinceTree >= 20.f) {
                         const float off = width * 0.5f + 2.6f;
                         const float tx = px + nx * off * static_cast<float>(side), tz = pz + nz * off * static_cast<float>(side);
                         if (!insideAnyBuilding(tx, tz)) {
-                            addTree(chunkAt({tx, tz}).buildings, tx, tz, static_cast<std::uint32_t>(std::fabs(tx * 31.f + tz * 17.f)));
+                            addTree(chunkAt({tx, tz}), tx, tz, static_cast<std::uint32_t>(std::fabs(tx * 31.f + tz * 17.f)), settings);
                             side = -side;
                         }
                         sinceTree = 0.f;
@@ -643,6 +884,13 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                             lampChunk.lamps.push_back({lx - nx * s * 0.7f, 6.8f + groundAt(lx, lz), lz - nz * s * 0.7f});
                         }
                         sinceLamp = 0.f;
+                    }
+                    if (settings.style.enabled && sinceFurniture >= settings.style.furnitureSpacing) {
+                        const float off = width * 0.5f + settings.style.sidewalkWidth * 0.6f;
+                        const float fx = px + nx * off, fz = pz + nz * off;
+                        if (!insideAnyBuilding(fx, fz) && !insideAnyBuilding(fx + ux * settings.style.benchLength, fz + uz * settings.style.benchLength))
+                            addStreetFurniture(chunkAt({fx, fz}), fx, fz, ux, uz, settings.style, static_cast<unsigned>(way.id) % 2 == 0, settings.colliders);
+                        sinceFurniture = 0.f;
                     }
                 }
             }
@@ -673,7 +921,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                     const float jx = x + (static_cast<float>(h % 100) / 100.f - 0.5f) * step * 0.7f;
                     const float jz = z + (static_cast<float>((h / 100) % 100) / 100.f - 0.5f) * step * 0.7f;
                     if (!insidePolygon(pts, jx, jz) || insideAnyBuilding(jx, jz)) continue;
-                    addTree(chunkAt({jx, jz}).buildings, jx, jz, h);
+                    addTree(chunkAt({jx, jz}), jx, jz, h, settings);
                     ++placed;
                 }
         }

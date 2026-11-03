@@ -125,6 +125,13 @@ def fetch_asset(asset: dict[str, Any], paths: Paths, update_hash: bool = False, 
             if name.lower().endswith(".zip"):
                 fetcher.extract_zip(target, dest)
                 target.unlink()
+        elif kind == "itch":
+            resolved = fetcher.resolve_itch(source["page"], str(source["upload_id"]))
+            for url, rel in resolved.files:
+                target = dest / rel
+                fetcher.download(url, target)
+                fetcher.extract_zip(target, dest)
+                target.unlink()
         elif kind == "polyhaven":
             resolver = fetcher.resolve_polyhaven_texture if asset.get("kind") == "texture" else fetcher.resolve_polyhaven
             resolved = resolver(source["asset_id"], source.get("resolution", "1k"),
@@ -206,8 +213,20 @@ def run_blender(blender: str, paths: Paths, asset: dict[str, Any], entry: Path, 
         "brand_blocklist": str(paths.brand_blocklist),
     }
     params_file = out_dir / "params.json"
+    profile = params["pipeline"].get("tree_profile")
+    if profile:
+        try:
+            params["tree_profile"] = str(paths.root / Path(*fetcher.safe_member_path(profile).parts))
+        except (fetcher.FetchError, TypeError) as e:
+            raise PipelineError("tree_profile: требуется безопасный относительный путь") from e
+    vehicle_profile = params["pipeline"].get("vehicle_profile")
+    if vehicle_profile:
+        try:
+            params["vehicle_profile"] = str(paths.root / Path(*fetcher.safe_member_path(vehicle_profile).parts))
+        except (fetcher.FetchError, TypeError) as e:
+            raise PipelineError("vehicle_profile: требуется безопасный относительный путь") from e
     params_file.write_text(json.dumps(params, ensure_ascii=False, indent=2), encoding="utf-8")
-    command = [blender, "--background", "--python", str(paths.blender_script), "--", str(params_file)]
+    command = [blender, "--background", "--factory-startup", "--disable-autoexec", "--python", str(paths.blender_script), "--", str(params_file)]
     result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
     if result.returncode != 0:
         tail = "\n".join((result.stdout + result.stderr).splitlines()[-15:])
@@ -263,6 +282,25 @@ def process_font(asset: dict[str, Any], paths: Paths, write_credits: bool) -> di
     return {"fonts": copied, "triangles": {"lod0": 0}}
 
 
+def texture_inputs(asset: dict[str, Any], download_dir: Path) -> list[tuple[str, Path]]:
+    """Явные роли карт в архивах; без настройки сохраняется прежнее именование."""
+    maps = asset.get("texture_maps")
+    if maps is None:
+        return [(p.stem, p) for p in sorted(download_dir.iterdir()) if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".tga", ".bmp")]
+    if not isinstance(maps, dict) or "diff" not in maps or set(maps) - {"diff", "nor", "rough"}:
+        raise PipelineError("texture_maps: нужны роли diff, nor, rough и обязательное альбедо diff")
+    result = []
+    for role, relative in maps.items():
+        try:
+            image = download_dir / Path(*fetcher.safe_member_path(relative).parts)
+        except (fetcher.FetchError, TypeError) as e:
+            raise PipelineError(f"texture_maps: небезопасный путь {relative!r}") from e
+        if not image.is_file() or image.suffix.lower() not in (".jpg", ".jpeg", ".png", ".tga", ".bmp", ".exr"):
+            raise PipelineError(f"texture_maps: карта не найдена или формат не поддерживается: {relative}")
+        result.append((role, image))
+    return result
+
+
 def process_texture(asset: dict[str, Any], paths: Paths, cooker: list[str] | None, write_credits: bool) -> dict[str, Any]:
     """Текстура: JPG/PNG из загрузки → .ktx2 с мипами в assets_bin/cooked/<id>/ (альбедо — sRGB, остальное — линейное)."""
     if not cooker:
@@ -273,11 +311,21 @@ def process_texture(asset: dict[str, Any], paths: Paths, cooker: list[str] | Non
     out_dir = paths.cooked / asset["id"]
     out_dir.mkdir(parents=True, exist_ok=True)
     produced = []
-    for image in sorted(download_dir.iterdir()):
-        if image.suffix.lower() not in (".jpg", ".jpeg", ".png", ".tga", ".bmp"):
-            continue
-        target = out_dir / (image.stem + ".ktx2")
-        command = cooker + ["--texture"] + ([] if image.stem.startswith("diff") else ["--linear"]) + [str(image), str(target)]
+    for role, image in texture_inputs(asset, download_dir):
+        if image.suffix.lower() == ".exr":
+            blender = find_blender()
+            if not blender:
+                raise PipelineError("для линейных EXR-карт нужен Blender (HAN_BLENDER)")
+            converted = paths.processed / asset["id"] / (role + ".png")
+            converted.parent.mkdir(parents=True, exist_ok=True)
+            script = paths.blender_script.with_name("han_texture.py")
+            result = subprocess.run([blender, "--background", "--factory-startup", "--python-exit-code", "1", "--python", str(script), "--", str(image), str(converted)],
+                                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+            if result.returncode != 0 or not converted.is_file():
+                raise PipelineError(f"EXR не преобразован: {image}\n{(result.stdout + result.stderr)[-1200:]}")
+            image = converted
+        target = out_dir / (role + ".ktx2")
+        command = cooker + ["--texture"] + ([] if role.startswith("diff") else ["--linear"]) + [str(image), str(target)]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
             raise PipelineError(f"{asset['id']}: han_cooker не смог обработать {image.name}: {result.stderr.strip()}")
@@ -299,6 +347,44 @@ def process_asset(asset: dict[str, Any], paths: Paths, blender: str | None, cook
         return process_font(asset, paths, write_credits)
     if asset.get("kind") != "model":
         raise PipelineError(f"{asset['id']}: обработка типа «{asset.get('kind')}» пока не реализована (только model)")
+    if asset.get("pipeline", {}).get("profile") == "animation_library":
+        download_dir = paths.downloads / asset["id"]
+        if not download_dir.is_dir():
+            fetch_asset(asset, paths)
+        entry = find_entry(download_dir, manifest_mod.pipeline_of(asset)["entry"])
+        license_file = entry.parent.parent / "License.txt"
+        if not license_file.is_file() or "CC0 1.0" not in license_file.read_text(encoding="utf-8"):
+            raise PipelineError("библиотека: нет ожидаемой CC0-лицензии")
+        out_dir = paths.cooked / asset["id"]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(entry, out_dir / (asset["name"] + ".glb"))
+        shutil.copy2(license_file, out_dir / "License.txt")
+        if write_credits:
+            credits_mod.ensure_row(paths.credits, asset)
+        return {"source": entry.name}
+    if asset.get("pipeline", {}).get("profile") == "skinned_mannequin":
+        # Статический Blender-конвейер с join/decimate/bake здесь разрушил бы skin.
+        import mannequin
+        download_dir = paths.downloads / asset["id"]
+        if not download_dir.is_dir():
+            fetch_asset(asset, paths)
+        entry = find_entry(download_dir, manifest_mod.pipeline_of(asset)["entry"])
+        out_dir = paths.cooked / asset["id"]
+        license_file = entry.parent.parent / "License.txt"
+        if not license_file.is_file() or "CC0 1.0" not in license_file.read_text(encoding="utf-8"):
+            raise PipelineError("манекен: нет ожидаемой CC0-лицензии в архиве")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            report = mannequin.prepare(entry, out_dir / (asset["name"] + ".glb"))
+        except ValueError as e:
+            raise PipelineError(f"манекен: {e}") from e
+        if report["triangles"] > manifest_mod.pipeline_of(asset)["budget_triangles"]:
+            raise PipelineError("манекен превысил бюджет треугольников")
+        shutil.copy2(license_file, out_dir / "License.txt")
+        if write_credits:
+            credits_mod.ensure_row(paths.credits, asset)
+        print(f"{asset['id']}: GLB готов, костей {report['bones']}, клипов {len(report['clips'])}")
+        return report
     if not blender:
         raise PipelineError("Blender не найден: установите его или задайте путь в переменной HAN_BLENDER")
     if cook and not cooker:

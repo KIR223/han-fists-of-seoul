@@ -78,6 +78,10 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(manifest.pipeline_of(sample_asset(name="PR_Chair", pipeline={"budget_triangles": 500}))["budget_triangles"], 500)
         self.assertTrue(manifest.validate(self.valid(pipeline={"budget_triangles": -5})))
         self.assertTrue(manifest.validate(self.valid(pipeline={"lods": [0.5, 1.5]})))
+        self.assertEqual(manifest.validate(self.valid(pipeline={"collision_shape": "box", "include_objects": ["body", "lid"]})), [])
+        for pipeline in ({"collision_shape": "none"}, {"include_objects": []}, {"include_objects": [1]}, {"include_objects": "body"}):
+            with self.subTest(pipeline=pipeline):
+                self.assertTrue(manifest.validate(self.valid(pipeline=pipeline)))
 
     def test_roundtrip_and_hash(self):
         with tempfile.TemporaryDirectory() as tmp:

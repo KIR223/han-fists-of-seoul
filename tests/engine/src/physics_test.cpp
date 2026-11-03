@@ -57,6 +57,24 @@ TEST_CASE("physics: таблица поверхностей отклоняет �
 }
 
 #ifdef HAN_HAS_JOLT
+TEST_CASE("physics: статический меш района сохраняет проёмы и перенос, плохие индексы отклоняются") {
+    auto world = physics::PhysicsWorld::create();
+    REQUIRE(world);
+    const std::vector<Vec3> vertices = {{-2, 0, -2}, {2, 0, -2}, {2, 0, 2}, {-2, 0, 2}};
+    const std::vector<std::uint32_t> triangles = {0, 2, 1, 0, 3, 2};
+    const auto body = world->addStaticMesh({10, 3, 20}, vertices, triangles);
+    REQUIRE(body != contracts::kNoEntity);
+    const auto hit = world->raycast({10, 10, 20}, {10, -2, 20});
+    REQUIRE(hit.hit); CHECK(hit.entity == body); CHECK(hit.point.y == doctest::Approx(3));
+    CHECK_FALSE(world->raycast({20, 10, 20}, {20, -2, 20}).hit);
+    CHECK(world->addStaticMesh({}, vertices, {0, 1, 8}) == contracts::kNoEntity);
+    CHECK(world->addStaticMesh({}, vertices, {0, 1}) == contracts::kNoEntity);
+    auto bad = vertices; bad[0].x = std::nanf("");
+    CHECK(world->addStaticMesh({}, bad, triangles) == contracts::kNoEntity);
+    world->destroyBody(body);
+    CHECK_FALSE(world->raycast({10, 10, 20}, {10, -2, 20}).hit);
+}
+
 namespace {
 void run(physics::PhysicsWorld& w, int steps) {
     for (int i = 0; i < steps; ++i) w.step(1.f / 60.f);

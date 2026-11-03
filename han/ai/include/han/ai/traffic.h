@@ -23,6 +23,7 @@ struct RoadEdge {
     float speed = 13.f;          // м/с, ограничение
     int lanes = 1;               // полос в этом направлении
     float laneWidth = 3.2f;
+    float centerOffset = 0.f;  // половина разделительной полосы (метры), если она есть в данных дороги
     RoadClass cls = RoadClass::Local;
     int reverse = -1;            // встречное направление той же дороги (или -1: односторонняя)
 
@@ -133,6 +134,9 @@ private:
     std::vector<std::vector<std::vector<int>>> lanes_;  // edge → lane → индексы машин, спереди назад (пересобирается каждый шаг)
     std::mt19937 rng_;
     Vec2 focus_;
+    Vec2 spawnFocus_;
+    bool spawnCandidatesReady_ = false;
+    std::vector<std::size_t> spawnCandidates_;
     std::uint32_t nextId_ = 1;
     TrafficStats stats_;
 };

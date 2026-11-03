@@ -71,6 +71,37 @@ TEST_CASE("ui: RmlUi не собран — тесты интерфейса пр�
 #endif
 
 #ifdef HAN_WITH_RMLUI
+TEST_CASE("ui: все кнопки меню доступны мышью в малом окне на трёх языках и после изменения размера") {
+    han::ui::RmlLayer rml;
+    REQUIRE(rml.init(1280, 720));
+    const auto font = repo("assets_bin/cooked/fn_noto_sans_kr/NotoSansKR.ttf");
+    if (std::filesystem::exists(font)) REQUIRE(rml.loadFont(font));
+    REQUIRE(rml.loadDocument(repo("han/ui/samples/ui_demo.rml")));
+    han::ui::Localization loc;
+    std::string error;
+    REQUIRE(loc.loadTable(repo("han/ui/samples/ui_demo_loc.csv"), error));
+    REQUIRE(rml.setVisible("menu", true));
+    for (const char* language : {"ru", "ko", "en"}) {
+        loc.setLanguage(language);
+        rml.applyLocalization(loc);
+        for (const auto [width, height] : {std::pair{640, 360}, {1280, 720}, {640, 360}}) {
+            rml.beginFrame(width, height);
+            for (const char* id : {"btn-resume", "btn-settings", "btn-quit", "btn-lang-ru", "btn-lang-ko", "btn-lang-en"}) {
+                int x = 0, y = 0;
+                REQUIRE(rml.elementCenter(id, x, y));
+                CHECK(x > 0);
+                CHECK(x < width);
+                CHECK(y > 0);
+                CHECK(y < height);
+                rml.injectMouse(x, y, false);
+                rml.injectMouse(x, y, true);
+                rml.injectMouse(x, y, false);
+                CHECK(rml.takeClicked() == id);
+            }
+        }
+    }
+}
+
 TEST_CASE("ui: тексты по data-loc подставляются на трёх языках, меню управляется клавишами, Enter выбирает кнопку") {
     han::ui::RmlLayer rml;
     REQUIRE(rml.init(1280, 720));
@@ -103,5 +134,18 @@ TEST_CASE("ui: тексты по data-loc подставляются на трё
     CHECK(rml.takeClicked() == "ui:back");
     CHECK(rml.setVisible("menu", false));
     CHECK(rml.focusedId().empty());  // скрытое меню сбрасывает фокус
+    CHECK(rml.setVisible("menu", true));
+    rml.injectMouse(0, 0, false);
+    REQUIRE(rml.navigate(han::ui::RmlLayer::NavKey::Down));
+    REQUIRE(rml.navigate(han::ui::RmlLayer::NavKey::Accept));
+    rml.closeAll();
+    CHECK(rml.focusedId().empty());
+    CHECK(rml.takeClicked().empty());
+    CHECK_FALSE(rml.navigate(han::ui::RmlLayer::NavKey::Down));
+    REQUIRE(rml.loadDocument(repo("han/ui/samples/ui_demo.rml")));
+    CHECK(rml.setVisible("menu", true));
+    rml.injectMouse(0, 0, false);
+    CHECK(rml.navigate(han::ui::RmlLayer::NavKey::Down));
+    CHECK(rml.focusedId() == "btn-resume");
 }
 #endif

@@ -26,6 +26,8 @@ bool rasterizeSvg(const std::string& svgText, int size, std::vector<std::uint8_t
 
 // Строит текстуру витрин: bays секций по 256 px (ширина bays * 256, высота 256 = 3,6 м), бренды раздаются по кругу. fontPath — .ttf с кириллицей и хангылем.
 TextureData buildStorefrontAtlas(const std::vector<SignBrand>& brands, const std::string& fontPath, int bays = 16);
+// Выступающие световые короба: по 128 x 512 px, корейское название набрано вертикально.
+TextureData buildBladeSignAtlas(const std::vector<SignBrand>& brands, const std::string& fontPath, int bays);
 
 }  // namespace han::render
 // Пример: std::vector<SignBrand> b; loadSignBrands("data/city/brands.json", "assets_src", nameOf, b, err); auto t = buildStorefrontAtlas(b, "NotoSansKR.ttf");

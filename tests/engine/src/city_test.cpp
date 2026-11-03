@@ -12,6 +12,22 @@
 
 using namespace han::world;
 
+TEST_CASE("city: внешняя геометрия дороги не дублируется, ширина читается из данных") {
+    OsmWay way;
+    way.tags = {{"highway", "primary"}, {"width", "48"}};
+    CHECK(roadWidth(way) == 48);
+    way.tags[1].second = "nan"; CHECK(roadWidth(way) == 10);
+    way.tags[1].second = "500"; CHECK(roadWidth(way) == 10);
+    way.tags[0].second = "proposed"; CHECK(roadWidth(way) == 0);
+    OsmData data;
+    data.nodes = {{1, {37.5, 127}}, {2, {37.5, 127.001}}};
+    way.id = 1; way.nodes = {1, 2}; way.tags = {{"highway", "primary"}, {"han:visual", "external"}};
+    data.ways = {way};
+    CityStats stats;
+    const auto chunks = buildCity(data, GeoProjection(37.5, 127), {}, &stats);
+    CHECK(chunks.empty()); CHECK(stats.roads == 0);
+}
+
 namespace {
 // Небольшой район около точки (37.5000, 127.0000): дорога-«Г», два дома, Г-образный дом, парк, пруд, мелкий сарай и мусор.
 // Узлы: широта шагом 0.0002° ≈ 22 м, долгота шагом 0.0002° ≈ 17.7 м.

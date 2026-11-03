@@ -70,6 +70,8 @@ def download(server: str, query: str, timeout: float = 120.0) -> bytes:
         raise FetchError(f"сервер ответил {e.code} {e.reason}") from e
     except urllib.error.URLError as e:
         raise FetchError(f"нет связи с сервером: {e.reason}") from e
+    except OSError as e:
+        raise FetchError(f"соединение прервано: {e}") from e
 
 
 def check_osm(data: bytes) -> int:

@@ -12,6 +12,8 @@ void computeSmoothNormals(render::MeshData& mesh);
 
 // Сварка + (если собрано с meshoptimizer) упорядочивание индексов и вершин под кэш GPU. Внешний вид не меняется.
 void optimizeMesh(render::MeshData& mesh);
+// Делит диапазоны материалов по пространственным клеткам; вершины и треугольники сохраняются.
+bool partitionMesh(render::MeshData& mesh, float cellSize);
 
 }  // namespace han::tools
 // Пример: computeSmoothNormals(mesh); optimizeMesh(mesh); saveMeshFile("lamp.hmesh", mesh, err);

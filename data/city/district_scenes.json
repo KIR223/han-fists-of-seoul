@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "scenes": [
+    {
+      "id": "kandam",
+      "mesh": "kandam/kandam_district.hmesh",
+      "collision": "kandam/kandam_collision.hmesh",
+      "interiors": "kandam/kandam_interiors.hmesh",
+      "lights": "data/city/kandam_lights.json",
+      "origin": [10020, 0, 6560],
+      "half_size": [365, 320],
+      "terrain_blend": 160,
+      "load_distance": 1400,
+      "unload_distance": 1800,
+      "interior_distance": 360,
+      "interior_light_power": 35,
+      "interior_light_radius": 14
+    }
+  ]
+}

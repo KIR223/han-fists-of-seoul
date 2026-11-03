@@ -276,10 +276,15 @@ TextureData buildStorefrontAtlas(const std::vector<SignBrand>& brands, const std
                         g = 198;
                         bl = 190;
                     } else {
-                        r = 70 - 25 * k;
-                        g = 82 - 25 * k;
-                        bl = 92 - 25 * k;
-                        a = 90;  // витрина светится мягче текста вывески
+                        r = 98 - 32 * k;
+                        g = 108 - 36 * k;
+                        bl = 118 - 40 * k;
+                        // Глубина торгового зала: стеллажи и товары за стеклом, без случайных надписей.
+                        const bool shelf = y > 140 && y < 228 && (y % 28 < 3);
+                        const bool merchandise = y > 130 && y < 228 && (y % 28 > 12) && (lx % 26 > 7 && lx % 26 < 20);
+                        if (shelf) { r = 112; g = 102; bl = 88; }
+                        if (merchandise) { r += static_cast<float>((lx / 26 + b) % 3) * 14.f; g += 10.f; bl -= 15.f; }
+                        a = 185;  // свет интерьера мягче светового короба
                     }
                 } else if (y > 238) {
                     r *= 0.6f;
@@ -297,7 +302,7 @@ TextureData buildStorefrontAtlas(const std::vector<SignBrand>& brands, const std
             if (x < 0 || y < 0 || x >= W || y >= H || cover <= 0.f) return;
             std::uint8_t* p = &px[(static_cast<std::size_t>(y) * static_cast<std::size_t>(W) + static_cast<std::size_t>(x)) * 4];
             for (int k = 0; k < 3; ++k) p[k] = static_cast<std::uint8_t>(p[k] * (1.f - cover) + static_cast<float>((c >> (8 * k)) & 255) * cover);
-            p[3] = static_cast<std::uint8_t>(static_cast<float>(p[3]) * (1.f - cover));  // под текстом и эмблемой — полное свечение
+            p[3] = static_cast<std::uint8_t>(std::max(32.f, static_cast<float>(p[3]) * (1.f - cover)));  // свечение вывески отделено от окон с alpha=0
         };
         // Эмблема: 32 x 32 слева на вывеске.
         const int ex = b * bay + 16, ey = 10;
@@ -357,6 +362,69 @@ TextureData buildStorefrontAtlas(const std::vector<SignBrand>& brands, const std
     TextureData t = makeTexture(static_cast<std::uint32_t>(W), static_cast<std::uint32_t>(H), std::move(px), true);
     generateMips(t);
     return t;
+}
+
+TextureData buildBladeSignAtlas(const std::vector<SignBrand>& brands, const std::string& fontPath, int bays) {
+    if (brands.empty() || bays < 1 || bays > 32) return {};
+    constexpr int bay = 128, height = 512;
+    const int width = bays * bay;
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width) * height * 4);
+#ifdef HAN_WITH_STB_TRUETYPE
+    const auto data = fontPath.empty() ? std::string() : readFile(fontPath);
+    stbtt_fontinfo font{};
+    const bool haveFont = !data.empty() && stbtt_InitFont(&font, reinterpret_cast<const unsigned char*>(data.data()), 0) != 0;
+#else
+    (void)fontPath;
+#endif
+    for (int section = 0; section < bays; ++section) {
+        const auto& brand = brands[static_cast<std::size_t>(section) % brands.size()];
+        const auto put = [&](int x, int y, std::uint32_t color, float coverage, int alpha) {
+            if (x < 0 || x >= bay || y < 0 || y >= height) return;
+            auto* p = &pixels[(static_cast<std::size_t>(y) * width + section * bay + x) * 4];
+            for (int c = 0; c < 3; ++c) p[c] = static_cast<std::uint8_t>(static_cast<float>(p[c]) * (1.f - coverage) + static_cast<float>((color >> (8 * c)) & 255) * coverage);
+            p[3] = static_cast<std::uint8_t>(static_cast<float>(p[3]) * (1.f - coverage) + static_cast<float>(alpha) * coverage);
+        };
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < bay; ++x) {
+                const bool border = x < 6 || x >= bay - 6 || y < 6 || y >= height - 6;
+                put(x, y, border ? 0xff303235u : brand.background, 1.f, border ? 255 : 170);
+            }
+        if (brand.logo.size() == 48 * 48 * 4) {
+            for (int y = 0; y < 48; ++y)
+                for (int x = 0; x < 48; ++x) {
+                    const auto* p = &brand.logo[(y * 48 + x) * 4];
+                    std::uint32_t color;
+                    std::memcpy(&color, p, 4);
+                    put(40 + x, 18 + y, color, static_cast<float>(p[3]) / 255.f, 110);
+                }
+        }
+#ifdef HAN_WITH_STB_TRUETYPE
+        const auto codepoints = decodeUtf8(brand.text);
+        if (haveFont && !codepoints.empty()) {
+            const float line = std::min(70.f, 410.f / static_cast<float>(codepoints.size()));
+            const float scale = stbtt_ScaleForPixelHeight(&font, line * 0.86f);
+            float cy = 86.f;
+            auto color = brand.foreground;
+            if (std::fabs(luminance(color) - luminance(brand.background)) < 0.35f) color = luminance(brand.background) > 0.5f ? 0xff181818u : 0xfff5f1e7u;
+            for (const auto cp : codepoints) {
+                int x0, y0, x1, y1;
+                stbtt_GetCodepointBitmapBox(&font, cp, scale, scale, &x0, &y0, &x1, &y1);
+                const int w = x1 - x0, h = y1 - y0;
+                if (w > 0 && h > 0) {
+                    std::vector<unsigned char> bitmap(static_cast<std::size_t>(w) * h);
+                    stbtt_MakeCodepointBitmap(&font, bitmap.data(), w, h, w, scale, scale, cp);
+                    for (int y = 0; y < h; ++y)
+                        for (int x = 0; x < w; ++x)
+                            put((bay - w) / 2 + x, static_cast<int>(cy + (line - h) * 0.5f) + y, color, static_cast<float>(bitmap[y * w + x]) / 255.f, 80);
+                }
+                cy += line;
+            }
+        }
+#endif
+    }
+    auto texture = makeTexture(static_cast<std::uint32_t>(width), height, std::move(pixels), true);
+    generateMips(texture);
+    return texture;
 }
 
 }  // namespace han::render

@@ -19,7 +19,13 @@ std::uint32_t mipLevelCount(std::uint32_t width, std::uint32_t height);
 // Создаёт текстуру с одним уровнем из пикселей RGBA8 (width*height*4 байта).
 TextureData makeTexture(std::uint32_t width, std::uint32_t height, std::vector<std::uint8_t> rgba, bool srgb);
 // Достраивает цепочку до 1x1 усреднением блоков 2x2; для sRGB усредняет в линейном свете. Нулевой уровень не меняется.
-void generateMips(TextureData& texture);
+// alphaWeighted исключает цвет прозрачного фона из мипов вырезаемой листвы.
+void generateMips(TextureData& texture, bool alphaWeighted = false);
+// Повторяет фото-деталь внутри плитки (масштаб кирпича/штукатурки), сохраняя размеры и sRGB.
+bool retileTexture(TextureData& texture, int repeats);
+// Альфа альбедо города задаёт стекло (0) и стену (255). Карта может иметь другой размер.
+// Стекло получает плоскую нормаль либо заданную шероховатость; стена остаётся прежней.
+bool applyGlassSurface(TextureData& map, const TextureData& albedo, bool normalMap, float roughness);
 // Шахматная доска для тестовых сцен; клетка — cell пикселей.
 TextureData makeCheckerTexture(std::uint32_t size, std::uint32_t cell, std::uint32_t colorA, std::uint32_t colorB);
 

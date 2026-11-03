@@ -59,6 +59,23 @@ float Heightmap::heightAt(float x, float z) const {
     return (a * (1.f - tx) + b * tx) * (1.f - tz) + (c * (1.f - tx) + d * tx) * tz;
 }
 
+bool Heightmap::flattenArea(float minX, float minZ, float maxX, float maxZ, float height, float blend) {
+    for (const float value : {minX, minZ, maxX, maxZ, height, blend}) if (!std::isfinite(value)) return false;
+    if (!valid() || minX >= maxX || minZ >= maxZ || blend <= 0) return false;
+    for (int j = 0; j < height_; ++j) for (int i = 0; i < width_; ++i) {
+        const float x = minX_ + static_cast<float>(i) * cell_, z = minZ_ + static_cast<float>(j) * cell_;
+        const float distance = std::max({minX - x, x - maxX, minZ - z, z - maxZ, 0.f});
+        // Один узел запаса гарантирует плоскую билинейную поверхность вплоть до края площадки.
+        const float t = std::clamp((distance - cell_) / blend, 0.f, 1.f);
+        const float weight = 1.f - t * t * (3.f - 2.f * t);
+        auto& value = data_[static_cast<std::size_t>(j) * width_ + i];
+        value = value * (1.f - weight) + height * weight;
+    }
+    minH_ = *std::min_element(data_.begin(), data_.end());
+    maxH_ = *std::max_element(data_.begin(), data_.end());
+    return true;
+}
+
 void Heightmap::normalAt(float x, float z, float& nx, float& ny, float& nz) const {
     const float e = cell_;
     const float dx = heightAt(x + e, z) - heightAt(x - e, z), dz = heightAt(x, z + e) - heightAt(x, z - e);

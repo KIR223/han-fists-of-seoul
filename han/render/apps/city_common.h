@@ -15,6 +15,7 @@
 #include "han/render/sign_atlas.h"
 #include "han/ui/localization.h"
 #include "han/world/geometry.h"
+#include "han/world/city_style.h"
 
 namespace han::render::citytex {
 struct Slot {
@@ -24,16 +25,35 @@ struct Slot {
     float roughness;
 };
 
-inline const std::array<Slot, 8>& slots() {
-    static const std::array<Slot, 8> s = {{
+inline const world::CityStyle& style() {
+    static const world::CityStyle settings = [] {
+        world::CityStyle result;
+        std::string error;
+        if (!world::loadCityStyle("data/city/streetscape.json", result, error)) std::fprintf(stderr, "город: %s\n", error.c_str());
+        return result;
+    }();
+    return settings;
+}
+
+inline const std::array<Slot, 17>& slots() {
+    static const std::array<Slot, 17> s = {{
         {world::GeoMaterial::Road, "tx_road_asphalt", {0.22f, 0.22f, 0.23f}, 0.9f},
         {world::GeoMaterial::Park, "tx_ground_grass", {0.30f, 0.46f, 0.26f}, 0.95f},
         {world::GeoMaterial::WallPlaster, "tx_wall_plaster_beige", {0.72f, 0.69f, 0.64f}, 0.85f},
         {world::GeoMaterial::WallBrick, "tx_wall_brick_brown", {0.62f, 0.38f, 0.32f}, 0.85f},
         {world::GeoMaterial::WallConcrete, "tx_wall_concrete", {0.60f, 0.60f, 0.62f}, 0.8f},
         {world::GeoMaterial::Roof, "tx_roof_bitumen", {0.30f, 0.30f, 0.32f}, 0.9f},
-        {world::GeoMaterial::Sidewalk, "tx_sidewalk_brick", {0.50f, 0.46f, 0.42f}, 0.9f},
+        {world::GeoMaterial::Sidewalk, "tx_sidewalk_seoul", {0.50f, 0.46f, 0.42f}, 0.9f},
         {world::GeoMaterial::Storefront, nullptr, {0.35f, 0.30f, 0.28f}, 0.5f},  // процедурная (makeStorefront), файла нет
+        {world::GeoMaterial::BladeSign, nullptr, {0.8f, 0.8f, 0.75f}, 0.35f},
+        {world::GeoMaterial::LampGlass, nullptr, {1.f, 0.9f, 0.7f}, 0.25f},
+        {world::GeoMaterial::Terrain, "tx_pavement_concrete", {0.68f, 0.68f, 0.66f}, 0.92f},
+        {world::GeoMaterial::Metal, "tx_wall_metal_sheet", {0.65f, 0.66f, 0.68f}, 0.55f},
+        {world::GeoMaterial::RoofPaint, "tx_wall_plaster_beige", {0.50f, 0.7f, 0.6f}, 0.75f},
+        {world::GeoMaterial::WallRedBrick, "tx_wall_red", {0.7f, 0.38f, 0.3f}, 0.9f},
+        {world::GeoMaterial::WallWornBrick, "tx_wall_worn", {0.55f, 0.4f, 0.3f}, 0.92f},
+        {world::GeoMaterial::WallCladding, "tx_wall_cladding", {0.65f, 0.65f, 0.62f}, 0.7f},
+        {world::GeoMaterial::Plaza, "tx_plaza_seoul", {0.65f, 0.6f, 0.55f}, 0.92f},
     }};
     return s;
 }
@@ -141,9 +161,10 @@ inline TextureData makeStorefront() {
 // Вывески вымышленных брендов (data/city/brands.json + SVG + шрифт): если всё есть, витрины строятся из них (16 секций), иначе — общие цветные.
 inline const char* kBrandFont = "assets_bin/cooked/fn_noto_sans_kr/NotoSansKR.ttf";
 inline bool brandAtlasAvailable() { return std::filesystem::exists("data/city/brands.json") && std::filesystem::exists("assets_src/brands"); }
-inline float shopTileMeters() { return brandAtlasAvailable() ? 76.8f : 19.2f; }  // 16 секций по 4,8 м или 4 секции
+inline int signBays() { return style().enabled ? style().signBays : 16; }
+inline float shopTileMeters() { return brandAtlasAvailable() ? static_cast<float>(signBays()) * (style().enabled ? style().shopBayWidth : 4.8f) : 19.2f; }
 
-inline TextureData makeBrandStorefront() {
+inline TextureData makeBrandStorefront(bool blade = false) {
     ui::Localization loc;
     std::string error;
     loc.loadTable("contracts/loc_requests/A.csv", error);
@@ -153,7 +174,8 @@ inline TextureData makeBrandStorefront() {
         std::fprintf(stderr, "бренды: %s\n", error.c_str());
         return makeStorefront();
     }
-    return buildStorefrontAtlas(brands, std::filesystem::exists(kBrandFont) ? kBrandFont : "", 16);
+    const auto font = std::filesystem::exists(kBrandFont) ? kBrandFont : "";
+    return blade ? buildBladeSignAtlas(brands, font, signBays()) : buildStorefrontAtlas(brands, font, signBays());
 }
 
 // Загружает альбедо материалов в GPU. Возвращает id текстур по номерам slots() (0 — нет файла).
@@ -164,21 +186,34 @@ inline std::vector<TextureId> load(Renderer& renderer, bool windows = true, cons
     int loaded = 0;
     for (std::size_t i = 0; i < n; ++i) {
         if (!slots()[i].folder) {
-            TextureData generated = brandAtlasAvailable() ? makeBrandStorefront() : makeStorefront();
+            TextureData generated;
+            if (slots()[i].material == world::GeoMaterial::LampGlass) {
+                generated = makeTexture(1, 1, {255, 235, 195, 70}, true);
+                generateMips(generated);
+            } else generated = brandAtlasAvailable() ? makeBrandStorefront(slots()[i].material == world::GeoMaterial::BladeSign) : makeStorefront();
             ids[i] = renderer.uploadTexture(generated);
             loaded += ids[i] ? 1 : 0;
             continue;
-        }
-        for (std::size_t kind = 1; kind <= 2; ++kind) {
-            TextureData map;
-            std::string mapError;
-            if (loadKtx2File(cooked / slots()[i].folder / (kind == 1 ? "nor.ktx2" : "rough.ktx2"), map, mapError)) ids[i + kind * n] = renderer.uploadTexture(map);
         }
         TextureData texture;
         std::string error;
         if (!loadKtx2File(cooked / slots()[i].folder / "diff.ktx2", texture, error)) continue;
         const world::GeoMaterial m = slots()[i].material;
-        if (windows && texture.width >= 256 && (m == world::GeoMaterial::WallPlaster || m == world::GeoMaterial::WallBrick || m == world::GeoMaterial::WallConcrete)) addWindows(texture);
+        const bool newWall = m == world::GeoMaterial::WallRedBrick || m == world::GeoMaterial::WallWornBrick || m == world::GeoMaterial::WallCladding;
+        const bool windowed = windows && texture.width >= 256 && texture.width == texture.height &&
+            (m == world::GeoMaterial::WallPlaster || m == world::GeoMaterial::WallBrick || m == world::GeoMaterial::WallConcrete || newWall);
+        if (style().enabled && (m == world::GeoMaterial::WallBrick || newWall)) retileTexture(texture, style().facadeDetailRepeat);
+        if (windowed) addWindows(texture);
+        for (std::size_t kind = 1; kind <= 2; ++kind) {
+            TextureData map;
+            std::string mapError;
+            if (loadKtx2File(cooked / slots()[i].folder / (kind == 1 ? "nor.ktx2" : "rough.ktx2"), map, mapError)) {
+                const auto mat = slots()[i].material;
+                if (style().enabled && (mat == world::GeoMaterial::WallBrick || mat == world::GeoMaterial::WallRedBrick || mat == world::GeoMaterial::WallWornBrick || mat == world::GeoMaterial::WallCladding)) retileTexture(map, style().facadeDetailRepeat);
+                if (windowed && style().enabled) applyGlassSurface(map, texture, kind == 1, style().windowRoughness);
+                ids[i + kind * n] = renderer.uploadTexture(map);
+            }
+        }
         ids[i] = renderer.uploadTexture(texture);
         loaded += ids[i] ? 1 : 0;
     }
@@ -193,7 +228,7 @@ inline MeshId uploadGround(Renderer& renderer, float halfSize = 4000.f, const st
     for (int i = 0; i < 3; ++i) {
         TextureData t;
         std::string error;
-        if (loadKtx2File(cooked / "tx_sidewalk_brick" / files[i], t, error)) ids[i] = renderer.uploadTexture(t);
+        if (loadKtx2File(cooked / "tx_pavement_concrete" / files[i], t, error)) ids[i] = renderer.uploadTexture(t);
     }
     const bool textured = ids[0] != 0;
     constexpr float kTile = 4.f;  // метров на плитку
@@ -204,7 +239,6 @@ inline MeshId uploadGround(Renderer& renderer, float halfSize = 4000.f, const st
 }
 
 inline int slotOf(world::GeoMaterial m) {
-    if (m == world::GeoMaterial::Terrain) m = world::GeoMaterial::Sidewalk;  // земля — мощёная плитка, как раньше плоскость
     for (std::size_t i = 0; i < slots().size(); ++i)
         if (slots()[i].material == m) return static_cast<int>(i);
     return -1;
@@ -251,7 +285,7 @@ inline MeshData toMesh(const world::GeoMesh& g, const std::vector<TextureId>& te
                 }
             }
         }
-        m.submeshes.push_back({r.firstIndex, r.indexCount, texture, 0.0f, roughness, normal, rough});
+        m.submeshes.push_back({r.firstIndex, r.indexCount, texture, r.material == world::GeoMaterial::Metal ? 0.65f : 0.0f, roughness, normal, rough});
     }
     return m;
 }

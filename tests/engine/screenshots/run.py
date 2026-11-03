@@ -39,6 +39,9 @@ SCENES: dict[str, list[str]] = {
     "sun_bloom": ["--camera", "0", "3", "11", "60", "9", "--sun", "14", "60", "3600"],
     "cascades_top": ["--camera", "0", "40", "30", "0", "-40", "--cascades"],
     "night": ["--sun", "-30", "0", "4000", "--exposure", "14"],
+    "foliage_front": ["--alpha-test", "--camera", "-8", "4", "3", "0", "-20"],
+    "foliage_back": ["--alpha-test", "--camera", "-8", "3", "-8", "180", "-10"],
+    "foliage_night": ["--alpha-test", "--camera", "-8", "4", "3", "0", "-20", "--sun", "-12", "0", "4000", "--exposure", "3"],
 }
 
 
