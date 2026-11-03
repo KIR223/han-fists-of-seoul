@@ -29,6 +29,8 @@ std::string describe(const CombatEvent& e, const std::vector<std::string>& names
         case CombatEventType::Knockdown: return names[static_cast<std::size_t>(e.defender)] + " НОКДАУН";
         case CombatEventType::GetUp: return names[static_cast<std::size_t>(e.defender)] + " встал";
         case CombatEventType::KnockedOut: return names[static_cast<std::size_t>(e.defender)] + " НОКАУТ";
+        case CombatEventType::ClinchBegin: return who+" клинч";
+        case CombatEventType::ClinchEnd: return who+" выход из клинча";
     }
     return "";
 }

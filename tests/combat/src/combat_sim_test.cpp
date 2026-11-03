@@ -295,7 +295,12 @@ TEST_CASE("combat: expectedDamage совпадает с реальным уро�
 TEST_CASE("combat: тяжёлые приёмы бьют сильнее лёгких, хук по печени слабее хука по голове") {
     const auto dmg = [](const char* id) {
         Rig r;
-        return r.until(CombatEventType::Hit, 60, attack(mv(id)))->damage;
+        const auto& move=mv(id);
+        // Сравниваем весь приём: Демпси — серия, а не один крупный Hit.
+        r.step(attack(move));r.idle(move.totalFrames());
+        float total=0;
+        for(const auto& event:r.sim.log()) if(event.type==CombatEventType::Hit && event.attacker==0)total+=event.damage;
+        return total;
     };
     CHECK(dmg("jab") < dmg("cross"));
     CHECK(dmg("cross") < dmg("left_hook"));
@@ -1054,13 +1059,13 @@ TEST_CASE("combat: групповой бой — каждый бьёт свою 
 
 TEST_CASE("combat: всем реальным приёмам бокса по очереди — попадание на своём кадре и в пределах дальности") {
     for (const MoveData& m : library().all()) {
-        Rig r;
+        Rig r(m.type=="clinch"?.65f:1.2f);
         r.A().focus = 100.f;
         r.step(attack(m));
         for (int i = 2; i < m.startup; ++i) r.step();  // кадры 1..startup-1
         CHECK_MESSAGE(r.sim.events().empty(), m.id << ": событие раньше замаха");
         r.step();                                      // кадр startup — попадание
-        const bool landed = r.find(CombatEventType::Hit) != nullptr || r.find(CombatEventType::Blocked) != nullptr;
+        const bool landed = r.find(CombatEventType::Hit) != nullptr || r.find(CombatEventType::Blocked) != nullptr || (m.type=="clinch" && r.find(CombatEventType::ClinchBegin)!=nullptr);
         // Некоторые приёмы (слип-контр, отход) смещают бойца, но на 1,2 м всё равно достают.
         CHECK_MESSAGE(landed, m.id << ": не попал на кадре " << m.startup);
     }

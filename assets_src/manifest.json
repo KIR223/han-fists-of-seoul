@@ -592,6 +592,28 @@
         "entry": "Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb",
         "budget_triangles": 40000
       }
+    },
+    {
+      "id": "quaternius_ual2",
+      "name": "AN_UniversalLibrary2",
+      "kind": "model",
+      "zone": "B",
+      "source": {
+        "type": "itch",
+        "page": "https://quaternius.itch.io/universal-animation-library-2",
+        "upload_id": "17958478"
+      },
+      "author": "Quaternius",
+      "license": "CC0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "retrieved": "2026-11-03",
+      "sha256": "1eb29e9bf3f5f53e9932133469232090a9b5d9ff658f20a6b7c0dbb7f9ed8930",
+      "used_in": "Исходные общие движения и подъёмы для бокса",
+      "modified": "Нет: библиотека анимаций, отдельная подготовка для общего humanoid-скелета",
+      "pipeline": {
+        "profile": "animation_library",
+        "entry": "Universal Animation Library 2[Standard]/Unreal-Godot/UAL2_Standard.glb"
+      }
     }
   ]
 }

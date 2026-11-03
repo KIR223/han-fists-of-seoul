@@ -29,7 +29,7 @@
     "base_threshold": 25.0,
     "toughness_per_point": 3.0,
     "down_frames": 120,
-    "getup_frames": 40,
+    "getup_frames": 168,
     "knockdowns_to_ko": 3
   },
   "movement": {
@@ -50,7 +50,8 @@
   "rhythm": { "hits_for_flow": 5, "flow_frames": 360, "decay_frames": 240 },
   "boxing": {
     "head_movement": { "bonus_per_charge": 0.1, "max_charges": 5, "decay_frames": 240 },
-    "body_work": { "threshold": 28.0, "decay_per_second": 1.5, "doubled_frames": 50 }
+    "body_work": { "threshold": 28.0, "decay_per_second": 1.5, "doubled_frames": 50 },
+    "clinch": {"frames": 90, "stamina_regen": 9}
   },
   "input_buffer_frames": 8,
   "defenses": {

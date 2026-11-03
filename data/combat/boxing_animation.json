@@ -1,0 +1,583 @@
+{
+  "fps": 60,
+  "frames": 60,
+  "contact": 0.4,
+  "reach_limit": 0.98,
+  "guard": {
+    "l": [
+      0.13,
+      1.48,
+      0.25
+    ],
+    "r": [
+      -0.16,
+      1.49,
+      0.16
+    ]
+  },
+  "elbow_poles": {
+    "l": [
+      1,
+      -0.7,
+      0
+    ],
+    "r": [
+      -1,
+      -0.7,
+      0
+    ]
+  },
+  "clips": {
+    "Boxing_Guard": {},
+    "Boxing_Walk": {
+      "source": "Walk_Loop",
+      "loop": true
+    },
+    "Boxing_Jab": {
+      "source": "Punch_Jab",
+      "source_contact": 0.25
+    },
+    "Boxing_Cross": {
+      "source": "Punch_Cross",
+      "source_contact": 0.32
+    },
+    "Boxing_JabBody": {
+      "source": "Punch_Jab",
+      "source_contact": 0.25,
+      "lean": 16,
+      "dip": 0.08
+    },
+    "Boxing_CrossBody": {
+      "source": "Punch_Cross",
+      "source_contact": 0.32,
+      "lean": 16,
+      "dip": 0.08
+    },
+    "Boxing_LeftHook": {
+      "side": "l",
+      "turn": -32,
+      "path": [
+        [
+          0.47,
+          1.38,
+          0.12
+        ],
+        [
+          -0.02,
+          1.42,
+          0.53
+        ],
+        [
+          0.08,
+          1.34,
+          0.22
+        ]
+      ]
+    },
+    "Boxing_RightHook": {
+      "side": "r",
+      "turn": 36,
+      "path": [
+        [
+          -0.48,
+          1.39,
+          0.1
+        ],
+        [
+          0.03,
+          1.42,
+          0.54
+        ],
+        [
+          -0.1,
+          1.35,
+          0.2
+        ]
+      ]
+    },
+    "Boxing_LiverHook": {
+      "side": "l",
+      "turn": -28,
+      "dip": 0.08,
+      "path": [
+        [
+          0.42,
+          1.05,
+          0.08
+        ],
+        [
+          -0.08,
+          1.05,
+          0.49
+        ],
+        [
+          0.12,
+          1.19,
+          0.22
+        ]
+      ]
+    },
+    "Boxing_Uppercut": {
+      "side": "r",
+      "turn": 24,
+      "dip": 0.045,
+      "path": [
+        [
+          -0.18,
+          0.86,
+          0.16
+        ],
+        [
+          -0.03,
+          1.47,
+          0.44
+        ],
+        [
+          -0.12,
+          1.42,
+          0.25
+        ]
+      ]
+    },
+    "Boxing_BodyUppercut": {
+      "side": "r",
+      "turn": 22,
+      "dip": 0.06,
+      "path": [
+        [
+          -0.21,
+          0.78,
+          0.17
+        ],
+        [
+          -0.04,
+          1.12,
+          0.48
+        ],
+        [
+          -0.15,
+          1.29,
+          0.2
+        ]
+      ]
+    },
+    "Boxing_Overhand": {
+      "side": "r",
+      "turn": 38,
+      "lean": 8,
+      "path": [
+        [
+          -0.42,
+          1.86,
+          0.14
+        ],
+        [
+          -0.03,
+          1.45,
+          0.61
+        ],
+        [
+          -0.12,
+          1.24,
+          0.3
+        ]
+      ]
+    },
+    "Boxing_Block": {
+      "lean": -3,
+      "guard": {
+        "l": [
+          0.12,
+          1.53,
+          0.24
+        ],
+        "r": [
+          -0.12,
+          1.53,
+          0.24
+        ]
+      }
+    },
+    "Boxing_Parry": {
+      "side": "r",
+      "path": [
+        [
+          -0.17,
+          1.43,
+          0.22
+        ],
+        [
+          0.09,
+          1.43,
+          0.43
+        ],
+        [
+          -0.15,
+          1.43,
+          0.22
+        ]
+      ]
+    },
+    "Boxing_SlipLeft": {
+      "sway": 0.22,
+      "turn": -12
+    },
+    "Boxing_SlipRight": {
+      "sway": -0.22,
+      "turn": 12
+    },
+    "Boxing_Duck": {
+      "lean": 20,
+      "dip": 0.16
+    },
+    "Boxing_LeanBack": {
+      "lean": -22
+    },
+    "Boxing_ShoulderRollLeft": {
+      "turn": -38,
+      "lean": -8,
+      "sway": 0.1
+    },
+    "Boxing_ShoulderRollRight": {
+      "turn": 38,
+      "lean": -8,
+      "sway": -0.1
+    },
+    "Boxing_Bolo": {
+      "side": "r",
+      "turn": 40,
+      "path": [
+        [
+          -0.4,
+          0.75,
+          -0.06
+        ],
+        [
+          0.04,
+          1.46,
+          0.57
+        ],
+        [
+          -0.27,
+          1.65,
+          0.18
+        ]
+      ]
+    }
+  },
+  "secondary_clips": [
+    "LayToIdle",
+    "Hit_Knockback"
+  ],
+  "detail": {
+    "breathing": 0.012,
+    "reaction_decay": 5,
+    "reaction_peak": 0.14,
+    "pelvis_anchor_z": -0.02,
+    "gait": {
+      "plant_ratio": 0.68,
+      "stride": 0.42,
+      "lift": 0.035,
+      "bob": 0.008,
+      "torso_sway": 0.018,
+      "stance_width": 0.48,
+      "knee_flex": 0.075
+    },
+    "fall": {
+      "impact": 0.12,
+      "settle": 0.78,
+      "source": "Death01",
+      "source_land": 0.5,
+      "land_time": 0.7
+    },
+    "getup": {
+      "guard_start": 0.78,
+      "roll_end": 0.4
+    },
+    "clips": {
+      "Boxing_Guard": {
+        "kind": "guard",
+        "seconds": 2.8
+      },
+      "Boxing_ShuffleForward": {
+        "kind": "gait",
+        "direction": [
+          0,
+          0,
+          1
+        ],
+        "phase": 0
+      },
+      "Boxing_ShuffleBack": {
+        "kind": "gait",
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "phase": 0.5
+      },
+      "Boxing_ShuffleLeft": {
+        "kind": "gait",
+        "direction": [
+          1,
+          0,
+          0
+        ],
+        "phase": 0
+      },
+      "Boxing_ShuffleRight": {
+        "kind": "gait",
+        "direction": [
+          -1,
+          0,
+          0
+        ],
+        "phase": 0
+      },
+      "Boxing_ShuffleForwardLeft": {
+        "kind": "gait",
+        "direction": [
+          0.707,
+          0,
+          0.707
+        ],
+        "phase": 0
+      },
+      "Boxing_ShuffleForwardRight": {
+        "kind": "gait",
+        "direction": [
+          -0.707,
+          0,
+          0.707
+        ],
+        "phase": 0
+      },
+      "Boxing_ShuffleBackLeft": {
+        "kind": "gait",
+        "direction": [
+          0.707,
+          0,
+          -0.707
+        ],
+        "phase": 0.5
+      },
+      "Boxing_ShuffleBackRight": {
+        "kind": "gait",
+        "direction": [
+          -0.707,
+          0,
+          -0.707
+        ],
+        "phase": 0.5
+      },
+      "Boxing_JabRetreat": {
+        "kind": "variant",
+        "base": "Boxing_Jab",
+        "lean": -7,
+        "prelude_end": 0.75
+      },
+      "Boxing_SlipCounter": {
+        "kind": "variant",
+        "base": "Boxing_Cross",
+        "sway": -0.21,
+        "dip": 0.035,
+        "prelude_end": 0.39
+      },
+      "Boxing_PullCounter": {
+        "kind": "variant",
+        "base": "Boxing_Cross",
+        "lean": -19,
+        "prelude_end": 0.37
+      },
+      "Boxing_DuckHook": {
+        "kind": "variant",
+        "base": "Boxing_LeftHook",
+        "dip": 0.15,
+        "lean": 14,
+        "prelude_end": 0.55
+      },
+      "Boxing_PivotHook": {
+        "kind": "variant",
+        "base": "Boxing_LeftHook",
+        "hip_turn": 24
+      },
+      "Boxing_LiverKnockout": {
+        "kind": "variant",
+        "base": "Boxing_LiverHook",
+        "hip_turn": -15,
+        "dip": 0.1
+      },
+      "Boxing_RearUppercut": {
+        "kind": "variant",
+        "base": "Boxing_Uppercut",
+        "hip_turn": 18,
+        "dip": 0.065
+      },
+      "Boxing_DoubleJab": {
+        "kind": "series",
+        "sections": [
+          {
+            "start": 0,
+            "contact": 0.24,
+            "end": 0.46,
+            "base": "Boxing_Jab"
+          },
+          {
+            "start": 0.46,
+            "contact": 0.64,
+            "end": 1,
+            "base": "Boxing_Jab"
+          }
+        ]
+      },
+      "Boxing_DempseyRoll": {
+        "kind": "series",
+        "roll": 0.22,
+        "dip": 0.085,
+        "sections": [
+          {
+            "start": 0,
+            "contact": 0.3,
+            "end": 0.42,
+            "base": "Boxing_LeftHook"
+          },
+          {
+            "start": 0.42,
+            "contact": 0.55,
+            "end": 0.67,
+            "base": "Boxing_RightHook"
+          },
+          {
+            "start": 0.67,
+            "contact": 0.8,
+            "end": 1,
+            "base": "Boxing_LeftHook"
+          }
+        ]
+      },
+      "Boxing_BobLeft": {
+        "kind": "defense",
+        "dip": 0.15,
+        "bob": 0.22
+      },
+      "Boxing_BobRight": {
+        "kind": "defense",
+        "dip": 0.15,
+        "bob": -0.22
+      },
+      "Boxing_SidestepLeft": {
+        "kind": "defense",
+        "sway": 0.16,
+        "dip": 0.03
+      },
+      "Boxing_SidestepRight": {
+        "kind": "defense",
+        "sway": -0.16,
+        "dip": 0.03
+      },
+      "Boxing_StepBack": {
+        "kind": "defense",
+        "lean": -11,
+        "dip": 0.025
+      },
+      "Boxing_HitHeadFront": {
+        "kind": "reaction",
+        "head_pitch": -13,
+        "lean": -7
+      },
+      "Boxing_HitHeadLeft": {
+        "kind": "reaction",
+        "head_turn": 32,
+        "turn": 10,
+        "lean": -4
+      },
+      "Boxing_HitHeadRight": {
+        "kind": "reaction",
+        "head_turn": -32,
+        "turn": -10,
+        "lean": -4
+      },
+      "Boxing_HitBody": {
+        "kind": "reaction",
+        "lean": 18,
+        "dip": 0.045
+      },
+      "Boxing_HitLiver": {
+        "kind": "reaction",
+        "lean": 27,
+        "dip": 0.09,
+        "turn": 12
+      },
+      "Boxing_Stagger": {
+        "kind": "reaction",
+        "lean": -13,
+        "head_pitch": -10,
+        "dip": 0.065
+      },
+      "Boxing_HitBack": {
+        "kind": "reaction",
+        "lean": 13,
+        "head_pitch": 9
+      },
+      "Boxing_FallBack": {
+        "kind": "fall",
+        "roll": 0,
+        "seconds": 0.85
+      },
+      "Boxing_GetUpBack": {
+        "kind": "getup",
+        "roll": 0,
+        "seconds": 2.8
+      },
+      "Boxing_FallLeft": {
+        "kind": "fall",
+        "roll": 80,
+        "seconds": 0.85
+      },
+      "Boxing_GetUpLeft": {
+        "kind": "getup",
+        "roll": 80,
+        "seconds": 2.8
+      },
+      "Boxing_FallRight": {
+        "kind": "fall",
+        "roll": -80,
+        "seconds": 0.85
+      },
+      "Boxing_GetUpRight": {
+        "kind": "getup",
+        "roll": -80,
+        "seconds": 2.8
+      },
+      "Boxing_FallFront": {
+        "kind": "fall",
+        "roll": 180,
+        "seconds": 0.85
+      },
+      "Boxing_GetUpFront": {
+        "kind": "getup",
+        "roll": 180,
+        "seconds": 2.8
+      },
+      "Boxing_Clinch": {
+        "kind": "clinch",
+        "seconds": 2.8,
+        "hands": {
+          "l": [
+            0.24,
+            1.48,
+            0.48
+          ],
+          "r": [
+            -0.24,
+            1.48,
+            0.48
+          ]
+        }
+      }
+    },
+    "floor_clearance": 0.004,
+    "contact_rate": 240
+  }
+}

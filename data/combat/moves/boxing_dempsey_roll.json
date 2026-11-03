@@ -10,12 +10,12 @@
   "movement_variant": "static",
   "frames": {
     "startup": 18,
-    "active": 6,
+    "active": 27,
     "recovery": 30
   },
   "cancel_window": [
-    24,
-    39
+    45,
+    71
   ],
   "range": 1.2,
   "damage": 25,
@@ -33,5 +33,22 @@
     "sound": "impact_finisher"
   },
   "anim": "anims/boxing/dempsey_roll.ozz",
-  "focus": 40
+  "focus": 40,
+  "strikes": [
+    {
+      "frame": 18,
+      "limb": "left_hand",
+      "damage_scale": 0.3
+    },
+    {
+      "frame": 30,
+      "limb": "right_hand",
+      "damage_scale": 0.33
+    },
+    {
+      "frame": 42,
+      "limb": "left_hand",
+      "damage_scale": 0.37
+    }
+  ]
 }
