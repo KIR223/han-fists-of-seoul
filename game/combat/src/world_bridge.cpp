@@ -22,13 +22,22 @@ bool WorldBridge::sacred(int fighter) const {
 
 void WorldBridge::step(std::vector<FighterInput> inputs) {
     pullPositions();
-    // Нападающий в святом месте не атакует; на защитника в святом месте тоже не нападают.
-    for (std::size_t i = 0; i < inputs.size() && i < entities_.size(); ++i) {
-        if (!inputs[i].attack) continue;
-        const int target = sim_.fighter(static_cast<int>(i)).target;
+    inputs.resize(entities_.size());
+    // Проверяем и текущий приём, и буфер даже при пустом вводе: границу можно пересечь посреди замаха.
+    for (std::size_t i = 0; i < entities_.size(); ++i) {
+        Fighter& f = sim_.fighterMutable(static_cast<int>(i));
+        const int target = f.target;
         if (sacred(static_cast<int>(i)) || (target >= 0 && sacred(target))) {
+            if (inputs[i].attack || f.buffered || f.state == FighterState::Attacking) ++muted_;
             inputs[i].attack = nullptr;
-            ++muted_;
+            f.buffered = nullptr;
+            f.bufferAge = 0;
+            if (f.state == FighterState::Attacking) {
+                f.move = nullptr;
+                f.moveResolved = false;
+                f.state = FighterState::Idle;
+                f.stateFrame = 0;
+            }
         }
     }
     sim_.step(inputs);

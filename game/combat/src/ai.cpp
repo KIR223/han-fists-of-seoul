@@ -161,12 +161,13 @@ FighterInput FightAI::decide(const CombatSim& sim, int self) {
     FighterInput out;
     const Fighter& me = sim.fighter(self);
     intent_ = Intent::Idle;
-    if (me.target < 0 || !me.alive() || me.down() || me.stunned()) {
+    if (me.target < 0 || !me.alive() || me.down() || me.stunned() || me.state==FighterState::Clinching) {
         defended_ = false;
         return out;
     }
     const Fighter& foe = sim.fighter(me.target);
     if (!foe.alive()) return out;
+    if(sim.officialRules() && foe.down())return out;
     const int frame = sim.frame();
     const float dist = sim.distance(self, me.target);
 

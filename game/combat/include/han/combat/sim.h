@@ -16,7 +16,7 @@ struct Vec2 {
     float x = 0, z = 0;
 };
 
-enum class FighterState : unsigned char { Idle, Moving, Attacking, Defending, Blocking, HitStun, BlockStun, Knockdown, GettingUp, KnockedOut };
+enum class FighterState : unsigned char { Idle, Moving, Attacking, Defending, Blocking, HitStun, BlockStun, Knockdown, GettingUp, KnockedOut, Clinching };
 enum class DefenseAction : unsigned char { None, Parry, SlipLeft, SlipRight, Duck, BobLeft, BobRight, LeanBack, SidestepLeft, SidestepRight, StepBack, ShoulderRollLeft, ShoulderRollRight };
 
 struct FighterStats {
@@ -42,10 +42,12 @@ struct Fighter {
     FighterState state = FighterState::Idle;
     int stateFrame = 0;          // кадров в текущем состоянии
     int target = -1;             // индекс врага; бойцу лицом к нему
+    int clinchPartner = -1;
     // Атака
     const MoveData* move = nullptr;
     Movement moveMovement = Movement::Static;
     bool moveResolved = false;   // приём уже попал / был заблокирован / не достал на активных кадрах
+    std::uint32_t resolvedStrikes = 0;
     int moveSide = 1;            // сторона бокового шага атаки
     // Защита
     DefenseAction action = DefenseAction::None;
@@ -71,7 +73,7 @@ struct Fighter {
     bool stunned() const { return state == FighterState::HitStun || state == FighterState::BlockStun; }
 };
 
-enum class CombatEventType : unsigned char { Hit, Blocked, Evaded, PerfectParry, Whiff, Knockdown, GetUp, KnockedOut };
+enum class CombatEventType : unsigned char { Hit, Blocked, Evaded, PerfectParry, Whiff, Knockdown, GetUp, KnockedOut, ClinchBegin, ClinchEnd };
 
 struct CombatEvent {
     CombatEventType type = CombatEventType::Hit;
@@ -85,6 +87,7 @@ struct CombatEvent {
     bool counter = false, crit = false, back = false, downed = false, angle = false;
     bool flowStarted = false, flow = false;  // удар нанесён в «Потоке» / этим ударом открылся «Поток»
     bool doubled = false;  // удар по корпусу согнул защитника (накопленный урон)
+    int strikeIndex = 0;
     int headCharges = 0;   // заряды движения головой, пошедшие в этот удар
     std::string defense;  // имя защиты, сработавшей у защитника ("" — нет)
 };
@@ -98,6 +101,7 @@ public:
     void setTarget(int fighter, int target);
     // Нокаут по числу нокдаунов (бой «по правилам»); в уличной драке — только по здоровью.
     void setOfficialRules(bool on) { official_ = on; }
+    bool officialRules() const { return official_; }
     // Награда за комбо: засчитывает бойцу ещё hits чистых попаданий в ритм (может открыть «Поток»). Возвращает true, если Поток открылся.
     bool awardRhythm(int fighter, int hits);
 
@@ -150,12 +154,15 @@ private:
         Vec2 facing;
         int counterReady = 0;
         bool counterPerfect = false;
+        int strikeIndex = 0;
+        float damageScale = 1.f;
     };
     void resolveHits();
     void resolve(Fighter& a, Fighter& d, const AttackSnapshot& s);
     void applyKnockdown(Fighter& d, int cause);
     void checkKnockout(Fighter& d, int cause);
     void regen(Fighter& f);
+    void releaseClinch(Fighter& f);
     void separate();
     void emit(const CombatEvent& e);
     const DefenseDef* defenseFor(DefenseAction a) const;

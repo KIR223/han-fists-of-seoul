@@ -12,6 +12,13 @@ enum class Height : unsigned char { Head, Torso, Legs };
 enum class Movement : unsigned char { Static, StepIn, Retreat, Sidestep, Pivot, Circle, Run };
 
 struct MoveData {
+    struct Strike {
+        int frame = 0;
+        std::string limb;
+        float damageScale = 1.f;
+    };
+    // Пусто — одно попадание. Серия делит общий урон между контактами.
+    std::vector<Strike> strikes;
     std::string id, style, nameKey, type, limb, anim, sound;
     int unlockLevel = 1;
     Trajectory trajectory = Trajectory::Straight;

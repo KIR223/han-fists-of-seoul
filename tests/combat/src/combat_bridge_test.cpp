@@ -18,6 +18,7 @@ struct FakeWorld final : c::ICombatWorld {
     std::map<c::EntityId, c::Vec3> pos;
     std::map<c::EntityId, c::Vec3> impulses, facing;
     bool sacredAll = false;
+    c::EntityId sacredEntity = 0;
     c::Transform transformOf(c::EntityId e) const override {
         c::Transform t;
         const auto it = pos.find(e);
@@ -31,7 +32,10 @@ struct FakeWorld final : c::ICombatWorld {
         impulses[e].z += i.z;
     }
     void setFacing(c::EntityId e, c::Vec3 d) override { facing[e] = d; }
-    bool isSacredAt(c::Vec3) const override { return sacredAll; }
+    bool isSacredAt(c::Vec3 point) const override {
+        const auto it = pos.find(sacredEntity);
+        return sacredAll || (it != pos.end() && it->second.x == point.x && it->second.y == point.y && it->second.z == point.z);
+    }
 };
 
 struct Env {
@@ -112,4 +116,64 @@ TEST_CASE("bridge: заглушка контракта подходит как �
     sim.setTarget(0, 0);
     b.step({});
     CHECK(sim.frame() == 1);
+}
+
+TEST_CASE("bridge: вход нападающего или защитника в святую зону отменяет начатый удар без нового ввода") {
+    Env env;
+    for (const c::EntityId protectedEntity : {1u, 2u}) {
+        FakeWorld w;
+        w.pos[1] = {0, 0, 0};
+        w.pos[2] = {0, 0, -1.f};
+        CombatSim sim(env.rules);
+        WorldBridge bridge(sim, w);
+        pair(sim, bridge);
+        FighterInput hit;
+        hit.attack = env.lib.byId("boxing_jab");
+        REQUIRE(hit.attack);
+        bridge.step({hit, {}});
+        REQUIRE(sim.fighter(0).state == FighterState::Attacking);
+        w.sacredEntity = protectedEntity;
+        bridge.step({});
+        CHECK(bridge.mutedAttacks() == 1);
+        CHECK(sim.fighter(0).move == nullptr);
+        CHECK(sim.fighter(0).buffered == nullptr);
+        CHECK(w.impulses.empty());
+        w.sacredEntity = 0;  // выход из зоны не возобновляет отменённую атаку
+        for (int frame = 0; frame < 40; ++frame) bridge.step({});
+        CHECK(sim.fighter(1).health == doctest::Approx(100.f));
+        CHECK(sim.log().empty());
+        // После выхода новый явный ввод снова работает.
+        bridge.step({hit, {}});
+        for (int frame = 0; frame < 40; ++frame) bridge.step({});
+        CHECK(sim.fighter(1).health < 100.f);
+    }
+}
+
+TEST_CASE("bridge: святая зона очищает буфер оглушённого бойца, сохраняя его состояние и возможность уклоняться") {
+    Env env;
+    FakeWorld w;
+    w.pos[1] = {0, 0, 0};
+    w.pos[2] = {0, 0, -1.f};
+    CombatSim sim(env.rules);
+    WorldBridge bridge(sim, w);
+    pair(sim, bridge);
+    auto& fighter = sim.fighterMutable(0);
+    fighter.state = FighterState::HitStun;
+    fighter.stunFrames = 4;
+    FighterInput hit;
+    hit.attack = env.lib.byId("boxing_jab");
+    bridge.step({hit, {}});
+    REQUIRE(fighter.buffered == hit.attack);
+    w.sacredAll = true;
+    bridge.step({});
+    CHECK(fighter.state == FighterState::HitStun);
+    CHECK(fighter.buffered == nullptr);
+    for (int i = 0; i < 10; ++i) bridge.step({});
+    FighterInput defense;
+    defense.defense = DefenseAction::SlipLeft;
+    bridge.step({defense, {}});
+    CHECK(fighter.state == FighterState::Defending);
+    w.sacredAll = false;
+    for (int i = 0; i < 40; ++i) bridge.step({});
+    CHECK(sim.log().empty());
 }

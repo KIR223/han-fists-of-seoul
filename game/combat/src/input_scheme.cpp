@@ -23,12 +23,14 @@ FighterInput SimpleScheme::map(const RawInput& raw, const CombatSim& sim, int se
     if (frame - lastAttackFrame_ > s_.chainResetFrames) chain_ = 0;
 
     // Защита: ПКМ вовремя — парирование; Space — уклон, выбранный по летящему удару.
-    if (raw.rmbPressed) {
+    if (raw.rmbPressed && !raw.lmbPressed) {
         out.defense = DefenseAction::Parry;
         lastDefense_ = out.defense;
     } else if (raw.shoulderPressed) {
         out.defense = raw.right < -0.5f ? DefenseAction::ShoulderRollLeft : DefenseAction::ShoulderRollRight;
         lastDefense_ = out.defense;
+    } else if (raw.duckPressed) {
+        out.defense=DefenseAction::Duck;lastDefense_=out.defense;
     } else if (raw.spacePressed) {
         const bool left = raw.right < -0.5f, right = raw.right > 0.5f, back = raw.forward < -0.5f;
         const MoveData* threat = (foe && foe->state == FighterState::Attacking && foe->move && foe->stateFrame < foe->move->startup) ? foe->move : nullptr;
@@ -54,6 +56,7 @@ FighterInput SimpleScheme::map(const RawInput& raw, const CombatSim& sim, int se
         out.defense = d;
         lastDefense_ = d;
     }
+    if(lastDefense_!=DefenseAction::None) {recentDefense_=lastDefense_;recentDefenseFrame_=frame;}
 
     // Удержание ЛКМ: сильный удар один раз за удержание.
     holdFrames_ = raw.lmbHeld ? holdFrames_ + 1 : 0;
@@ -61,8 +64,10 @@ FighterInput SimpleScheme::map(const RawInput& raw, const CombatSim& sim, int se
     const bool wantHeavy = raw.lmbHeld && holdFrames_ >= s_.heavyHoldFrames && !heavyFired_;
 
     const MoveData* choice = nullptr;
-    if (raw.specialPressed) {
-        choice = find("dempsey_roll");
+    if (raw.clinchPressed) {
+        choice=find("clinch");
+    } else if (raw.specialPressed) {
+        choice = find(raw.forward<-.5f?"liver_knockout":raw.right>.5f?"bolo_punch":"dempsey_roll");
         if (choice && me.focus < choice->focus) choice = nullptr;
     } else if (wantHeavy) {
         choice = find("overhand");
@@ -70,7 +75,15 @@ FighterInput SimpleScheme::map(const RawInput& raw, const CombatSim& sim, int se
     } else if (raw.lmbPressed) {
         // Направление меняет ветку комбо: в сторону — боковые, от врага — удар с отходом, ПКМ вместе — по корпусу.
         const bool body = raw.rmbHeld;
-        if (raw.right < -0.5f) choice = find(body ? "liver_hook" : "left_hook");
+        if(frame-recentDefenseFrame_<=s_.chainResetFrames && recentDefense_!=DefenseAction::None) {
+            if(recentDefense_==DefenseAction::Duck || recentDefense_==DefenseAction::BobLeft || recentDefense_==DefenseAction::BobRight)choice=find("duck_hook");
+            else if(recentDefense_==DefenseAction::StepBack || recentDefense_==DefenseAction::LeanBack)choice=find("pull_counter");
+            else choice=find("slip_counter");
+            recentDefense_=DefenseAction::None;
+        } else if(raw.alternate) choice=find("rear_uppercut");
+        else if(raw.dash && raw.forward>.5f) choice=find("double_jab_step");
+        else if(raw.dash && raw.right<-.5f) choice=find("pivot_hook");
+        else if (raw.right < -0.5f) choice = find(body ? "liver_hook" : "left_hook");
         else if (raw.right > 0.5f) choice = find(body ? "body_uppercut" : "right_hook");
         else if (raw.forward < -0.5f) choice = find("jab_retreat");
         else if (body) choice = find("jab_body");

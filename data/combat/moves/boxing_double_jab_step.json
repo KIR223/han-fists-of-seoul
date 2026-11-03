@@ -10,12 +10,12 @@
   "movement_variant": "step_in",
   "frames": {
     "startup": 6,
-    "active": 2,
+    "active": 13,
     "recovery": 10
   },
   "cancel_window": [
-    8,
-    13
+    19,
+    25
   ],
   "range": 1.35,
   "damage": 4,
@@ -32,5 +32,17 @@
     "shake": 0.2,
     "sound": "impact_light_face"
   },
-  "anim": "anims/boxing/double_jab_step.ozz"
+  "anim": "anims/boxing/double_jab_step.ozz",
+  "strikes": [
+    {
+      "frame": 6,
+      "limb": "left_hand",
+      "damage_scale": 0.45
+    },
+    {
+      "frame": 16,
+      "limb": "left_hand",
+      "damage_scale": 0.55
+    }
+  ]
 }

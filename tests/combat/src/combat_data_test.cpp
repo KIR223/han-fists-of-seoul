@@ -145,10 +145,10 @@ TEST_CASE("move: у каждого реального приёма разумн�
         CHECK(m.startup <= 18);
         CHECK(m.cancelFrom >= m.startup);
         CHECK(m.cancelTo <= m.totalFrames());
-        CHECK(m.range > 0.5f);
+        CHECK(m.range > (m.type=="clinch"?0.f:0.5f));
         CHECK(m.range < 2.f);
-        CHECK(m.impulse > 0.f);
-        CHECK_MESSAGE(!m.sound.empty(), m.id);
+        if(m.type=="clinch") {CHECK(m.damage==0);CHECK(m.impulse==0);}
+        else {CHECK(m.impulse > 0.f);CHECK_MESSAGE(!m.sound.empty(), m.id);}
     }
     CHECK(lib.byId("boxing_jab")->startup < lib.byId("boxing_cross")->startup);
     CHECK(lib.byId("boxing_cross")->startup < lib.byId("boxing_overhand")->startup);
