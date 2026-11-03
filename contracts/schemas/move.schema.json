@@ -24,6 +24,7 @@
         "recovery": { "type": "integer", "minimum": 1, "maximum": 90 }
       }
     },
+    "strikes": {"type": "array", "minItems": 2, "maxItems": 8, "description": "Необязательные контакты серии. Кадры внутри active, отсортированы; сумма damage_scale = 1. Старые приёмы без поля не меняются.", "items": {"type": "object", "required": ["frame", "limb", "damage_scale"], "additionalProperties": false, "properties": {"frame": {"type": "integer", "minimum": 1, "maximum": 89}, "limb": {"enum": ["left_hand", "right_hand"]}, "damage_scale": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}}}},
     "cancel_window": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 180 }, "minItems": 2, "maxItems": 2, "description": "Кадры [от, до] от начала приёма, когда можно отменить в следующий" },
     "range": { "type": "number", "exclusiveMinimum": 0, "maximum": 4, "description": "Дальность от центра атакующего до края цели, м" },
     "damage": { "type": "number", "minimum": 0, "maximum": 200 },
