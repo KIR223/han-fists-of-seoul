@@ -35,6 +35,12 @@ struct MeshData {
     // Имена файлов текстур (.ktx2) относительно файла меша; han_cooker называет их по содержимому ("tex_<WxH>_<хэш>.ktx2"),
     // поэтому LOD-ы и разные ассеты в одной папке делят общие файлы.
     std::vector<std::string> textures;
+    struct Influence {
+        std::uint32_t joints[4]{};
+        float weights[4]{};
+    };
+    // Только skinned mesh; пусто для статических. Порядок совпадает с vertices.
+    std::vector<Influence> skin;
 };
 
 // Части меша для рисования: submeshes или одна часть на весь меш.

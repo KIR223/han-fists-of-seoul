@@ -6,8 +6,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include "han/render/mesh.h"
 
 namespace han::render::vk {
+struct GpuVertex {
+    Vertex vertex;
+    MeshData::Influence skin;
+};
 
 // Записывает в err «что (VkResult N)» и возвращает false — для удобных цепочек `return fail(...)`.
 bool fail(std::string& err, const char* what, VkResult r);

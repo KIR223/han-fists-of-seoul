@@ -103,5 +103,18 @@ TEST_CASE("ui: тексты по data-loc подставляются на трё
     CHECK(rml.takeClicked() == "ui:back");
     CHECK(rml.setVisible("menu", false));
     CHECK(rml.focusedId().empty());  // скрытое меню сбрасывает фокус
+    CHECK(rml.setVisible("menu", true));
+    rml.injectMouse(0, 0, false);
+    REQUIRE(rml.navigate(han::ui::RmlLayer::NavKey::Down));
+    REQUIRE(rml.navigate(han::ui::RmlLayer::NavKey::Accept));
+    rml.closeAll();
+    CHECK(rml.focusedId().empty());
+    CHECK(rml.takeClicked().empty());
+    CHECK_FALSE(rml.navigate(han::ui::RmlLayer::NavKey::Down));
+    REQUIRE(rml.loadDocument(repo("han/ui/samples/ui_demo.rml")));
+    CHECK(rml.setVisible("menu", true));
+    rml.injectMouse(0, 0, false);
+    CHECK(rml.navigate(han::ui::RmlLayer::NavKey::Down));
+    CHECK(rml.focusedId() == "btn-resume");
 }
 #endif

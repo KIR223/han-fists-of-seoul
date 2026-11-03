@@ -70,7 +70,11 @@ void main() {
     vec3 V = normalize(frame.cameraPos.xyz - vWorldPos);
     vec3 L = normalize(frame.sunDir.xyz);
 
-    vec4 albedoSample = texture(uAlbedo, vUV);
+    // Манекен без текстур имеет постоянные UV. При нулевых производных
+    // явный LOD избегает неопределённого анизотропного footprint (NaN на llvmpipe).
+    vec2 uvDx = dFdx(vUV), uvDy = dFdy(vUV);
+    vec4 albedoSample = dot(uvDx, uvDx) + dot(uvDy, uvDy) < 1e-20
+        ? textureLod(uAlbedo, vUV, 0.0) : texture(uAlbedo, vUV);
     vec3 albedo = albedoSample.rgb * vColor;
     if (frame.shadowParams.y > 0.5) {  // отладка: каскады разными цветами
         int c = cascadeIndex(vViewDepth);

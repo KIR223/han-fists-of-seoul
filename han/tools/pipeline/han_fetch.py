@@ -125,6 +125,13 @@ def fetch_asset(asset: dict[str, Any], paths: Paths, update_hash: bool = False, 
             if name.lower().endswith(".zip"):
                 fetcher.extract_zip(target, dest)
                 target.unlink()
+        elif kind == "itch":
+            resolved = fetcher.resolve_itch(source["page"], str(source["upload_id"]))
+            for url, rel in resolved.files:
+                target = dest / rel
+                fetcher.download(url, target)
+                fetcher.extract_zip(target, dest)
+                target.unlink()
         elif kind == "polyhaven":
             resolver = fetcher.resolve_polyhaven_texture if asset.get("kind") == "texture" else fetcher.resolve_polyhaven
             resolved = resolver(source["asset_id"], source.get("resolution", "1k"),
@@ -299,6 +306,44 @@ def process_asset(asset: dict[str, Any], paths: Paths, blender: str | None, cook
         return process_font(asset, paths, write_credits)
     if asset.get("kind") != "model":
         raise PipelineError(f"{asset['id']}: обработка типа «{asset.get('kind')}» пока не реализована (только model)")
+    if asset.get("pipeline", {}).get("profile") == "animation_library":
+        download_dir = paths.downloads / asset["id"]
+        if not download_dir.is_dir():
+            fetch_asset(asset, paths)
+        entry = find_entry(download_dir, manifest_mod.pipeline_of(asset)["entry"])
+        license_file = entry.parent.parent / "License.txt"
+        if not license_file.is_file() or "CC0 1.0" not in license_file.read_text(encoding="utf-8"):
+            raise PipelineError("библиотека: нет ожидаемой CC0-лицензии")
+        out_dir = paths.cooked / asset["id"]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(entry, out_dir / (asset["name"] + ".glb"))
+        shutil.copy2(license_file, out_dir / "License.txt")
+        if write_credits:
+            credits_mod.ensure_row(paths.credits, asset)
+        return {"source": entry.name}
+    if asset.get("pipeline", {}).get("profile") == "skinned_mannequin":
+        # Статический Blender-конвейер с join/decimate/bake здесь разрушил бы skin.
+        import mannequin
+        download_dir = paths.downloads / asset["id"]
+        if not download_dir.is_dir():
+            fetch_asset(asset, paths)
+        entry = find_entry(download_dir, manifest_mod.pipeline_of(asset)["entry"])
+        out_dir = paths.cooked / asset["id"]
+        license_file = entry.parent.parent / "License.txt"
+        if not license_file.is_file() or "CC0 1.0" not in license_file.read_text(encoding="utf-8"):
+            raise PipelineError("манекен: нет ожидаемой CC0-лицензии в архиве")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            report = mannequin.prepare(entry, out_dir / (asset["name"] + ".glb"))
+        except ValueError as e:
+            raise PipelineError(f"манекен: {e}") from e
+        if report["triangles"] > manifest_mod.pipeline_of(asset)["budget_triangles"]:
+            raise PipelineError("манекен превысил бюджет треугольников")
+        shutil.copy2(license_file, out_dir / "License.txt")
+        if write_credits:
+            credits_mod.ensure_row(paths.credits, asset)
+        print(f"{asset['id']}: GLB готов, костей {report['bones']}, клипов {len(report['clips'])}")
+        return report
     if not blender:
         raise PipelineError("Blender не найден: установите его или задайте путь в переменной HAN_BLENDER")
     if cook and not cooker:

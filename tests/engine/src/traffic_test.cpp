@@ -1,5 +1,6 @@
 // Тесты трафика (G7): дорожный граф, правостороннее движение, следование за лидером, перекрёстки, 30 минут без зависаний.
 #include <doctest/doctest.h>
+#include <algorithm>
 
 #include <cmath>
 #include <filesystem>

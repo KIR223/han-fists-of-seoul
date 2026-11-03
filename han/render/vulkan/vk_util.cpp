@@ -101,19 +101,22 @@ VkResult buildPipeline(VkDevice device, const PipelineDesc& d, VkPipeline& out) 
     if (hasFragment)
         stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag, "main", nullptr};
 
-    const VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    const std::array<VkVertexInputAttributeDescription, 4> attrs{{
+    const VkVertexInputBindingDescription binding{0, sizeof(GpuVertex), VK_VERTEX_INPUT_RATE_VERTEX};
+    const std::array<VkVertexInputAttributeDescription, 6> attrs{{
         {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
         {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
         {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)},
         {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)},
+        {5, 0, VK_FORMAT_R32G32B32A32_UINT, offsetof(GpuVertex, skin) + offsetof(MeshData::Influence, joints)},
+        {6, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(GpuVertex, skin) + offsetof(MeshData::Influence, weights)},
     }};
     VkPipelineVertexInputStateCreateInfo vin{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    const std::array<VkVertexInputAttributeDescription, 3> shadowAttrs{attrs[0], attrs[4], attrs[5]};
     if (d.vertexInput) {
         vin.vertexBindingDescriptionCount = 1;
         vin.pVertexBindingDescriptions = &binding;
-        vin.vertexAttributeDescriptionCount = d.positionOnly ? 1 : static_cast<std::uint32_t>(attrs.size());
-        vin.pVertexAttributeDescriptions = attrs.data();
+        vin.vertexAttributeDescriptionCount = d.positionOnly ? static_cast<std::uint32_t>(shadowAttrs.size()) : static_cast<std::uint32_t>(attrs.size());
+        vin.pVertexAttributeDescriptions = d.positionOnly ? shadowAttrs.data() : attrs.data();
     }
 
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
