@@ -102,12 +102,14 @@ float CombatSim::expectedDamage(const Fighter& a, const Fighter& d, const MoveDa
 }
 
 void CombatSim::faceTarget(Fighter& f) {
+    if(f.state==FighterState::Clinching && f.clinchPartner>=0) {f.facing=dirTo(f,fighters_[static_cast<std::size_t>(f.clinchPartner)]);return;}
     if (f.target < 0 || f.down() || !f.alive()) return;
     const Fighter& t = fighters_[static_cast<std::size_t>(f.target)];
     f.facing = dirTo(f, t);
 }
 
 bool CombatSim::canStartAttack(const Fighter& f) const {
+    if(official_ && f.target>=0 && fighters_[static_cast<std::size_t>(f.target)].down())return false;
     switch (f.state) {
         case FighterState::Idle:
         case FighterState::Moving:
@@ -129,6 +131,7 @@ void CombatSim::startAttack(Fighter& f, const MoveData& m, const FighterInput& i
     f.move = &m;
     f.moveMovement = mv;
     f.moveResolved = false;
+    f.resolvedStrikes = 0;
     f.moveSide = in.right < 0.f ? -1 : 1;
     f.state = FighterState::Attacking;
     f.stateFrame = 0;
@@ -148,6 +151,10 @@ void CombatSim::startDefense(Fighter& f, DefenseAction a) {
 
 void CombatSim::processInput(Fighter& f, const FighterInput& in) {
     if (!f.alive()) return;
+    if(f.state==FighterState::Clinching) {
+        if(in.defense!=DefenseAction::None || (in.attack && in.attack->type!="clinch")) releaseClinch(f);
+        else return;
+    }
     // Буфер ввода: запрос хранится несколько кадров и срабатывает, как только приём можно начать.
     if (in.attack) {
         f.buffered = in.attack;
@@ -192,6 +199,11 @@ void CombatSim::advance(Fighter& f) {
     ++f.stateFrame;
     f.counterReady = std::max(0, f.counterReady - 1);
     switch (f.state) {
+        case FighterState::Clinching: {
+            if(f.clinchPartner<0 || fighters_[static_cast<std::size_t>(f.clinchPartner)].state!=FighterState::Clinching ||
+               fighters_[static_cast<std::size_t>(f.clinchPartner)].clinchPartner!=f.id || f.stateFrame>=rules_.clinchFrames) releaseClinch(f);
+            break;
+        }
         case FighterState::Attacking: {
             const MoveData& m = *f.move;
             // Движение во время приёма: смещение распределено по кадрам замаха и активной фазы.
@@ -322,14 +334,28 @@ void CombatSim::resolveHits() {
     std::vector<AttackSnapshot> pending;
     for (Fighter& a : fighters_) {
         if (a.state != FighterState::Attacking || !a.move || a.moveResolved || !a.move->inActiveFrames(a.stateFrame) || a.target < 0) continue;
+        int strikeIndex = 0;
+        float damageScale = 1.f;
+        if (!a.move->strikes.empty()) {
+            strikeIndex = -1;
+            for (std::size_t k = 0; k < a.move->strikes.size(); ++k) {
+                if (a.stateFrame == a.move->strikes[k].frame && !(a.resolvedStrikes & (1u << k))) {
+                    strikeIndex = static_cast<int>(k); damageScale = a.move->strikes[k].damageScale; break;
+                }
+            }
+            if (strikeIndex < 0) continue;
+            // Каждый контакт — ровно в свой кадр; промах не переносится на другой джеб.
+            a.resolvedStrikes |= 1u << strikeIndex;
+        }
         const Fighter& d = fighters_[static_cast<std::size_t>(a.target)];
         if (!d.alive()) continue;
+        if(official_ && d.down())continue;
         const Vec2 toD = dirTo(a, d);
         const float dist = len({d.pos.x - a.pos.x, d.pos.z - a.pos.z});
         const bool inRange = dist - rules_.bodyRadius <= a.move->range;
         const bool inArc = angleBetween(a.facing, toD) <= rules_.hitArcDegrees(a.move->trajectory);
         if (!inRange || !inArc) continue;  // не достал: попробует на следующем активном кадре
-        pending.push_back({a.id, a.move, a.stateFrame, a.moveMovement, a.stats, a.facing, a.counterReady, a.counterPerfect});
+        pending.push_back({a.id, a.move, a.stateFrame, a.moveMovement, a.stats, a.facing, a.counterReady, a.counterPerfect, strikeIndex, damageScale});
     }
     for (const AttackSnapshot& s : pending) {
         Fighter& a = fighters_[static_cast<std::size_t>(s.attacker)];
@@ -341,17 +367,30 @@ void CombatSim::resolveHits() {
 
 void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
     const MoveData& m = *s.move;
-    a.moveResolved = true;
+    Trajectory trajectory=m.trajectory;
+    if(!m.strikes.empty() && (trajectory==Trajectory::ArcLeft || trajectory==Trajectory::ArcRight))
+        trajectory=m.strikes[static_cast<std::size_t>(s.strikeIndex)].limb=="right_hand"?Trajectory::ArcRight:Trajectory::ArcLeft;
+    a.moveResolved = m.strikes.empty() || a.resolvedStrikes == ((1u << m.strikes.size()) - 1u);
     CombatEvent e;
     e.attacker = a.id;
     e.defender = d.id;
     e.move = &m;
+    e.strikeIndex = s.strikeIndex;
     e.zone = zoneOf(m.height);
     e.direction = dirTo(a, d);
     const Vec2 toA = dirTo(d, a);
     const float defenderAngle = angleBetween(d.facing, toA);  // 0° — защитник смотрит на атакующего
     e.back = defenderAngle > 120.f && !d.down();
     e.downed = d.down();
+    if(m.type=="clinch") {
+        if(!d.down() && d.alive() && d.state!=FighterState::Clinching) {
+            if(a.clinchPartner>=0)releaseClinch(a);
+            for(Fighter* f:{&a,&d}) {f->state=FighterState::Clinching;f->stateFrame=0;f->move=nullptr;f->buffered=nullptr;f->action=DefenseAction::None;}
+            a.clinchPartner=d.id;d.clinchPartner=a.id;
+            e.type=CombatEventType::ClinchBegin;emit(e);
+        }
+        return;
+    }
 
     // 1. Что делает защитник: исход из таблицы (часть 22.6).
     Outcome out;  // по умолчанию — попадание
@@ -359,7 +398,7 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
         if (d.state == FighterState::Defending) {
             const DefenseDef* def = defenseFor(d.action);
             if (def && d.stateFrame >= def->windowFrom && d.stateFrame <= def->windowTo && def->covered(m.height)) {
-                out = def->outcome(classifyTrajectory(m.trajectory, sideOf(d.action)));
+                out = def->outcome(classifyTrajectory(trajectory, sideOf(d.action)));
                 e.defense = def->name;
                 if (d.action == DefenseAction::Parry && out.kind == OutcomeKind::Perfect && d.stateFrame > def->perfectUntil) out = Outcome{OutcomeKind::Block, 1.f, false};  // поздно: просто отбил
             }
@@ -367,7 +406,7 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
             const char* name = m.height == Height::Head ? "high_block" : (m.height == Height::Torso ? "closed_block" : "check");
             const DefenseDef* def = rules_.defense(name);
             if (def && d.blockFrames >= def->startup && def->covered(m.height)) {
-                out = def->outcome(classifyTrajectory(m.trajectory, 0));
+                out = def->outcome(classifyTrajectory(trajectory, 0));
                 e.defense = def->name;
             }
         }
@@ -441,9 +480,11 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
     const float strengthBalance = 1.f + rules_.strengthBalancePerPoint * (s.stats.strength - 5.f);
     Fighter attackerView = a;  // статы и движение на момент удара (атакующего могли уже оглушить в этом кадре)
     attackerView.stats = s.stats;
-    e.damage = expectedDamage(attackerView, d, m, s.movement) * situation * out.multiplier * taken;
+    e.damage = expectedDamage(attackerView, d, m, s.movement) * situation * out.multiplier * taken * s.damageScale;
     e.balanceDamage = m.balance * strengthBalance * out.multiplier * (out.kind == OutcomeKind::Block ? 0.5f : 1.f) * (m.power && out.kind == OutcomeKind::Block ? 1.5f : 1.f);
     e.impulse = m.impulse * (out.kind == OutcomeKind::Block ? 0.4f : 1.f);
+    e.balanceDamage *= s.damageScale;
+    e.impulse *= s.damageScale;
 
     d.health = std::max(0.f, d.health - e.damage);
     d.balance -= e.balanceDamage;
@@ -474,6 +515,7 @@ void CombatSim::resolve(Fighter& a, Fighter& d, const AttackSnapshot& s) {
     // 3. Реакция защитника: оглушение по кадровому преимуществу (отдача — остаток восстановления атакующего).
     const bool armored = d.move && d.move->armor && d.state == FighterState::Attacking;
     if (!armored && !d.down()) {
+        if(d.clinchPartner>=0)releaseClinch(d);
         d.state = out.kind == OutcomeKind::Block ? FighterState::BlockStun : FighterState::HitStun;
         d.stateFrame = 0;
         d.stunFrames = std::max(4, remaining + (out.kind == OutcomeKind::Block ? m.onBlockFrames : m.onHitFrames));
@@ -508,13 +550,24 @@ void CombatSim::regen(Fighter& f) {
     if (!f.alive()) return;
     const float fps = static_cast<float>(rules_.fps);
     if (f.state != FighterState::Attacking && f.state != FighterState::Defending) {
-        const float rate = f.state == FighterState::Blocking ? rules_.staminaRegenBlock : rules_.staminaRegen;
+        const float rate = f.state == FighterState::Clinching ? rules_.clinchRegen : f.state == FighterState::Blocking ? rules_.staminaRegenBlock : rules_.staminaRegen;
         f.stamina = std::min(100.f, f.stamina + rate / fps);
     }
     if (f.rhythm > 0 && frame_ - f.rhythmFrame > rules_.rhythmDecayFrames) f.rhythm = 0;
     if (f.headCharges > 0 && frame_ - f.headChargeFrame > rules_.headMoveDecayFrames) f.headCharges = 0;
     f.bodyWork = std::max(0.f, f.bodyWork - rules_.bodyWorkDecayPerSecond / fps);
     if (!f.stunned() && !f.down()) f.balance = std::min(rules_.balanceMax, f.balance + rules_.balanceRegen / fps);
+}
+
+void CombatSim::releaseClinch(Fighter& f) {
+    const int partner=f.clinchPartner;
+    f.clinchPartner=-1;
+    if(f.state==FighterState::Clinching) {f.state=FighterState::Idle;f.stateFrame=0;}
+    if(partner>=0 && partner<fighterCount()) {
+        auto& other=fighters_[static_cast<std::size_t>(partner)];
+        if(other.clinchPartner==f.id) {other.clinchPartner=-1;if(other.state==FighterState::Clinching){other.state=FighterState::Idle;other.stateFrame=0;}}
+        CombatEvent event;event.type=CombatEventType::ClinchEnd;event.attacker=f.id;event.defender=partner;emit(event);
+    }
 }
 
 void CombatSim::separate() {

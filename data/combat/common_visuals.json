@@ -1,0 +1,12 @@
+{
+  "clips": {"idle":"Idle_Loop", "walk":"Walk_Loop", "run":"Jog_Fwd_Loop", "sprint":"Sprint_Loop", "jump_start":"Jump_Start", "jump_loop":"Jump_Loop", "jump_land":"Jump_Land"},
+  "jump_start_seconds":0.14,
+  "land_seconds":0.2,
+  "speed_deadzone":0.1,
+  "walk_speed":1.8,
+  "walk_cycle_distance":1.2,
+  "run_cycle_distance":2.2,
+  "sprint_cycle_distance":3.0,
+  "idle_seconds":2.0,
+  "fade_seconds":0.1
+}

@@ -1,0 +1,24 @@
+{
+  "id": "boxing_clinch",
+  "style": "boxing",
+  "name_key": "move.boxing.clinch",
+  "unlock_level": 1,
+  "type": "clinch",
+  "trajectory": "push",
+  "limb": "body",
+  "height": "torso",
+  "frames": {
+    "startup": 8,
+    "active": 3,
+    "recovery": 15
+  },
+  "cancel_window": [
+    11,
+    20
+  ],
+  "range": 0.4,
+  "damage": 0,
+  "stamina": 4,
+  "balance": 0,
+  "anim": "anims/boxing/clinch.ozz"
+}

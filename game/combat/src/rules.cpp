@@ -129,6 +129,8 @@ bool CombatRules::parse(const Json& j, std::string& error) {
         return fail("hit_arc_degrees: " + e);
     if (j.has("boxing")) {
         const Json& bx = j["boxing"];
+        if (bx.has("clinch") && (!integer(bx["clinch"],"frames",r.clinchFrames,1,600,e) || !number(bx["clinch"],"stamina_regen",r.clinchRegen,0,100,e)))
+            return fail("boxing.clinch: "+e);
         if (bx.has("head_movement") && (!number(bx["head_movement"], "bonus_per_charge", r.headMoveBonus, 0, 1, e) || !integer(bx["head_movement"], "max_charges", r.headMoveMaxCharges, 0, 20, e) ||
                                          !integer(bx["head_movement"], "decay_frames", r.headMoveDecayFrames, 1, 3600, e)))
             return fail("boxing.head_movement: " + e);
