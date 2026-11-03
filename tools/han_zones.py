@@ -96,7 +96,7 @@ def changed_files(base, head):
 
 
 def report(bad, role):
-    print(f"\n✖ Роль {role} трогает чужие зоны:", file=sys.stderr)
+    print(f"\n[ERROR] Роль {role} трогает чужие зоны:", file=sys.stderr)
     for f, o in bad[:30]:
         print(f"    {f}   (владелец: {o})", file=sys.stderr)
     if len(bad) > 30:
@@ -115,17 +115,17 @@ def cmd_check(argv):
     a = ap.parse_args(argv)
     role = (a.role or role_from_branch(a.branch) or role_from_local() or "").upper() or None
     if not role:
-        print("Роль не определена (имя ветки a/ b/ o/ или CLAUDE.local.md) — проверка пропущена.")
-        return 0
+        print("Роль не определена (имя ветки a/ b/ o/ или CLAUDE.local.md).", file=sys.stderr)
+        return 2
     files = changed_files(a.base, a.head)
     if files is None:
-        print(f"Не удалось сравнить {a.base}...{a.head} — проверка пропущена.")
-        return 0
+        print(f"Не удалось сравнить {a.base}...{a.head}.", file=sys.stderr)
+        return 2
     bad = violations(files, role)
     if bad:
         report(bad, role)
         return 1
-    print(f"✔ Зоны в порядке (роль {role}, файлов: {len(files)}).")
+    print(f"[OK] Зоны в порядке (роль {role}, файлов: {len(files)}).")
     return 0
 
 
@@ -143,12 +143,12 @@ def cmd_pre_push(argv):
         # удаление ветки
         if local_sha == ZERO:
             if is_main:
-                print("✖ Нельзя удалять main.", file=sys.stderr)
+                print("[ERROR] Нельзя удалять main.", file=sys.stderr)
                 status = 1
             continue
         # push в main
         if is_main and remote_sha != ZERO and os.environ.get("HAN_ALLOW_MAIN") != "1":
-            print("✖ Push прямо в main запрещён. Работай в своей ветке (a/…, b/…) и открой Pull Request.",
+            print("[ERROR] Push прямо в main запрещён. Работай в своей ветке (a/…, b/…) и открой Pull Request.",
                   file=sys.stderr)
             status = 1
             continue
@@ -156,7 +156,7 @@ def cmd_pre_push(argv):
         if remote_sha != ZERO:
             rc, _ = git("merge-base", "--is-ancestor", remote_sha, local_sha)
             if rc != 0:
-                print(f"✖ Принудительный push запрещён ({remote_ref}). Сделай `git pull --rebase origin main`.",
+                print(f"[ERROR] Принудительный push запрещён ({remote_ref}). Сделай `git pull --rebase origin main`.",
                       file=sys.stderr)
                 status = 1
                 continue
@@ -165,7 +165,7 @@ def cmd_pre_push(argv):
             m = re.match(r"^refs/heads/([^/]+)/", remote_ref)
             if not m or m.group(1) not in allowed_prefixes(role):
                 mine = ", ".join(p + "/…" for p in sorted(allowed_prefixes(role)))
-                print(f"✖ Роль {role} может отправлять на GitHub только свои ветки: {mine}\n  Сейчас: {remote_ref}. "
+                print(f"[ERROR] Роль {role} может отправлять на GitHub только свои ветки: {mine}\n  Сейчас: {remote_ref}. "
                       f"Создай ветку командой `git checkout -b {sorted(allowed_prefixes(role))[0]}/<этап>`.", file=sys.stderr)
                 status = 1
                 continue
@@ -178,10 +178,10 @@ def cmd_pre_push(argv):
         else:
             r = branch_role if (role and branch_role in held(role)) else (role or branch_role)
         if not r:
-            print("⚠ Роль не определена — проверка зон пропущена.", file=sys.stderr)
+            print("[WARN] Роль не определена — проверка зон пропущена.", file=sys.stderr)
             continue
         if role and branch_role and branch_role not in held(role) and "OWNER" not in held(role):
-            print(f"⚠ Твоя роль {role}, а ветка {remote_ref} похожа на ветку роли {branch_role}.", file=sys.stderr)
+            print(f"[WARN] Твоя роль {role}, а ветка {remote_ref} похожа на ветку роли {branch_role}.", file=sys.stderr)
         rc, base = git("rev-parse", "--verify", "-q", "origin/main")
         if rc != 0:
             continue  # первого push ещё не было

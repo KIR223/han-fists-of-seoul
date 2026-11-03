@@ -1,0 +1,38 @@
+# Манекен, бокс и город — объединение 2026-11-03
+
+По прямому поручению владельца получены новые ветки GitHub `a/boxing-contact-contract`, `a/mannequin-skinning`, `b/boxing-realism`, `a/boxing-integration`. Их полный результат соединён с локальным `a/seoul-expansion` в `a/boxing-city-integration`, коммит `8a71e2e`. Исходные ветки сохранены.
+
+Конфликты разрешены с сохранением обеих реализаций: манифест содержит городской набор и UAL1/UAL2; атрибуция и журналы объединены. Рендер сохраняет прозрачность, эмиссию, alpha-mask листвы, дешёвые меши теней и отложенное удаление ресурсов, одновременно передаёт независимую палитру костей в основной и оба теневых прохода. Сгенерированные SPIR-V пересобраны из объединённых GLSL; примитивы и статические hmesh продолжают работать. Вызовы DrawItem арены/игрока адаптированы к полям тени и палитры.
+
+Локальные ассеты: `assets_bin/cooked/quaternius_ual/Boxing.hchar`, взрослый белый манекен Quaternius CC0, 65 костей, 13 743 треугольника, 104 клипа. Бинарники и исходники библиотек не помещаются в Git согласно правилам проекта; воспроизведение — `han/anim/BOXING.md` и `han/tools/pipeline/MANNEQUIN.md`.
+
+Установленный Blender 5.2 несовместим с обращением новых авторских скриптов к `Action.fcurves`. Использован отдельный официальный переносимый Blender 4.3.2 в `assets_bin/tools`, установленная программа не заменялась. SHA-256 ZIP совпал с опубликованным Blender: `933a62a770c941e316535f893629ff106ddd2aa5a956f0081ec557439073d4f6`. Закреплённый исходник ozz 0.16 также получен с проверкой SHA-256.
+
+```powershell
+$env:PYTHONUTF8='1'
+python han/anim/tools/build_boxing.py --blender assets_bin/tools/blender-4.3.2-windows-x64/blender.exe
+cmake --preset windows-release
+cmake --build --preset windows-release --parallel 4
+$env:HAN_CHARACTER_ASSET='H:/han-fists-of-seoul/assets_bin/cooked/quaternius_ual/Boxing.hchar'
+ctest --preset windows-release --no-tests=error
+python -m unittest discover -s han/tools/pipeline/tests
+python data/_tools/validate_data.py
+python han/tools/pipeline/han_fetch.py verify
+python tests/animation/check_arena.py --exe build/windows-release/bin/Release/han_arena_demo.exe --require-validation
+python tests/engine/screenshots/run.py --exe build/windows-release/bin/Release/han_scene_demo.exe
+```
+
+Фактически выполнено на Windows/RTX 2050:
+
+- Release настроен и собран с ozz; подготовка 104 клипов и геометрические проверки пола/опорных стоп/переходов падение→подъём успешны.
+- CTest 4/4: animation 5, combat 204, engine 253, gameplay 36 — всего 498 случаев. Анимационные тесты использовали настоящий HCH1 через `HAN_CHARACTER_ASSET`.
+- Python-конвейер 106/106; данные — 40 файлов; манифест — 26 ассетов.
+- A1 Vulkan smoke успешен: четыре противника, белые skinned-модели загружены, кадр не чёрный, validation 0/0.
+- Все десять графических эталонов совпали в пределах допусков без перезаписи (максимальная разница 2/255).
+- Дополнительно арена 1×1 (240 кадров), player_demo (120), Кандам днём/ночью (по 120): validation 0/0. В городе 120 машин и 280 прохожих. Снимки просмотрены: `build/seoul/boxing-integrated.png`, `player-integrated.png`, `integrated-10.png`, `integrated-21.png`. Логи: `build/boxing-*.log`.
+
+Короткие городские прогоны — проверка совместимости, а не подтверждение бюджета 16,6 мс. Скиннинг не подключён к городской толпе, она пока использует прежние упрощённые модели. Приёмка ручного управления, ощущения бокса, активный ragdoll и полный DoD A1/G2 остаются открытыми.
+
+## Публикация
+
+Владелец разрешил публикацию и слияние в main. Контракт бокса #53 уже слит после зелёных CI (`e379eb1`). Остальные изменения публикуются отдельными PR по зонам: правила/автоматизация, название Кандама, инфраструктура/город A, анимация/бокс B, подключение демо A. Одна общая ветка с файлами A/B/владельца не отправляется как PR. Проверки, лицензии и защита main сохраняются.
