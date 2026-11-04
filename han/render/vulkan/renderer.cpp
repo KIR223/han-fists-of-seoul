@@ -237,6 +237,13 @@ struct Renderer::Impl {
 
     VkCommandPool pool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, kFramesInFlight> cmds{};
+    // Измерения (этап 00/01 плана города): счётчики текущего кадра и GPU-время через timestamp-запросы.
+    FrameStats stats;
+    bool vsync = true;
+    VkPresentModeKHR activePresentMode = VK_PRESENT_MODE_FIFO_KHR;
+    VkQueryPool timestampPool = VK_NULL_HANDLE;
+    double timestampPeriodMs = 0.0;  // миллисекунд на тик; 0 — запросы недоступны
+    std::array<bool, kFramesInFlight> timestampPending{};
     std::array<VkSemaphore, kFramesInFlight> imageAvailable{};
     std::array<VkFence, kFramesInFlight> inFlight{};
     int frame = 0;
@@ -600,6 +607,16 @@ bool Renderer::Impl::createSwapchain(int width, int height, std::string& err) {
     ci.preTransform = caps.currentTransform;
     ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     ci.presentMode = VK_PRESENT_MODE_FIFO_KHR;  // вертикальная синхронизация, поддерживается везде
+    if (!vsync) {  // замеры без ограничения частотой монитора: IMMEDIATE, иначе MAILBOX; нет ни того ни другого — остаётся FIFO
+        std::uint32_t modeCount = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physical, surface, &modeCount, nullptr);
+        std::vector<VkPresentModeKHR> modes(modeCount);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physical, surface, &modeCount, modes.data());
+        const auto has = [&](VkPresentModeKHR m) { return std::find(modes.begin(), modes.end(), m) != modes.end(); };
+        if (has(VK_PRESENT_MODE_IMMEDIATE_KHR)) ci.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+        else if (has(VK_PRESENT_MODE_MAILBOX_KHR)) ci.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+    }
+    activePresentMode = ci.presentMode;
     ci.clipped = VK_TRUE;
     VkResult r = vkCreateSwapchainKHR(device, &ci, nullptr, &swapchain);
     if (r != VK_SUCCESS) return fail(err, "vkCreateSwapchainKHR", r);
@@ -862,6 +879,22 @@ bool Renderer::Impl::createFrameObjects(std::string& err) {
     for (int i = 0; i < kFramesInFlight; ++i) {
         if ((r = vkCreateSemaphore(device, &si, nullptr, &imageAvailable[i])) != VK_SUCCESS) return fail(err, "vkCreateSemaphore", r);
         if ((r = vkCreateFence(device, &fi, nullptr, &inFlight[i])) != VK_SUCCESS) return fail(err, "vkCreateFence", r);
+    }
+    {
+        VkPhysicalDeviceProperties deviceProps{};
+        vkGetPhysicalDeviceProperties(physical, &deviceProps);
+        uint32_t familyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physical, &familyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> families(familyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(physical, &familyCount, families.data());
+        const bool validBits = queueFamily < familyCount && families[queueFamily].timestampValidBits >= 64;
+        if (validBits && deviceProps.limits.timestampPeriod > 0.f) {
+            VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            qi.queryCount = 4 * kFramesInFlight;
+            if (vkCreateQueryPool(device, &qi, nullptr, &timestampPool) == VK_SUCCESS)
+                timestampPeriodMs = static_cast<double>(deviceProps.limits.timestampPeriod) * 1e-6;
+        }
     }
     return true;
 }
@@ -1192,6 +1225,7 @@ bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId>
 void Renderer::Impl::destroyAll() {
     if (device) {
         vkDeviceWaitIdle(device);
+        if (timestampPool) vkDestroyQueryPool(device, timestampPool, nullptr);
         for (GpuMesh& m : meshes) destroyMesh(m);
         for (auto& retired : retiredMeshes) destroyMesh(retired.mesh);
         for (int i = 0; i < kFramesInFlight; ++i) {
@@ -1271,6 +1305,7 @@ std::unique_ptr<Renderer> Renderer::create(const RendererDesc& desc, std::string
     std::unique_ptr<Renderer> r(new Renderer());
     Impl& s = *r->impl_;
     s.shadowMapSize = std::clamp(desc.shadowMapSize, 256, 8192);
+    s.vsync = desc.vsync;
     s.shadowBatchCellSize = std::isfinite(desc.shadowBatchCellSize) ? std::max(0.f,desc.shadowBatchCellSize) : 0.f;
     if (!s.createInstance(desc, error)) return nullptr;
     s.surface = reinterpret_cast<VkSurfaceKHR>(desc.createSurface ? desc.createSurface(s.instance) : 0);
@@ -1375,6 +1410,22 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
 
     const int f = s.frame;
     vkWaitForFences(s.device, 1, &s.inFlight[f], VK_TRUE, UINT64_MAX);
+    const FrameStats previous = s.stats;  // GPU-время приходит с запаздыванием: переносим последнее готовое значение
+    s.stats = FrameStats{};
+    s.stats.gpuMs = previous.gpuMs;
+    s.stats.gpuSceneMs = previous.gpuSceneMs;
+    s.stats.gpuShadowMs = previous.gpuShadowMs;
+    s.stats.items = static_cast<std::uint32_t>(items.size());
+    if (s.timestampPool && s.timestampPending[f]) {  // кадр, занимавший этот слот, завершён (забор)
+        std::uint64_t ticks[4] = {};
+        if (vkGetQueryPoolResults(s.device, s.timestampPool, static_cast<uint32_t>(f) * 4, 4, sizeof(ticks), ticks, sizeof(std::uint64_t),
+                                  VK_QUERY_RESULT_64_BIT) == VK_SUCCESS && ticks[1] >= ticks[0] && ticks[2] >= ticks[1] && ticks[3] >= ticks[2]) {
+            s.stats.gpuShadowMs = static_cast<double>(ticks[1] - ticks[0]) * s.timestampPeriodMs;
+            s.stats.gpuSceneMs = static_cast<double>(ticks[2] - ticks[1]) * s.timestampPeriodMs;
+            s.stats.gpuMs = static_cast<double>(ticks[3] - ticks[0]) * s.timestampPeriodMs;
+        }
+        s.timestampPending[f] = false;
+    }
     for (auto it = s.retiredMeshes.begin(); it != s.retiredMeshes.end();) {
         it->pendingFrames &= ~(1u << f);
         if (it->pendingFrames == 0) {
@@ -1480,6 +1531,10 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &bi);
+    if (s.timestampPool) {
+        vkCmdResetQueryPool(cmd, s.timestampPool, static_cast<uint32_t>(f) * 4, 4);
+        vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, s.timestampPool, static_cast<uint32_t>(f) * 4);
+    }
 
     auto barrier = [&](VkImage image, VkImageAspectFlags aspect, VkImageLayout from, VkImageLayout to, VkPipelineStageFlags2 srcStage,
                        VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess) {
@@ -1558,6 +1613,8 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
                     if (boundShadow != s.shadowPipeline) vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowPipeline);
                     boundShadow = s.shadowPipeline;
                     vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, paletteOffsets[static_cast<std::size_t>(&item - items.data())]);
+                    ++s.stats.shadowDrawCalls;
+                    s.stats.shadowTriangles += mesh.indexCount / 3;
                 } else for (const auto& part : (mesh.shadowSubmeshes.empty() ? mesh.submeshes : mesh.shadowSubmeshes)) {
                     if (part.alphaMode == AlphaMode::Blend) continue;
                     if (!mesh.skinned && !cascadeFrustum.sees(item.model.m, part.boundsMin, part.boundsMax)) continue;
@@ -1571,11 +1628,14 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
                         vkCmdPushConstants(cmd, s.shadowLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(ShadowPush), sizeof(float), &part.alphaCutoff);
                     }
                     vkCmdDrawIndexed(cmd, part.indexCount, 1, part.firstIndex, 0, paletteOffsets[static_cast<std::size_t>(&item - items.data())]);
+                    ++s.stats.shadowDrawCalls;
+                    s.stats.shadowTriangles += part.indexCount / 3;
                 }
             }
         }
         vkCmdEndRendering(cmd);
     }
+    if (s.timestampPool) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, s.timestampPool, static_cast<uint32_t>(f) * 4 + 1);
     {
         VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
         b.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
@@ -1668,6 +1728,8 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
                                     {part.emissive[0], part.emissive[1], part.emissive[2], part.emissiveTexture != 0 ? 1.f : 0.f}};
         vkCmdPushConstants(cmd, s.pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, kFragmentPushOffset, sizeof(material), &material);
         vkCmdDrawIndexed(cmd, part.indexCount, 1, part.firstIndex, 0, paletteOffsets[static_cast<std::size_t>(&item - items.data())]);
+        ++s.stats.mainDrawCalls;
+        s.stats.mainTriangles += part.indexCount / 3;
     };
     for (const DrawItem& item : items) {
         if (item.mesh == 0 || item.mesh > s.meshes.size()) continue;
@@ -1696,6 +1758,7 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     for (const auto& draw : transparent) drawPart(*draw.item, *draw.mesh, *draw.part);
     vkCmdEndRendering(cmd);
 
+    if (s.timestampPool) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, s.timestampPool, static_cast<uint32_t>(f) * 4 + 2);
     // --- Проход 2: постобработка (bloom → тонмаппинг AgX) пишет итог в изображение swapchain.
     barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -1781,6 +1844,7 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
         barrier(s.images[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, 0);
     }
+    if (s.timestampPool) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, s.timestampPool, static_cast<uint32_t>(f) * 4 + 3);
     vkEndCommandBuffer(cmd);
 
     VkSemaphoreSubmitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
@@ -1799,6 +1863,7 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     submit.signalSemaphoreInfoCount = 1;
     submit.pSignalSemaphoreInfos = &signal;
     if (vkQueueSubmit2(s.queue, 1, &submit, s.inFlight[f]) != VK_SUCCESS) return false;
+    if (s.timestampPool) s.timestampPending[f] = true;
 
     VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1;
@@ -1858,6 +1923,14 @@ const std::string& Renderer::screenshotError() const { return impl_->shotError; 
 
 const std::string& Renderer::deviceName() const { return impl_->deviceName; }
 bool Renderer::validationEnabled() const { return impl_->validation; }
+const char* Renderer::presentModeName() const {
+    switch (impl_->activePresentMode) {
+        case VK_PRESENT_MODE_IMMEDIATE_KHR: return "IMMEDIATE";
+        case VK_PRESENT_MODE_MAILBOX_KHR: return "MAILBOX";
+        default: return "FIFO";
+    }
+}
+const FrameStats& Renderer::lastFrameStats() const { return impl_->stats; }
 std::uint32_t Renderer::validationErrors() const { return impl_->counters.errors; }
 std::uint32_t Renderer::validationWarnings() const { return impl_->counters.warnings; }
 

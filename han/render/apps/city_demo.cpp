@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <fstream>
 #include <vector>
 
 #include "city_common.h"
@@ -43,6 +44,20 @@
 #include "han/world/city_builder.h"
 #include "han/world/terrain_physics.h"
 #include "han/world/streaming.h"
+#include "han/render/frame_metrics.h"
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <psapi.h>
+#pragma comment(lib, "psapi.lib")
+#undef near  // макросы старых заголовков Windows ломают имена полей
+#undef far
+#endif
 #ifdef HAN_WITH_IMGUI
 #include "han/ui/imgui_layer.h"
 #endif
@@ -171,6 +186,10 @@ int main(int argc, char** argv) {
     float sunArgs[3] = {38.f, 125.f, 5200.f};
     float exposureArg = 1.0f;  // нейтральный множитель; дневная и ночная экспозиция — в streetscape.json
     float hourArg = -1.f;
+    bool vsync = true;  // --no-vsync: IMMEDIATE/MAILBOX для замеров
+    float flyTarget[2] = {0.f, 0.f}, flySpeed = 0.f;  // --fly
+    std::filesystem::path metricsPath;  // --metrics файл.json: сводка кадров (этап 01)
+    std::size_t warmupFrames = 60;      // --warmup N: кадры прогрева, не входящие в сводку
     float shadowBatchArg = -1.f;
     bool manualSun = false;
     for (int i = 1; i < argc; ++i) {
@@ -178,6 +197,14 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--no-ui")) noUi = true;
         if (!std::strcmp(argv[i], "--deterministic")) deterministic = true;
         if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atol(argv[i + 1]);
+        if (!std::strcmp(argv[i], "--no-vsync")) vsync = false;
+        if (!std::strcmp(argv[i], "--fly") && i + 3 < argc) {  // скриптовый пролёт свободной камеры: x z скорость (м/с) — одинаковый маршрут для замеров
+            flyTarget[0] = static_cast<float>(std::atof(argv[i + 1]));
+            flyTarget[1] = static_cast<float>(std::atof(argv[i + 2]));
+            flySpeed = std::max(0.f, static_cast<float>(std::atof(argv[i + 3])));
+        }
+        if (!std::strcmp(argv[i], "--metrics") && i + 1 < argc) metricsPath = argv[i + 1];
+        if (!std::strcmp(argv[i], "--warmup") && i + 1 < argc) warmupFrames = static_cast<std::size_t>(std::max(0l, std::atol(argv[i + 1])));
         if (!std::strcmp(argv[i], "--osm") && i + 1 < argc) { osmPath = argv[i + 1]; osmExplicit = true; }
         if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) screenshotPath = argv[i + 1];
         if (!std::strcmp(argv[i], "--origin") && i + 2 < argc) {
@@ -305,6 +332,7 @@ int main(int argc, char** argv) {
     }
 #endif
     han::render::RendererDesc desc;
+    desc.vsync = vsync;
     desc.shadowBatchCellSize = shadowBatchArg >= 0.f && std::isfinite(shadowBatchArg) ? shadowBatchArg : citySettings.style.shadowBatchCellSize;
     desc.instanceExtensions = window->vulkanInstanceExtensions();
     desc.createSurface = [&](void* instance) { return window->createVulkanSurface(instance); };
@@ -609,6 +637,8 @@ int main(int argc, char** argv) {
     double fps = 0;
     Uint64 lastWall = start;
     std::vector<double> frameTimes;
+    han::render::MetricsRecorder metrics(warmupFrames);
+    std::size_t drawnPeople = 0, carsNear = 0, carsMid = 0;
     std::size_t activeLights = 0;
     std::size_t visibleProps = 0;
     std::size_t visibleTrees = 0;
@@ -665,6 +695,15 @@ int main(int argc, char** argv) {
         } else {
             if (captured && !consoleOpen && !uiMouse) camera.look(ev.mouseDx, ev.mouseDy);
             camera.move(axis("forward", "back"), axis("right", "left"), axis("up", "down"), input.held("fast") && !uiKeys ? speed * 4.f : speed, dt);
+            if (flySpeed > 0.f) {  // движение к цели по прямой на постоянной высоте над рельефом, взгляд не меняется
+                const float dx = flyTarget[0] - camera.position.x, dz = flyTarget[1] - camera.position.z, left = std::hypot(dx, dz);
+                if (left > 0.01f) {
+                    const float step = std::min(left, flySpeed * dt);
+                    camera.position.x += dx / left * step;
+                    camera.position.z += dz / left * step;
+                    camera.position.y = cameraArgs[1] + (haveTerrain ? terrain.heightAt(camera.position.x, camera.position.z) : 0.f);
+                }
+            }
         }
 
         const auto fwd = camera.forward();
@@ -752,10 +791,12 @@ int main(int argc, char** argv) {
             if (gpu.exterior.id) items.push_back({gpu.exterior.id, model, true, gpu.shadow.id});
             if (gpu.interior.id) items.push_back({gpu.interior.id, model});
         }
+        drawnPeople = 0;
         if (crowd) {
             for (const auto& person : crowd->agents()) {
                 const float dx = person.pos.x - camera.position.x, dz = person.pos.z - camera.position.z;
                 if (dx * dx + dz * dz > citySettings.style.crowdDrawRadius * citySettings.style.crowdDrawRadius) continue;
+                ++drawnPeople;
                 const bool moving = person.vel.x * person.vel.x + person.vel.z * person.vel.z > 0.04f;
                 const auto phase = moving ? static_cast<std::size_t>((frame / 8 + person.id) % 4) : 0;
                 const auto mesh = pedestrianMeshes[person.id % pedestrianMeshes.size()][phase];
@@ -767,9 +808,12 @@ int main(int argc, char** argv) {
             const auto feet = hero->state().position;
             items.push_back({heroMesh, han::render::streetModelTransform({feet.x, feet.y, feet.z}, hero->facingYaw())});
         }
+        carsNear = carsMid = 0;
         for (const han::ai::Car& car : traffic.cars()) {
             const std::size_t color = car.id % carMeshes.size();
             const float dx = car.pos.x - camera.position.x, dz = car.pos.z - camera.position.z, distance = std::hypot(dx, dz);
+            carsNear += distance < 150.f;
+            carsMid += distance < 400.f;
             const auto model = han::render::streetModelTransform({car.pos.x, 0.10f + (haveTerrain ? terrain.heightAt(car.pos.x, car.pos.z) : 0.f), car.pos.z}, car.heading);
             if (!importedCars.empty()) {
                 const std::size_t level = distance < vehicleModels.lodNear ? 0 : (distance < vehicleModels.lodMid ? 1 : (distance < vehicleModels.lodFar ? 2 : 3));
@@ -921,8 +965,41 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "снимок экрана невозможен\n");
             screenshotFailed = true;
         }
+        const Uint64 prepEnd = SDL_GetTicksNS();
         renderer->drawFrame(params, items, w, h);
-        if (frame >= 60) frameTimes.push_back(static_cast<double>(SDL_GetTicksNS() - wallBegin) * 1e-6);
+        const Uint64 frameEnd = SDL_GetTicksNS();
+        if (frame >= static_cast<long>(warmupFrames)) frameTimes.push_back(static_cast<double>(frameEnd - wallBegin) * 1e-6);
+        {
+            const auto& gpuStats = renderer->lastFrameStats();
+            han::render::FrameSample sample;
+            sample.wallMs = static_cast<double>(frameEnd - wallBegin) * 1e-6;
+            sample.cpuPrepMs = static_cast<double>(prepEnd - wallBegin) * 1e-6;
+            sample.drawMs = static_cast<double>(frameEnd - prepEnd) * 1e-6;
+            sample.gpuMs = gpuStats.gpuMs;
+            sample.gpuSceneMs = gpuStats.gpuSceneMs;
+            sample.gpuShadowMs = gpuStats.gpuShadowMs;
+            sample.drawCalls = gpuStats.mainDrawCalls;
+            sample.shadowDrawCalls = gpuStats.shadowDrawCalls;
+            sample.triangles = static_cast<double>(gpuStats.mainTriangles);
+            sample.shadowTriangles = static_cast<double>(gpuStats.shadowTriangles);
+            sample.items = gpuStats.items;
+            sample.cellsLoaded = stats.loaded;
+            sample.cellsLoading = stats.loading;
+            sample.cellRequests = stats.requestedThisFrame;
+            sample.cellUnloads = stats.unloadedThisFrame;
+            sample.cars = static_cast<double>(traffic.cars().size());
+            sample.people = static_cast<double>(drawnPeople);
+            sample.carsWithin150 = static_cast<double>(carsNear);
+            sample.carsWithin400 = static_cast<double>(carsMid);
+            sample.frame = frame;
+            sample.cameraX = camera.position.x;
+            sample.cameraZ = camera.position.z;
+#ifdef _WIN32
+            PROCESS_MEMORY_COUNTERS counters{};
+            if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) sample.workingSetMb = static_cast<double>(counters.WorkingSetSize) / (1024.0 * 1024.0);
+#endif
+            metrics.add(sample);
+        }
         if (shootNow && !screenshotFailed && (renderer->screenshotPending() || !renderer->screenshotError().empty())) {
             std::fprintf(stderr, "снимок экрана не сохранён: %s\n", renderer->screenshotError().c_str());
             screenshotFailed = true;
@@ -938,6 +1015,19 @@ int main(int argc, char** argv) {
         std::sort(frameTimes.begin(), frameTimes.end());
         const auto p95 = std::min(frameTimes.size() - 1, static_cast<std::size_t>(static_cast<double>(frameTimes.size()) * 0.95));
         std::printf("кадр после прогрева (CPU + ожидание GPU): среднее %.2f мс, p95 %.2f мс, кадров %zu\n", total / static_cast<double>(frameTimes.size()), frameTimes[p95], frameTimes.size());
+    }
+    if (!metricsPath.empty()) {
+        char cameraText[160];
+        std::snprintf(cameraText, sizeof(cameraText), "%.2f %.2f %.2f %.2f %.2f", cameraArgs[0], cameraArgs[1], cameraArgs[2], cameraArgs[3], cameraArgs[4]);
+        const std::vector<std::pair<std::string, std::string>> meta = {
+            {"gpu", renderer->deviceName()}, {"present_mode", renderer->presentModeName()}, {"validation_layer", renderer->validationEnabled() ? "yes" : "no"},
+            {"window", std::to_string(windowSize[0]) + "x" + std::to_string(windowSize[1])}, {"camera", cameraText},
+            {"hour", std::to_string(hourArg)}, {"frames_requested", std::to_string(maxFrames)}, {"traffic_requested", std::to_string(trafficCars)},
+            {"deterministic", deterministic ? "yes" : "no"}, {"walk", walk ? "yes" : "no"}, {"taa", "yes"}, {"shadows", "yes"},
+            {"cooked", cookedExplicit ? "explicit" : "default"}, {"timing_note", "wall = CPU подготовка + drawFrame (ожидание GPU); gpu_ms отстаёт на кадры в полёте"}};
+        std::ofstream out(metricsPath, std::ios::binary);
+        out << han::render::metricsToJson(metrics, meta);
+        std::printf("метрики записаны: %s (%zu кадров)\n", metricsPath.string().c_str(), metrics.samples().size());
     }
     if (walk) {
         const auto feet = hero->state().position;
