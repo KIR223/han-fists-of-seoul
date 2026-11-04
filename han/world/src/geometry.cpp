@@ -80,6 +80,29 @@ std::vector<std::uint32_t> triangulate(const std::vector<Vec2>& input) {
     return result;
 }
 
+std::vector<Vec2> clipConvexPolygon(const std::vector<Vec2>& polygon, float minX, float minY, float maxX, float maxY) {
+    std::vector<Vec2> result = polygon;
+    if (minX >= maxX || minY >= maxY) return {};
+    for (int edge = 0; edge < 4 && !result.empty(); ++edge) {
+        const auto distance = [&](Vec2 p) { return edge == 0 ? p.x - minX : edge == 1 ? maxX - p.x : edge == 2 ? p.y - minY : maxY - p.y; };
+        std::vector<Vec2> clipped;
+        Vec2 previous = result.back();
+        float previousDistance = distance(previous);
+        for (Vec2 current : result) {
+            const float currentDistance = distance(current);
+            if ((currentDistance >= 0.f) != (previousDistance >= 0.f)) {
+                const float t = previousDistance / (previousDistance - currentDistance);
+                clipped.push_back({previous.x + (current.x - previous.x) * t, previous.y + (current.y - previous.y) * t});
+            }
+            if (currentDistance >= 0.f) clipped.push_back(current);
+            previous = current;
+            previousDistance = currentDistance;
+        }
+        result = std::move(clipped);
+    }
+    return result;
+}
+
 void GeoMesh::tag(GeoMaterial material, std::uint32_t firstIndex) {
     const auto end = static_cast<std::uint32_t>(indices.size());
     if (end <= firstIndex) return;

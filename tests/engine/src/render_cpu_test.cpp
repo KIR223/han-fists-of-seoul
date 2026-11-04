@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <algorithm>
 #include <vector>
 
 #include "han/core/math.h"
@@ -13,6 +14,30 @@
 
 using namespace han::core;
 using namespace han::render;
+
+TEST_CASE("shadow batches: opaque materials merge, alpha masks and sidedness remain distinct") {
+    auto mesh = makeBox({1,1,1},{1,1,1});
+    mesh.submeshes.clear();
+    for (std::uint32_t i = 0; i < 6; ++i) {
+        Submesh part; part.firstIndex = i*6; part.indexCount = 6; part.alphaMode = AlphaMode::Opaque;
+        if (i==3) part.doubleSided = true;
+        if (i==4) { part.alphaMode = AlphaMode::Mask; part.texture = 7; part.alphaCutoff = .7f; }
+        if (i==5) part.alphaMode = AlphaMode::Blend;
+        mesh.submeshes.push_back(part);
+    }
+    // Центр на границе может разделить грани на разные ячейки: сдвигаем куб внутрь одной.
+    for (auto& vertex : mesh.vertices) for (float& p : vertex.position) p += 10.f;
+    const auto batches = buildShadowBatches(mesh,64);
+    CHECK(batches.parts.size()==3); CHECK(batches.indices.size()==30);
+    CHECK(batches.parts.front().alphaMode==AlphaMode::Mask);
+    CHECK(batches.parts.front().texture==7);
+    CHECK(batches.parts.front().alphaCutoff==doctest::Approx(.7));
+    std::vector<std::uint32_t> expected(mesh.indices.begin(),mesh.indices.begin()+30),actual=batches.indices;
+    std::sort(expected.begin(),expected.end()); std::sort(actual.begin(),actual.end());
+    CHECK(actual==expected);
+    CHECK(buildShadowBatches(mesh,0).parts.empty());
+    mesh.skin.resize(mesh.vertices.size()); CHECK(buildShadowBatches(mesh,64).parts.empty());
+}
 
 TEST_CASE("Mat4: умножение и перенос") {
     const Mat4 t = Mat4::translation({1, 2, 3});

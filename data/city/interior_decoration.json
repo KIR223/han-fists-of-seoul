@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "source": "assets_bin/processed/kandam/kandam_interiors_refreshed.glb",
+  "metadata": "assets_bin/inbox/kandam_v5/package_v5/interiors.json",
+  "output": "assets_bin/processed/kandam/kandam_interiors_decorated.glb",
+  "report": "assets_bin/processed/kandam/interior_decoration.json",
+  "grid_fractions": [
+    0.18,
+    0.82,
+    0.35,
+    0.65,
+    0.5
+  ],
+  "door_clearance": 1.5,
+  "wall_clearance": 0.65,
+  "plant_height": 0.85,
+  "plant_radius": 0.3,
+  "plant": "assets_bin/processed/pr_city_potted_plant_04/PR_CafePlant.glb",
+  "table": "assets_bin/processed/pr_city_coffee_table_round_01/PR_CafeRoundTable.glb",
+  "stool": "assets_bin/processed/pr_city_bar_chair_round_01/PR_CafeBarStool.glb",
+  "table_height": 0.65,
+  "stool_height": 0.7,
+  "furniture_radius": 0.55,
+  "plants": [
+    "assets_bin/prepared/models/plantmonstera001_cb8d5c2f30/AS_plantmonstera001_cb8d5c2f30.glb",
+    "assets_bin/prepared/models/plantorchid001_6151a9a6b0/AS_plantorchid001_6151a9a6b0.glb",
+    "assets_bin/prepared/models/plantsucculentecheveria001_b2bad94625/AS_plantsucculentecheveria001_b2bad94625.glb"
+  ],
+  "surface_grid_fractions": [
+    0.05,
+    0.1,
+    0.15,
+    0.2,
+    0.25,
+    0.3,
+    0.35,
+    0.4,
+    0.45,
+    0.5,
+    0.55,
+    0.6,
+    0.65,
+    0.7,
+    0.75,
+    0.8,
+    0.85,
+    0.9,
+    0.95
+  ],
+  "surface_max_height": 1.4,
+  "surface_min_height": 0.6,
+  "surface_lift": 0.003,
+  "surface_items": {
+    "cafe": {
+      "source": "assets_bin/prepared/models/foodcinnamonrolls001_86087c07a8/AS_foodcinnamonrolls001_86087c07a8.glb",
+      "height": 0.08,
+      "radius": 0.18,
+      "count": 2
+    },
+    "convenience": {
+      "source": "assets_bin/prepared/models/foodgrapes001_149c9b8a6f/AS_foodgrapes001_149c9b8a6f.glb",
+      "height": 0.15,
+      "radius": 0.18,
+      "count": 2
+    }
+  }
+}

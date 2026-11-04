@@ -37,23 +37,23 @@ inline const world::CityStyle& style() {
 
 inline const std::array<Slot, 17>& slots() {
     static const std::array<Slot, 17> s = {{
-        {world::GeoMaterial::Road, "tx_road_asphalt", {0.22f, 0.22f, 0.23f}, 0.9f},
-        {world::GeoMaterial::Park, "tx_ground_grass", {0.30f, 0.46f, 0.26f}, 0.95f},
-        {world::GeoMaterial::WallPlaster, "tx_wall_plaster_beige", {0.72f, 0.69f, 0.64f}, 0.85f},
-        {world::GeoMaterial::WallBrick, "tx_wall_brick_brown", {0.62f, 0.38f, 0.32f}, 0.85f},
-        {world::GeoMaterial::WallConcrete, "tx_wall_concrete", {0.60f, 0.60f, 0.62f}, 0.8f},
+        {world::GeoMaterial::Road, "tx_lib_citystreetasphaltgenericclean001_87b5e4b62c", {0.22f, 0.22f, 0.23f}, 0.9f},
+        {world::GeoMaterial::Park, "tx_lib_poliigon_grasspatchyground_4585_5cfd7363f3", {0.30f, 0.46f, 0.26f}, 0.95f},
+        {world::GeoMaterial::WallPlaster, "tx_lib_poliigon_plasterpainted_7664_c8781094d4", {0.72f, 0.69f, 0.64f}, 0.85f},
+        {world::GeoMaterial::WallBrick, "tx_lib_bricksdragfacedrunning008_a9b2e41ada", {0.62f, 0.38f, 0.32f}, 0.85f},
+        {world::GeoMaterial::WallConcrete, "tx_lib_poliigon_concreteworn_8690_63d36ad015", {0.60f, 0.60f, 0.62f}, 0.8f},
         {world::GeoMaterial::Roof, "tx_roof_bitumen", {0.30f, 0.30f, 0.32f}, 0.9f},
-        {world::GeoMaterial::Sidewalk, "tx_sidewalk_seoul", {0.50f, 0.46f, 0.42f}, 0.9f},
+        {world::GeoMaterial::Sidewalk, "tx_lib_poliigon_concretepaverssquare_7100_2973dfdbb0", {0.50f, 0.46f, 0.42f}, 0.9f},
         {world::GeoMaterial::Storefront, nullptr, {0.35f, 0.30f, 0.28f}, 0.5f},  // процедурная (makeStorefront), файла нет
         {world::GeoMaterial::BladeSign, nullptr, {0.8f, 0.8f, 0.75f}, 0.35f},
         {world::GeoMaterial::LampGlass, nullptr, {1.f, 0.9f, 0.7f}, 0.25f},
-        {world::GeoMaterial::Terrain, "tx_pavement_concrete", {0.68f, 0.68f, 0.66f}, 0.92f},
-        {world::GeoMaterial::Metal, "tx_wall_metal_sheet", {0.65f, 0.66f, 0.68f}, 0.55f},
-        {world::GeoMaterial::RoofPaint, "tx_wall_plaster_beige", {0.50f, 0.7f, 0.6f}, 0.75f},
-        {world::GeoMaterial::WallRedBrick, "tx_wall_red", {0.7f, 0.38f, 0.3f}, 0.9f},
-        {world::GeoMaterial::WallWornBrick, "tx_wall_worn", {0.55f, 0.4f, 0.3f}, 0.92f},
-        {world::GeoMaterial::WallCladding, "tx_wall_cladding", {0.65f, 0.65f, 0.62f}, 0.7f},
-        {world::GeoMaterial::Plaza, "tx_plaza_seoul", {0.65f, 0.6f, 0.55f}, 0.92f},
+        {world::GeoMaterial::Terrain, "tx_lib_poliigon_concretefloorpoured_7656_5ae654b0aa", {0.68f, 0.68f, 0.66f}, 0.92f},
+        {world::GeoMaterial::Metal, "tx_lib_metalgalvanizedsteelworn001_8c8173dc22", {0.65f, 0.66f, 0.68f}, 0.55f},
+        {world::GeoMaterial::RoofPaint, "tx_lib_poliigon_plasterpainted_7664_c8781094d4", {0.50f, 0.7f, 0.6f}, 0.75f},
+        {world::GeoMaterial::WallRedBrick, "tx_lib_poliigon_brickreclaimedrunning_7787_0a74d3a97b", {0.7f, 0.38f, 0.3f}, 0.9f},
+        {world::GeoMaterial::WallWornBrick, "tx_lib_poliigon_brickwallreclaimed_8320_5eb75f895f", {0.55f, 0.4f, 0.3f}, 0.92f},
+        {world::GeoMaterial::WallCladding, "tx_lib_poliigon_concretewallcladding_7856_fc8f8033b9", {0.65f, 0.65f, 0.62f}, 0.7f},
+        {world::GeoMaterial::Plaza, "tx_lib_terrazzoslab028_8d5f7ed943", {0.65f, 0.6f, 0.55f}, 0.92f},
     }};
     return s;
 }
@@ -228,7 +228,7 @@ inline MeshId uploadGround(Renderer& renderer, float halfSize = 4000.f, const st
     for (int i = 0; i < 3; ++i) {
         TextureData t;
         std::string error;
-        if (loadKtx2File(cooked / "tx_pavement_concrete" / files[i], t, error)) ids[i] = renderer.uploadTexture(t);
+        if (loadKtx2File(cooked / "tx_lib_poliigon_concretefloorpoured_7656_5ae654b0aa" / files[i], t, error)) ids[i] = renderer.uploadTexture(t);
     }
     const bool textured = ids[0] != 0;
     constexpr float kTile = 4.f;  // метров на плитку

@@ -797,9 +797,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 ++st.skipped;
                 continue;
             }
-            CityChunk& chunk = chunkAt(centroid(pts));
             const Color color = isWater ? Color{0.16f, 0.30f, 0.42f} : Color{1.f, 1.f, 1.f};
-            const auto indexBefore = static_cast<std::uint32_t>(chunk.ground.indices.size());
             // Вода лежит ровной плоскостью на отметке берегов (самые низкие точки контура), чуть ниже земли; парки идут по рельефу.
             const bool savedFixed = gFixed;
             if (isWater && gTerrain) {
@@ -808,12 +806,29 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 gFixed = true;
                 gFixedBase = level - 0.4f;
             }
-            const bool built = addFlatPolygon(chunk.ground, pts, isWater ? 0.02f : 0.03f, color, kParkTile);
+            // Длинная река/парк должны присутствовать у каждого берега, а не только в ячейке своего центра.
+            bool built = false;
+            const auto triangles = triangulate(pts);
+            for (std::size_t index = 0; index < triangles.size(); index += 3) {
+                const std::vector<Vec2> triangle = {pts[triangles[index]], pts[triangles[index + 1]], pts[triangles[index + 2]]};
+                const CellCoord lo = grid.cellOf(std::min({triangle[0].x, triangle[1].x, triangle[2].x}), std::min({triangle[0].y, triangle[1].y, triangle[2].y}));
+                const CellCoord hi = grid.cellOf(std::max({triangle[0].x, triangle[1].x, triangle[2].x}), std::max({triangle[0].y, triangle[1].y, triangle[2].y}));
+                for (int x = lo.x; x <= hi.x; ++x) for (int z = lo.z; z <= hi.z; ++z) {
+                    const float left = static_cast<float>(x) * settings.cellSize, top = static_cast<float>(z) * settings.cellSize;
+                    const auto part = clipConvexPolygon(triangle, left, top, left + settings.cellSize, top + settings.cellSize);
+                    if (part.size() < 3 || std::fabs(signedArea(part)) < 1e-5f) continue;
+                    auto& chunk = chunks[{x, z}];
+                    const auto first = static_cast<std::uint32_t>(chunk.ground.indices.size());
+                    if (addFlatPolygon(chunk.ground, part, isWater ? 0.02f : 0.03f, color, kParkTile)) {
+                        chunk.ground.tag(isWater ? GeoMaterial::Water : GeoMaterial::Park, first);
+                        ++chunk.areaCount;
+                        built = true;
+                    }
+                }
+            }
             gFixed = savedFixed;
             gFixedBase = 0.f;
             if (built) {
-                chunk.ground.tag(isWater ? GeoMaterial::Water : GeoMaterial::Park, indexBefore);
-                ++chunk.areaCount;
                 ++(isWater ? st.waters : st.parks);
                 for (const Vec2& p : pts) grow(p.x, p.y);
             } else {

@@ -22,6 +22,7 @@ struct RendererDesc {
     bool validation = true;                       // слой VK_LAYER_KHRONOS_validation, если установлен
     int width = 1280, height = 720;
     int shadowMapSize = 2048;  // сторона карты теней каждого из трёх каскадов (1024 / 2048 / 4096 — пресеты качества)
+    float shadowBatchCellSize = 0.f;  // 0 — прежний проход; город объединяет непрозрачные тени по ячейкам
     // Создаёт поверхность окна для VkInstance (void*) и возвращает VkSurfaceKHR как uint64; 0 — ошибка.
     std::function<std::uint64_t(void* vkInstance)> createSurface;
 };
@@ -68,6 +69,8 @@ struct FrameParams {
     std::vector<PointLight> pointLights;  // до 32 ближайших к камере; пусто — только солнце и небо
     float wetness = 0.0f;     // 0..1: мокрые поверхности (асфальт темнее и глянцевее; рисуется только горизонталь)
     float fogDensity = 0.0f;  // воздушная дымка: доля цвета горизонта = 1 - exp(-расстояние * плотность); 0 — выключена (0,0006: 1 км ≈ 45%)
+    float fogHeightFalloff = 0.0f;  // плотность дымки убывает с высотой; 0 сохраняет прежнее поведение
+    float specularAntiAliasing = 0.0f;  // фильтрация бликов по вариации нормали; 0 выключает
     float contrast = 1.2f;    // кривая AgX: степень контраста (1 — нейтрально)
     float saturation = 1.2f;  // насыщенность после AgX, который сам по себе заметно обесцвечивает яркие цвета (1 — нейтрально)
     // Bloom (часть 34.4: 6 уровней, порог 1,0, интенсивность 0,08; ночью 0,12). intensity 0 выключает свечение в итоговом кадре.

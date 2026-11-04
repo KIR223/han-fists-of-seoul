@@ -5,7 +5,7 @@
 
 namespace han::world {
 struct DistrictScene {
-    std::string id, mesh, interiors, collision;
+    std::string id, mesh, interiors, collision, shadow;
     Vec3 origin;
     float halfWidth = 0, halfDepth = 0, terrainBlend = 0;
     float loadDistance = 0, unloadDistance = 0, interiorDistance = 0;

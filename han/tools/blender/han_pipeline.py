@@ -43,9 +43,40 @@ def import_model(path):
     if ext in (".glb", ".gltf"):
         bpy.ops.import_scene.gltf(filepath=path)
     elif ext == ".fbx":
-        bpy.ops.import_scene.fbx(filepath=path)
+        bpy.ops.import_scene.fbx(filepath=path, use_image_search=False)
     elif ext == ".obj":
         bpy.ops.wm.obj_import(filepath=path)
+    elif ext == ".ply":
+        bpy.ops.wm.ply_import(filepath=path)
+        for obj in mesh_objects():
+            if not obj.data.color_attributes: continue
+            material=bpy.data.materials.new(obj.name+'_VertexColor'); material.use_nodes=True
+            color=material.node_tree.nodes.new('ShaderNodeVertexColor')
+            color.layer_name=obj.data.color_attributes[0].name
+            pbr=next(node for node in material.node_tree.nodes if node.type=='BSDF_PRINCIPLED')
+            material.node_tree.links.new(color.outputs['Color'],pbr.inputs['Base Color'])
+            obj.data.materials.clear(); obj.data.materials.append(material)
+    elif ext == ".stl":
+        bpy.ops.wm.stl_import(filepath=path)
+    elif ext == ".blend":
+        # Только datablocks объектов: сцены, обработчики и Python из исходника не исполняются.
+        with bpy.data.libraries.load(path, link=False) as (source, target):
+            target.objects = source.objects
+        for obj in target.objects:
+            if obj is not None:
+                bpy.context.scene.collection.objects.link(obj)
+        # Ссылки на карты после переноса архива могут сохранять путь автора.
+        candidates = {}
+        for folder, _, files in os.walk(os.path.dirname(path)):
+            for filename in files:
+                candidates.setdefault(filename.casefold(), []).append(os.path.join(folder, filename))
+        for image in bpy.data.images:
+            if image.packed_file or image.source != 'FILE':
+                continue
+            matches = candidates.get(os.path.basename(image.filepath.replace('\\', '/')).casefold(), [])
+            if len(matches) == 1:
+                image.filepath = matches[0]
+                image.reload()
     else:
         fail(f"формат не поддерживается: {ext}")
 
@@ -114,6 +145,9 @@ def normalize(scale, warnings):
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
     for obj in meshes:
+        if obj.modifiers:
+            obj.data = evaluated_copy(obj)
+            obj.modifiers.clear()
         if scale != 1.0:
             obj.data.transform(Matrix.Scale(scale, 4))
         bm = bmesh.new()
@@ -257,6 +291,29 @@ def main():
     warnings = []
 
     import_model(params["input"])
+    excluded = cfg.get("exclude_prefixes", [])
+    if not isinstance(excluded, list) or any(not isinstance(value, str) or not value for value in excluded):
+        fail("exclude_prefixes: нужен список непустых префиксов")
+    for obj in list(mesh_objects()):
+        if any(obj.name.startswith(prefix) for prefix in excluded):
+            bpy.data.objects.remove(obj, do_unlink=True)
+    if cfg.get('profile') == 'library_auto' and any(o.type == 'ARMATURE' for o in bpy.context.scene.objects):
+        # Подготовка библиотеки сохраняет skin/actions; статические join/decimate сюда не применяются.
+        shrink_textures(int(cfg.get('max_texture_size', 1024)), warnings)
+        for obj in list(mesh_objects()):
+            if obj.name == 'Icosphere' and not any(m.type == 'ARMATURE' for m in obj.modifiers):
+                bpy.data.objects.remove(obj, do_unlink=True)
+        destination = os.path.join(out_dir, name + '.glb')
+        bpy.ops.export_scene.gltf(filepath=destination, export_format='GLB', export_yup=True,
+                                 export_animations=True, export_animation_mode='ACTIONS')
+        report = {'name': name, 'type': 'skinned_source', 'files': {'source': name + '.glb'},
+                  'triangles': {'source': sum(triangle_count(o) for o in mesh_objects())},
+                  'bones': sum(len(o.data.bones) for o in bpy.context.scene.objects if o.type == 'ARMATURE'),
+                  'actions': [a.name for a in bpy.data.actions],
+                  'warnings': warnings + ['Скелет и действия сохранены; ретаргет и проверка контактов в HAN ещё требуются.']}
+        with open(params['report'], 'w', encoding='utf-8') as output:
+            json.dump(report, output, ensure_ascii=False, indent=2)
+        return
     # Некоторые glTF содержат витрину с несколькими вариантами предмета.
     # В игровой ассет берём явно перечисленные части одного варианта.
     wanted = cfg.get("include_objects")
@@ -367,7 +424,9 @@ def main():
 
     collision_verts = None
     if cfg.get("collision", True):
-        hull, collision_verts = make_collision(obj, f"{name}_col", cfg.get("collision_shape", "convex"))
+        shape = cfg.get("collision_shape", "box" if cfg.get('profile') == 'library_auto' else "convex")
+        hull, collision_verts = make_collision(obj, f"{name}_col", shape)
+        if shape == 'box': warnings.append('коллизия — простая коробка; для сложных проходов нужна составная геометрия')
         files["collision"] = f"{name}.col.glb"
         export_object(hull, os.path.join(out_dir, files["collision"]))
 

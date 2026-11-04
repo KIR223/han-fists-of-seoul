@@ -5,6 +5,7 @@
       "id": "kandam",
       "mesh": "kandam/kandam_district.hmesh",
       "collision": "kandam/kandam_collision.hmesh",
+      "shadow": "kandam/kandam_shadow.hmesh",
       "interiors": "kandam/kandam_interiors.hmesh",
       "lights": "data/city/kandam_lights.json",
       "origin": [10020, 0, 6560],

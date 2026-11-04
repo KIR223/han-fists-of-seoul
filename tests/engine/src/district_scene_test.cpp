@@ -12,6 +12,7 @@ TEST_CASE("district_scene: район находится в общей сист�
     REQUIRE_MESSAGE(han::world::loadDistrictScenes(file.string(), scenes, error), error);
     REQUIRE(scenes.size() == 1);
     CHECK(scenes[0].id == "kandam");
+    CHECK(scenes[0].shadow == "kandam/kandam_shadow.hmesh");
     CHECK(scenes[0].origin.x == 10020);
     CHECK(scenes[0].origin.z == 6560);
     CHECK(scenes[0].lamps.size() == 368);
@@ -33,6 +34,7 @@ TEST_CASE("district_scene: район находится в общей сист�
         CHECK(scenes.size() == saved.size()); CHECK(scenes[0].mesh == saved[0].mesh);
     };
     invalid("mesh", han::core::Json::string("../outside.hmesh"));
+    invalid("shadow", han::core::Json::string("../outside.hmesh"));
     invalid("interiors", han::core::Json::string("C:/outside.hmesh"));
     invalid("load_distance", han::core::Json::number(2000));
     invalid("lights", han::core::Json::string("data/city/../../secret.json"));
