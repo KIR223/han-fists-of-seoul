@@ -26,11 +26,15 @@ TEST_CASE("streetscape: оформление города читается из 
     CHECK(style.enabled);
     CHECK(style.signBays >= 23);  // каждый вымышленный бренд доступен в атласе
     CHECK(style.personHeight > 1.6f);
+    CHECK(style.specularAntiAliasing > 0.f);
+    CHECK(style.specularAntiAliasing <= 1.f);
+    CHECK(style.fogHeightFalloff > 0.f);
+    CHECK(style.bloomIntensity < 0.1f);
     han::core::Json root;
     std::string error;
     REQUIRE(han::core::loadJsonFile(repoStreet("data/city/streetscape.json"), root, error));
     const auto file = std::filesystem::temp_directory_path() / "han_style_invalid.json";
-    for (const auto key : {"version", "shop_bay_width", "sign_bays", "crosswalk_spacing", "origin_lat"}) {
+    for (const auto key : {"version", "shop_bay_width", "sign_bays", "crosswalk_spacing", "origin_lat", "specular_antialiasing", "fog_height_falloff", "bloom_intensity"}) {
         auto invalid = root;
         invalid.set(key, han::core::Json::number(key == std::string("origin_lat") ? 100 : -1));
         std::ofstream(file) << invalid.dump();

@@ -53,6 +53,12 @@ struct MeshData {
 
 // Части меша для рисования: submeshes или одна часть на весь меш.
 std::vector<Submesh> effectiveSubmeshes(const MeshData& mesh);
+struct ShadowBatches {
+    std::vector<std::uint32_t> indices;
+    std::vector<Submesh> parts;
+};
+// Группирует непрозрачные части по ячейкам; маска листвы сохраняет исходный материал.
+ShadowBatches buildShadowBatches(const MeshData& mesh, float cellSize);
 
 // Параллелепипед с центром в нуле; halfExtents — половины размеров по осям.
 MeshData makeBox(core::Vec3 halfExtents, core::Vec3 color);

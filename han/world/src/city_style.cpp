@@ -52,6 +52,7 @@ bool loadCityStyle(const std::string& file, CityStyle& out, std::string& error) 
         {"crosswalk_spacing", &style.crosswalkSpacing}, {"crosswalk_bar", &style.crosswalkBar},
         {"street_light_radius", &style.streetLightRadius}, {"street_light_power", &style.streetLightPower},
         {"night_exposure", &style.nightExposure}, {"day_exposure", &style.dayExposure}, {"fog_density", &style.fogDensity},
+        {"specular_antialiasing", &style.specularAntiAliasing}, {"fog_height_falloff", &style.fogHeightFalloff}, {"bloom_intensity", &style.bloomIntensity},
         {"crowd_radius", &style.crowdRadius}, {"crowd_nav_radius", &style.crowdNavRadius}, {"crowd_draw_radius", &style.crowdDrawRadius},
         {"person_height", &style.personHeight}, {"car_width", &style.carWidth}, {"car_height", &style.carHeight}, {"car_length", &style.carLength},
         {"window_emission", &style.windowEmission}, {"sign_emission", &style.signEmission}, {"canopy_depth", &style.canopyDepth}, {"canopy_height", &style.canopyHeight}, {"crowd_nav_cell", &style.crowdNavCell},
@@ -69,6 +70,13 @@ bool loadCityStyle(const std::string& file, CityStyle& out, std::string& error) 
         }
         *field.value = static_cast<float>(n);
     }
+    const auto& batch = root["shadow_batch_cell_size"];
+    const double batchSize = batch.asNumber();
+    if (!batch.isNumber() || !std::isfinite(batchSize) || batchSize < 0 || batchSize > 10000) {
+        error = file + ": некорректный параметр shadow_batch_cell_size";
+        return false;
+    }
+    style.shadowBatchCellSize = static_cast<float>(batchSize);
     struct IntField { const char* name; int* value; int maximum; };
     for (const auto& field : {IntField{"sign_bays", &style.signBays, 32}, {"max_blades", &style.maxBlades, 4}, {"crowd_count", &style.crowdCount, 1500}, {"facade_detail_repeat", &style.facadeDetailRepeat, 8},
                               {"crowd_path_queries", &style.crowdPathQueries, 8}, {"crowd_path_expansions", &style.crowdPathExpansions, 200000}}) {
@@ -81,7 +89,8 @@ bool loadCityStyle(const std::string& file, CityStyle& out, std::string& error) 
         *field.value = static_cast<int>(n);
     }
     if (style.crosswalkBar >= style.crosswalkSpacing || style.crowdRadius >= style.crowdNavRadius || style.crowdDrawRadius > style.crowdNavRadius ||
-        style.roofR > 1 || style.roofG > 1 || style.roofB > 1 || style.windowRoughness > 1) {
+        style.roofR > 1 || style.roofG > 1 || style.roofB > 1 || style.windowRoughness > 1 ||
+        style.specularAntiAliasing > 1 || style.bloomIntensity > 1 || style.fogHeightFalloff > 1) {
         error = file + ": несовместимые размеры улиц или радиусы толпы";
         return false;
     }

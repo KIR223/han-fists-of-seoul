@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
+#include <tuple>
 
 namespace han::render {
 namespace {
@@ -24,6 +26,42 @@ void addFace(MeshData& mesh, core::Vec3 n, core::Vec3 u, core::Vec3 v, core::Vec
 std::vector<Submesh> effectiveSubmeshes(const MeshData& mesh) {
     if (!mesh.submeshes.empty()) return mesh.submeshes;
     return {Submesh{0, static_cast<std::uint32_t>(mesh.indices.size()), -1}};
+}
+
+ShadowBatches buildShadowBatches(const MeshData& mesh, float cellSize) {
+    ShadowBatches result;
+    if (!mesh.skin.empty() || !std::isfinite(cellSize) || cellSize <= 0.f) return result;
+    using Key = std::tuple<int, int, int, bool>;
+    std::map<Key, std::vector<std::uint32_t>> opaque;
+    for (const auto& part : effectiveSubmeshes(mesh)) {
+        if (!part.indexCount || part.alphaMode == AlphaMode::Blend) continue;
+        if (part.firstIndex > mesh.indices.size() || part.indexCount > mesh.indices.size() - part.firstIndex) return {};
+        const auto first = mesh.indices.begin() + part.firstIndex, end = first + part.indexCount;
+        core::Vec3 low{}, high{}; bool have = false;
+        for (auto index = first; index != end; ++index) {
+            if (*index >= mesh.vertices.size()) return {};
+            const auto& p = mesh.vertices[*index].position;
+            if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) return {};
+            if (!have) { low = high = {p[0], p[1], p[2]}; have = true; }
+            else { low = {std::min(low.x,p[0]),std::min(low.y,p[1]),std::min(low.z,p[2])}; high = {std::max(high.x,p[0]),std::max(high.y,p[1]),std::max(high.z,p[2])}; }
+        }
+        if (part.alphaMode == AlphaMode::Mask) {
+            auto copy = part; copy.firstIndex = static_cast<std::uint32_t>(result.indices.size());
+            result.indices.insert(result.indices.end(), first, end); result.parts.push_back(copy);
+            continue;
+        }
+        const auto center = (low + high) * .5f;
+        auto& indices = opaque[{static_cast<int>(std::floor(center.x/cellSize)),static_cast<int>(std::floor(center.y/cellSize)),static_cast<int>(std::floor(center.z/cellSize)),part.doubleSided}];
+        indices.insert(indices.end(),first,end);
+    }
+    for (const auto& [key,indices] : opaque) {
+        Submesh part;
+        part.firstIndex = static_cast<std::uint32_t>(result.indices.size());
+        part.indexCount = static_cast<std::uint32_t>(indices.size());
+        part.alphaMode = AlphaMode::Opaque; part.doubleSided = std::get<3>(key);
+        result.indices.insert(result.indices.end(),indices.begin(),indices.end()); result.parts.push_back(part);
+    }
+    return result;
 }
 
 MeshData makeBox(core::Vec3 half, core::Vec3 color) {

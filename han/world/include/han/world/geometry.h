@@ -15,6 +15,8 @@ float signedArea(const std::vector<Vec2>& polygon);
 // вершина допустима. Возвращает тройки индексов в исходный массив (после удаления замыкающей вершины) против часовой стрелки.
 // Пустой результат — многоугольник вырожден или самопересекается настолько, что отсечь уши не удалось.
 std::vector<std::uint32_t> triangulate(const std::vector<Vec2>& polygon);
+// Отсечение выпуклого контура прямоугольником; пустой результат — пересечения нет.
+std::vector<Vec2> clipConvexPolygon(const std::vector<Vec2>& polygon, float minX, float minY, float maxX, float maxY);
 
 struct GeoVertex {
     float position[3];

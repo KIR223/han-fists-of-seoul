@@ -152,6 +152,7 @@ struct GpuMesh {
     VkDeviceMemory vertexMemory = VK_NULL_HANDLE, indexMemory = VK_NULL_HANDLE;
     std::uint32_t indexCount = 0;
     std::vector<GpuSubmesh> submeshes;
+    std::vector<GpuSubmesh> shadowSubmeshes;
     bool skinned = false;
     std::uint32_t maxJoint = 0;
 };
@@ -222,6 +223,7 @@ struct Renderer::Impl {
 
     // Каскадные карты теней: одно изображение-массив из kShadowCascades слоёв, по виду на слой для записи и общий вид для чтения.
     int shadowMapSize = 2048;
+    float shadowBatchCellSize = 0.f;
     VkImage shadowImage = VK_NULL_HANDLE;
     VkDeviceMemory shadowMemory = VK_NULL_HANDLE;
     VkImageView shadowArrayView = VK_NULL_HANDLE;
@@ -1140,7 +1142,18 @@ bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId>
                 out.boundsMax[a] = std::max(out.boundsMax[a], v.position[a]);
             }
     }
-    for (const Submesh& s : effectiveSubmeshes(mesh)) {
+    auto parts = effectiveSubmeshes(mesh);
+    const auto colorParts = parts.size();
+    auto indices = mesh.indices;
+    if (shadowBatchCellSize > 0.f && std::any_of(parts.begin(),parts.end(),[](const auto& part) { return part.alphaMode == AlphaMode::Mask || part.alphaMode == AlphaMode::Blend || part.doubleSided; })) {
+        const auto batches = buildShadowBatches(mesh, shadowBatchCellSize);
+        for (auto part : batches.parts) {
+            part.firstIndex += static_cast<std::uint32_t>(indices.size());
+            parts.push_back(part);
+        }
+        indices.insert(indices.end(),batches.indices.begin(),batches.indices.end());
+    }
+    for (const Submesh& s : parts) {
         TextureId tex = 0;
         if (s.texture >= 0 && static_cast<std::size_t>(s.texture) < textureIds.size()) tex = textureIds[static_cast<std::size_t>(s.texture)];
         const auto pick = [&](std::int32_t index) -> TextureId {
@@ -1154,7 +1167,7 @@ bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId>
         if (s.indexCount) {
             core::Vec3 low{}, high{};
             for (std::uint32_t i = 0; i < s.indexCount; ++i) {
-                const auto& vertex = mesh.vertices[mesh.indices[s.firstIndex + i]];
+                const auto& vertex = mesh.vertices[indices[s.firstIndex + i]];
                 if (i == 0) low = high = {vertex.position[0], vertex.position[1], vertex.position[2]};
                 else {
                     low = {std::min(low.x, vertex.position[0]), std::min(low.y, vertex.position[1]), std::min(low.z, vertex.position[2])};
@@ -1166,9 +1179,11 @@ bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId>
             part.boundsMax[0] = high.x; part.boundsMax[1] = high.y; part.boundsMax[2] = high.z;
         }
     }
+    out.shadowSubmeshes.assign(out.submeshes.begin() + static_cast<std::ptrdiff_t>(colorParts),out.submeshes.end());
+    out.submeshes.resize(colorParts);
     const bool ok = createBuffer(vertices.data(), vertices.size() * sizeof(vk::GpuVertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                  out.vertexBuffer, out.vertexMemory, err) &&
-                    createBuffer(mesh.indices.data(), mesh.indices.size() * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                    createBuffer(indices.data(), indices.size() * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                                  out.indexBuffer, out.indexMemory, err);
     if (!ok) destroyMesh(out);
     return ok;
@@ -1256,6 +1271,7 @@ std::unique_ptr<Renderer> Renderer::create(const RendererDesc& desc, std::string
     std::unique_ptr<Renderer> r(new Renderer());
     Impl& s = *r->impl_;
     s.shadowMapSize = std::clamp(desc.shadowMapSize, 256, 8192);
+    s.shadowBatchCellSize = std::isfinite(desc.shadowBatchCellSize) ? std::max(0.f,desc.shadowBatchCellSize) : 0.f;
     if (!s.createInstance(desc, error)) return nullptr;
     s.surface = reinterpret_cast<VkSurfaceKHR>(desc.createSurface ? desc.createSurface(s.instance) : 0);
     if (!s.surface) {
@@ -1421,6 +1437,7 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
     ubo.params[0] = frame.exposure;
     ubo.params[1] = frame.fogDensity;
     ubo.params[2] = frame.neonBoost;
+    ubo.params[3] = std::max(0.f, frame.fogHeightFalloff);
     ubo.emission[0] = frame.windowEmission;
     ubo.emission[1] = frame.signEmission;
     ubo.emission[2] = std::clamp(frame.litWindowFraction, 0.f, 1.f);
@@ -1438,6 +1455,7 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
         }
         ubo.lightInfo[0] = static_cast<float>(count);
         ubo.lightInfo[1] = std::clamp(frame.wetness, 0.f, 1.f);
+        ubo.lightInfo[2] = std::clamp(frame.specularAntiAliasing, 0.f, 1.f);
     }
 
     // Каскады теней. Без солнечного света (ночь) или при выключенных тенях шейдер получает «тени выключены», а карты просто очищаются.
@@ -1540,7 +1558,7 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
                     if (boundShadow != s.shadowPipeline) vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s.shadowPipeline);
                     boundShadow = s.shadowPipeline;
                     vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, paletteOffsets[static_cast<std::size_t>(&item - items.data())]);
-                } else for (const auto& part : mesh.submeshes) {
+                } else for (const auto& part : (mesh.shadowSubmeshes.empty() ? mesh.submeshes : mesh.shadowSubmeshes)) {
                     if (part.alphaMode == AlphaMode::Blend) continue;
                     if (!mesh.skinned && !cascadeFrustum.sees(item.model.m, part.boundsMin, part.boundsMax)) continue;
                     const bool masked = part.alphaMode == AlphaMode::Mask;

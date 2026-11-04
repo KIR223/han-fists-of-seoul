@@ -34,6 +34,12 @@ bool loadDistrictScenes(const std::string& file, std::vector<DistrictScene>& out
         if (scene.id.empty() || !ids.insert(scene.id).second || !meshPath(scene.mesh) || !meshPath(scene.interiors) || !meshPath(scene.collision) || !vector(item["origin"], scene.origin)) {
             error = file + ": неверный идентификатор, меш или положение района"; return false;
         }
+        if (!item["shadow"].isNull()) {
+            scene.shadow = item["shadow"].asString();
+            if (!item["shadow"].isString() || !meshPath(scene.shadow)) {
+                error = file + ": неверный путь теневого меша района"; return false;
+            }
+        }
         for (const auto key : {"terrain_blend", "load_distance", "unload_distance", "interior_distance", "interior_light_power", "interior_light_radius"})
             if (!finite(item[key]) || item[key].asNumber() <= 0 || item[key].asNumber() > 10000) {
                 error = file + ": неверные расстояния района"; return false;

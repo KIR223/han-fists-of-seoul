@@ -4,13 +4,98 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 #include "han/world/city_builder.h"
 #include "han/world/geometry.h"
 #include "han/world/osm.h"
+#include "han/world/water_surface.h"
 
 using namespace han::world;
+
+TEST_CASE("city: water mask cuts visual terrain but keeps road geometry and uncovered islands") {
+    const auto file=std::filesystem::temp_directory_path()/"han_water_mask_test.json";
+    std::ofstream(file)<<R"({"version":1,"cell_size":16,"triangles":[[[0,0],[10,0],[0,10]]]})";
+    WaterSurfaceMask mask; std::string error;
+    REQUIRE_MESSAGE(mask.load(file.string(),error),error);
+    CHECK(mask.covers(1,1)); CHECK_FALSE(mask.covers(8,8));
+    GeoMesh mesh;
+    mesh.vertices={{{1,0,1},{0,1,0},{1,1,1}},{{2,0,1},{0,1,0},{1,1,1}},{{1,0,2},{0,1,0},{1,1,1}},
+                   {{8,0,8},{0,1,0},{1,1,1}},{{9,0,8},{0,1,0},{1,1,1}},{{8,0,9},{0,1,0},{1,1,1}}};
+    mesh.indices={0,1,2,3,4,5}; mesh.tag(GeoMaterial::Terrain,0);
+    mesh.indices.insert(mesh.indices.end(),{0,1,2}); mesh.tag(GeoMaterial::Road,6);
+    const auto result=mask.removeCoveredTerrain(mesh);
+    CHECK(result.indices==std::vector<std::uint32_t>{3,4,5,0,1,2});
+    std::ofstream(file)<<R"({"version":1,"cell_size":0,"triangles":[]})";
+    CHECK_FALSE(mask.load(file.string(),error)); CHECK(mask.covers(1,1));
+    std::filesystem::remove(file);
+}
+
+TEST_CASE("city: берег обрезается по контуру воды с сохранением площади, высоты и UV") {
+    const auto file=std::filesystem::temp_directory_path()/"han_water_shore_test.json";
+    std::string shape=R"([[[0,0],[10,0],[0,10]]])";
+    SUBCASE("прямой обход") {}
+    SUBCASE("обратный обход") { shape=R"([[[0,10],[10,0],[0,0]]])"; }
+    SUBCASE("перекрывающиеся водные полигоны не вычитаются дважды") { shape=R"([[[0,0],[10,0],[0,10]],[[0,0],[10,0],[0,10]]])"; }
+    std::ofstream(file)<<"{\"version\":1,\"cell_size\":4,\"triangles\":"<<shape<<"}";
+    WaterSurfaceMask mask; std::string error;
+    REQUIRE_MESSAGE(mask.load(file.string(),error),error);
+    GeoMesh mesh;
+    mesh.vertices={{{0,2,0},{0,1,0},{1,1,1},{0,0}},{{20,22,0},{0,1,0},{1,1,1},{20,0}},{{0,2,20},{0,1,0},{1,1,1},{0,20}}};
+    mesh.indices={0,1,2}; mesh.tag(GeoMaterial::Terrain,0);
+    const auto result=mask.removeCoveredTerrain(mesh);
+    double surfaceArea=0;
+    for (std::size_t i=0;i<result.indices.size();i+=3) {
+        const auto& a=result.vertices[result.indices[i]].position;
+        const auto& b=result.vertices[result.indices[i+1]].position;
+        const auto& c=result.vertices[result.indices[i+2]].position;
+        surfaceArea+=std::fabs((b[0]-a[0])*(c[2]-a[2])-(b[2]-a[2])*(c[0]-a[0]))*.5;
+        CHECK_FALSE(mask.covers((a[0]+b[0]+c[0])/3,(a[2]+b[2]+c[2])/3));
+    }
+    CHECK(surfaceArea==doctest::Approx(150));
+    for (const auto index : result.indices) {
+        const auto& v=result.vertices[index];
+        CHECK(v.position[1]==doctest::Approx(v.position[0]+2));
+        CHECK(v.uv[0]==doctest::Approx(v.position[0]));
+        CHECK(v.uv[1]==doctest::Approx(v.position[2]));
+    }
+    std::filesystem::remove(file);
+}
+
+TEST_CASE("city: длинный водоём разбит по ячейкам без потери площади и выхода вершин за границы") {
+    const GeoProjection projection(37.5, 127.0);
+    OsmData data;
+    OsmWay way;
+    way.id = 1; way.tags = {{"natural", "water"}};
+    const std::vector<Vec2> polygon = {{-50,-30},{550,-30},{550,90},{-50,90}};
+    for (std::size_t i = 0; i < polygon.size(); ++i) {
+        double lat, lon; projection.toGeo(polygon[i].x, polygon[i].y, lat, lon);
+        data.nodes[static_cast<std::int64_t>(i + 1)] = {lat, lon}; way.nodes.push_back(static_cast<std::int64_t>(i + 1));
+    }
+    way.nodes.push_back(1); data.ways.push_back(way);
+    CityBuildSettings settings; settings.cellSize = 128; settings.terrainMesh = false;
+    CityStats stats;
+    const auto chunks = buildCity(data, projection, settings, &stats);
+    CHECK(stats.waters == 1); CHECK(chunks.size() > 5);
+    double area = 0;
+    for (const auto& [cell, chunk] : chunks) {
+        for (const auto& vertex : chunk.ground.vertices) {
+            CHECK(vertex.position[0] >= cell.x * settings.cellSize - .01f);
+            CHECK(vertex.position[0] <= (cell.x + 1) * settings.cellSize + .01f);
+            CHECK(vertex.position[2] >= cell.z * settings.cellSize - .01f);
+            CHECK(vertex.position[2] <= (cell.z + 1) * settings.cellSize + .01f);
+        }
+        for (std::size_t i = 0; i < chunk.ground.indices.size(); i += 3) {
+            const auto& a = chunk.ground.vertices[chunk.ground.indices[i]].position;
+            const auto& b = chunk.ground.vertices[chunk.ground.indices[i+1]].position;
+            const auto& c = chunk.ground.vertices[chunk.ground.indices[i+2]].position;
+            area += std::fabs((b[0]-a[0])*(c[2]-a[2])-(b[2]-a[2])*(c[0]-a[0])) * .5;
+        }
+    }
+    CHECK(area == doctest::Approx(72000).epsilon(.0001));
+    CHECK(clipConvexPolygon(polygon, 1000, 1000, 1100, 1100).empty());
+}
 
 TEST_CASE("city: внешняя геометрия дороги не дублируется, ширина читается из данных") {
     OsmWay way;

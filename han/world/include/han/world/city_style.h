@@ -20,6 +20,8 @@ struct CityStyle {
     float roofR = 0, roofG = 0, roofB = 0, metroWidth = 0, metroHeight = 0, metroLength = 0;
     int signBays = 0, maxBlades = 0, crowdCount = 0, facadeDetailRepeat = 0;
     float windowRoughness = 0;
+    float specularAntiAliasing = 0, fogHeightFalloff = 0, bloomIntensity = 0;
+    float shadowBatchCellSize = 0;
     int crowdPathQueries = 0, crowdPathExpansions = 0;
 };
 bool loadCityStyle(const std::string& file, CityStyle& out, std::string& error);

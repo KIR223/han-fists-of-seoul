@@ -90,6 +90,13 @@ void main() {
     float metallic = clamp(fpc.material.x, 0.0, 1.0);
     float roughness = fpc.material.w > 0.5 ? texture(uRoughMap, vUV).r : fpc.material.y;  // карта задаёт шероховатость как нарисована; без неё — число материала
     roughness = clamp(mix(roughness, roughness * 0.3, wet), 0.045, 1.0);  // ниже 0,045 блик вырождается в точку
+    // Геометрическая фильтрация GGX: мелкие детали и normal map не дают одиночных мерцающих бликов.
+    if (frame.lightInfo.z > 0.0) {
+        vec3 normalDx = dFdx(N), normalDy = dFdy(N);
+        float variance = max(dot(normalDx, normalDx), dot(normalDy, normalDy));
+        float kernel = min(frame.lightInfo.z * variance, 0.18);
+        roughness = sqrt(clamp(roughness * roughness + kernel, 0.045 * 0.045, 1.0));
+    }
     float a = roughness * roughness;
 
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
@@ -161,7 +168,12 @@ void main() {
     color += fpc.emissive.rgb * (fpc.emissive.w > 0.5 ? texture(uEmissiveMap, vUV).rgb : vec3(1.0));
     // Воздушная дымка: дальние объекты тонут в цвете горизонта, глубина города читается (при плотности 0 — без изменений).
     float dist = length(frame.cameraPos.xyz - vWorldPos);
-    float fog = 1.0 - exp(-dist * frame.params.y);
+    // Аналитический интеграл экспоненциальной плотности вдоль луча, без деления на ноль у горизонта.
+    float startDensity = exp(-max(frame.cameraPos.y, 0.0) * frame.params.w);
+    float heightDelta = (vWorldPos.y - frame.cameraPos.y) * frame.params.w;
+    float heightIntegral = abs(heightDelta) < 0.001 ? 1.0 - heightDelta * 0.5
+        : (1.0 - exp(clamp(-heightDelta, -40.0, 40.0))) / heightDelta;
+    float fog = 1.0 - exp(-dist * frame.params.y * startDensity * heightIntegral);
     vec3 fogColor = frame.skyHorizon.rgb * 0.9 + frame.sunColor.rgb * frame.sunColor.a * 0.02;
     color = mix(color, fogColor, clamp(fog, 0.0, 0.85));
     outColor = vec4(color, fpc.surface.x > 2.5 ? albedoSample.a * fpc.surface.w : 1.0);

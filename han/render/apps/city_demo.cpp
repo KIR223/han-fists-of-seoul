@@ -39,6 +39,7 @@
 #include "han/world/city_day_cycle.h"
 #include "han/world/city_props.h"
 #include "han/world/district_scene.h"
+#include "han/world/water_surface.h"
 #include "han/world/city_builder.h"
 #include "han/world/terrain_physics.h"
 #include "han/world/streaming.h"
@@ -64,6 +65,7 @@ struct CityLoader final : world::ICellLoader {
     std::vector<han::render::TextureId> textureIds;  // альбедо материалов города (0 — нет файла)
     world::StreamingManager* manager = nullptr;
     const world::Heightmap* terrain = nullptr;
+    const world::WaterSurfaceMask* waterMask = nullptr;
     const std::map<world::CellCoord, world::CityChunk>* chunks = nullptr;
     std::string cookedDir;  // не пусто — ячейки читаются из .hcell
     struct Gpu {
@@ -111,7 +113,10 @@ struct CityLoader final : world::ICellLoader {
         if (found) {
             g.lamps = found->lamps;
             g.trees = found->trees;
-            if (!found->ground.empty()) g.ground = renderer->uploadMesh(han::render::citytex::toMesh(found->ground, textureIds, 0.9f), textureIds);
+            if (!found->ground.empty()) {
+                const auto masked=waterMask ? waterMask->removeCoveredTerrain(found->ground) : found->ground;
+                g.ground = renderer->uploadMesh(han::render::citytex::toMesh(masked, textureIds, 0.9f), textureIds);
+            }
             if (!found->buildings.empty()) g.buildings = renderer->uploadMesh(han::render::citytex::toMesh(found->buildings, textureIds, 0.8f), textureIds);
             g.triangles = (found->ground.indices.size() + found->buildings.indices.size()) / 3;
             if (physics)
@@ -125,6 +130,7 @@ struct CityLoader final : world::ICellLoader {
             world::TerrainSettings settings;
             settings.cellSize = manager->settings().cellSize;
             auto ground = world::buildTerrainCell(*terrain, cell, settings);
+            if (waterMask) ground=waterMask->removeCoveredTerrain(ground);
             g.triangles = ground.indices.size() / 3;
             if (!ground.empty()) g.ground = renderer->uploadMesh(han::render::citytex::toMesh(ground, textureIds, 0.95f), textureIds);
         }
@@ -165,6 +171,7 @@ int main(int argc, char** argv) {
     float sunArgs[3] = {38.f, 125.f, 5200.f};
     float exposureArg = 1.0f;  // нейтральный множитель; дневная и ночная экспозиция — в streetscape.json
     float hourArg = -1.f;
+    float shadowBatchArg = -1.f;
     bool manualSun = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--no-capture")) captured = false;
@@ -183,6 +190,7 @@ int main(int argc, char** argv) {
             windowSize[1] = std::max(64, std::atoi(argv[i + 2]));
         }
         if (!std::strcmp(argv[i], "--exposure") && i + 1 < argc) exposureArg = static_cast<float>(std::atof(argv[i + 1]));
+        if (!std::strcmp(argv[i], "--shadow-batch") && i + 1 < argc) shadowBatchArg = static_cast<float>(std::atof(argv[i + 1]));
         if (!std::strcmp(argv[i], "--camera") && i + 5 < argc)
             for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
         if (!std::strcmp(argv[i], "--traffic") && i + 1 < argc) trafficCars = std::clamp(std::atoi(argv[i + 1]), 0, 400);
@@ -297,6 +305,7 @@ int main(int argc, char** argv) {
     }
 #endif
     han::render::RendererDesc desc;
+    desc.shadowBatchCellSize = shadowBatchArg >= 0.f && std::isfinite(shadowBatchArg) ? shadowBatchArg : citySettings.style.shadowBatchCellSize;
     desc.instanceExtensions = window->vulkanInstanceExtensions();
     desc.createSurface = [&](void* instance) { return window->createVulkanSurface(instance); };
     window->pixelSize(desc.width, desc.height);
@@ -397,18 +406,38 @@ int main(int argc, char** argv) {
             renderer->replaceMesh(carMeshes[colorIndex++], han::render::makeStreetCar({citySettings.style.carWidth, citySettings.style.carHeight, citySettings.style.carLength}, color), lights);
         }
     }
-    han::render::MeshId farTerrain = 0;  // дальний план рельефа (вся карта грубой сеткой)
+    loader.chunks = &chunks;
+    world::WaterSurfaceMask waterMask;
+    han::render::LoadedMesh riverWater;
+    {
+        han::core::Json water;
+        std::string waterError;
+        if (!osmExplicit && std::fabs(origin[0]-citySettings.style.originLat)<1e-7 &&
+            std::fabs(origin[1]-citySettings.style.originLon)<1e-7 &&
+            han::core::loadJsonFile("data/city/water.json",water,waterError)) {
+            const auto file=water["mesh"].asString();
+            const std::filesystem::path path(file);
+            if (path.is_relative() && file.rfind("assets_bin/cooked/",0)==0 && file.find("..") == std::string::npos && std::filesystem::exists(path)) {
+                const auto mask=water["mask"].asString();
+                if (mask.rfind("assets_bin/processed/",0)==0 && mask.find("..") == std::string::npos && waterMask.load(mask,waterError)) {
+                    if (!han::render::loadMeshAsset(*renderer,path,riverWater,waterError)) std::fprintf(stderr,"вода: %s\n",waterError.c_str());
+                    else loader.waterMask=&waterMask;
+                } else std::fprintf(stderr,"маска воды: %s\n",waterError.c_str());
+            }
+        }
+    }
+    han::render::MeshId farTerrain = 0;
     if (haveTerrain) {
         auto landscape = world::buildFarTerrain(terrain);
+        if (loader.waterMask) landscape=waterMask.removeCoveredTerrain(landscape);
         for (auto& range : landscape.ranges) range.material = world::GeoMaterial::Park;
         farTerrain = renderer->uploadMesh(han::render::citytex::toMesh(landscape, loader.textureIds, 0.95f), loader.textureIds);
     }
-    loader.chunks = &chunks;
     loader.cookedDir = cookedDir;
     world::StreamingManager streaming(ss, loader);
     loader.manager = &streaming;
     struct SceneGpu {
-        han::render::LoadedMesh exterior, interior;
+        han::render::LoadedMesh exterior, interior, shadow;
         han::contracts::EntityId exteriorBody = 0, interiorBody = 0;
         bool failed = false, interiorFailed = false;
     };
@@ -685,7 +714,7 @@ int main(int argc, char** argv) {
             auto& gpu = districtGpu[i];
             const float distance = world::districtDistance(scene, camera.position.x, camera.position.z);
             if (distance > scene.unloadDistance) {
-                releaseSceneMesh(gpu.exterior); releaseSceneMesh(gpu.interior);
+                releaseSceneMesh(gpu.exterior); releaseSceneMesh(gpu.interior); releaseSceneMesh(gpu.shadow);
                 if (physics) { physics->destroyBody(gpu.exteriorBody); physics->destroyBody(gpu.interiorBody); }
                 gpu.exteriorBody = gpu.interiorBody = 0;
                 gpu.failed = gpu.interiorFailed = false;
@@ -696,6 +725,9 @@ int main(int argc, char** argv) {
                 if (gpu.failed) std::fprintf(stderr, "%s: %s\n", scene.id.c_str(), error.c_str());
                 else {
                     std::printf("район %s загружен: %.1f %.1f %.1f\n", scene.id.c_str(), scene.origin.x, scene.origin.y, scene.origin.z);
+                    if (!scene.shadow.empty() && !han::render::loadMeshAsset(*renderer, std::filesystem::path("assets_bin/cooked") / scene.shadow, gpu.shadow, error)) {
+                        std::fprintf(stderr,"теневой LOD района %s: %s; используется полный меш\n",scene.id.c_str(),error.c_str());
+                    }
                     if (physics) {
                         gpu.exteriorBody = districtCollider(scene, scene.collision);
                         if (!gpu.exteriorBody) { std::fprintf(stderr, "нет физической геометрии района %s\n", scene.id.c_str()); return 1; }
@@ -717,7 +749,7 @@ int main(int argc, char** argv) {
                 gpu.interiorBody = 0;
             }
             const auto model = Mat4::translation({scene.origin.x, scene.origin.y, scene.origin.z});
-            if (gpu.exterior.id) items.push_back({gpu.exterior.id, model});
+            if (gpu.exterior.id) items.push_back({gpu.exterior.id, model, true, gpu.shadow.id});
             if (gpu.interior.id) items.push_back({gpu.interior.id, model});
         }
         if (crowd) {
@@ -752,6 +784,7 @@ int main(int argc, char** argv) {
             }
         }
         if (farTerrain) items.push_back({farTerrain, Mat4::identity()});
+        if (riverWater.id) items.push_back({riverWater.id,Mat4::identity(),false});
         items.push_back({ground, Mat4::translation({0.f, haveTerrain ? terrain.minHeight() - 2.f : -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
         for (const auto& [cell, g] : loader.gpu) {
             if (g.ground) items.push_back({g.ground, Mat4::identity()});
@@ -876,11 +909,13 @@ int main(int argc, char** argv) {
         params.exposure = exposure * (manualSun ? (citySettings.style.dayExposure + night * (citySettings.style.nightExposure - citySettings.style.dayExposure)) : dayState.exposure);
         activeLights = params.pointLights.size();
         params.fogDensity = citySettings.style.fogDensity;
+        params.fogHeightFalloff = citySettings.style.fogHeightFalloff;
+        params.specularAntiAliasing = citySettings.style.specularAntiAliasing;
         params.nearPlane = camera.nearZ;
         params.farPlane = camera.farZ;
         params.shadows = true;
         params.taa = true;
-        params.bloomIntensity = 0.05f;
+        params.bloomIntensity = citySettings.style.bloomIntensity;
         const bool shootNow = !screenshotPath.empty() && maxFrames > 0 && frame == maxFrames - 1;
         if (shootNow && !renderer->requestScreenshot(screenshotPath)) {
             std::fprintf(stderr, "снимок экрана невозможен\n");
