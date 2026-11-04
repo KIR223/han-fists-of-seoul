@@ -614,6 +614,1415 @@
         "profile": "animation_library",
         "entry": "Universal Animation Library 2[Standard]/Unreal-Godot/UAL2_Standard.glb"
       }
+    },
+    {
+      "id": "tx_lib_barkpoplar001_b7ad22af97",
+      "name": "TX_barkpoplar001_b7ad22af97",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/barkpoplar001_b7ad22af97.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "0ee5982edbe1bfd766be27213ea41081e0175b273e83593d1f3622eb3e1dd76f",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: BarkPoplar001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_bricksdragfacedrunning008_a9b2e41ada",
+      "name": "TX_bricksdragfacedrunning008_a9b2e41ada",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/bricksdragfacedrunning008_a9b2e41ada.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "e71d2686a2f40642c425b6d59fecb3feaf080ab54c8781104607359cf87b905c",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: BricksDragfacedRunning008",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_brickslongthinrunningextruded001_9cecb31729",
+      "name": "TX_brickslongthinrunningextruded001_9cecb31729",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/brickslongthinrunningextruded001_9cecb31729.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "25d727bb2a273363f5a4867ab3e28fdb4d47a630ecd06f29eed5b202e2c6a223",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: BricksLongThinRunningExtruded001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_citystreetasphaltgenericclean001_87b5e4b62c",
+      "name": "TX_citystreetasphaltgenericclean001_87b5e4b62c",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/citystreetasphaltgenericclean001_87b5e4b62c.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "2e0ed6392c79843d4b23064d0dff79087b771e7428a26e9c0038d8f6a0c180d3",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: CityStreetAsphaltGenericClean001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_dirtwindowstains005_6acef3709f",
+      "name": "TX_dirtwindowstains005_6acef3709f",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/dirtwindowstains005_6acef3709f.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "1745ff04187e9f992873655eba14e469cdb13eedff668ee4f9fde8058e82ddbe",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: DirtWindowStains005",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_fabricplainnaturalsheer009_721956a643",
+      "name": "TX_fabricplainnaturalsheer009_721956a643",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/fabricplainnaturalsheer009_721956a643.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "ba149fb3fd20d9becc574aeee76669c203a86ee373e39011ba44134553a6a136",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: FabricPlainNaturalSheer009",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_grounddirtrocky020_11fa6c5edc",
+      "name": "TX_grounddirtrocky020_11fa6c5edc",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/grounddirtrocky020_11fa6c5edc.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "79400e333a347bbca7f4413dc32e8d7ee971ca31f0031232edf83eb216e313b7",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: GroundDirtRocky020",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_groundsand005_e64ee3cc55",
+      "name": "TX_groundsand005_e64ee3cc55",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/groundsand005_e64ee3cc55.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "61a4a1cf1d031bb81af644159713dc576362e0f649b5da81d004993d485af585",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: GroundSand005",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_groundwoodchips001_4c04fd3d0b",
+      "name": "TX_groundwoodchips001_4c04fd3d0b",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/groundwoodchips001_4c04fd3d0b.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "9aebc18397d1ae4f3e169b0cbe07838e12082d02c891eb570171307d49b880f6",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: GroundWoodChips001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_metalcorrodedheavy001_859ccb6f2d",
+      "name": "TX_metalcorrodedheavy001_859ccb6f2d",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/metalcorrodedheavy001_859ccb6f2d.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "00f6e8add58abe8cbdfb8f8d076130516044873e0b9866c0cedbc5ca98928c01",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: MetalCorrodedHeavy001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_metalgalvanizedsteelworn001_8c8173dc22",
+      "name": "TX_metalgalvanizedsteelworn001_8c8173dc22",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/metalgalvanizedsteelworn001_8c8173dc22.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "05f15a60cdcd39c0afb026fb783153953fa52623761dd9baa58299043351a7a6",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: MetalGalvanizedSteelWorn001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_bouclefabricbubbly_7827_3ee9aa6e3b",
+      "name": "TX_poliigon_bouclefabricbubbly_7827_3ee9aa6e3b",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_bouclefabricbubbly_7827_3ee9aa6e3b.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "0db277516fda0ea7a3d0f1a6c71df64b235ea18f467134cdd39a02b8dbfcc7e3",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_BoucleFabricBubbly_7827",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_brickreclaimedrunning_7787_0a74d3a97b",
+      "name": "TX_poliigon_brickreclaimedrunning_7787_0a74d3a97b",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_brickreclaimedrunning_7787_0a74d3a97b.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "733df885691a50963b5c5ae38697f0635dc4e7ebedc1279331c97b996ba4b33a",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_BrickReclaimedRunning_7787",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_brickwallreclaimed_8320_5eb75f895f",
+      "name": "TX_poliigon_brickwallreclaimed_8320_5eb75f895f",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_brickwallreclaimed_8320_5eb75f895f.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "20cb9b96b5eaee6b5dc392a09e99fc0b9d25a8d7f51ee7c6766389dd8a0cf653",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_BrickWallReclaimed_8320",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_ceramicpotteryglazed_10828_94c1e0ea1d",
+      "name": "TX_poliigon_ceramicpotteryglazed_10828_94c1e0ea1d",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_ceramicpotteryglazed_10828_94c1e0ea1d.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "83f6230936180d1d62a0c0e46afa190fd23aa9305b167dec4de73fcefe6c5cb7",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_CeramicPotteryGlazed_10828",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_ceramicpotteryglazed_10861_e07416fa00",
+      "name": "TX_poliigon_ceramicpotteryglazed_10861_e07416fa00",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_ceramicpotteryglazed_10861_e07416fa00.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "af36832a428a561375901c6d14b302b96e0abeb3459c86b1beba310dda3a203a",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_CeramicPotteryGlazed_10861",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_concretefloorpoured_7656_5ae654b0aa",
+      "name": "TX_poliigon_concretefloorpoured_7656_5ae654b0aa",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_concretefloorpoured_7656_5ae654b0aa.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "3b0cdef0e4ea442ea32c9c604329391d82baeeedaf8e2707bbfe7560e434a75a",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_ConcreteFloorPoured_7656",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_concretepaverssquare_7100_2973dfdbb0",
+      "name": "TX_poliigon_concretepaverssquare_7100_2973dfdbb0",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_concretepaverssquare_7100_2973dfdbb0.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "26500e10be04ce7de4fe27107b5e1c0efbd5c25d9df0db156a0ab1c1a0ba8a13",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_ConcretePaversSquare_7100",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_concretewallcladding_7856_fc8f8033b9",
+      "name": "TX_poliigon_concretewallcladding_7856_fc8f8033b9",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_concretewallcladding_7856_fc8f8033b9.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "e35efbc3316b7f3c01c07fd470ed2122fb2ceb68660a713a628cc3a7d56fcb3a",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_ConcreteWallCladding_7856",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_concreteworn_8690_63d36ad015",
+      "name": "TX_poliigon_concreteworn_8690_63d36ad015",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_concreteworn_8690_63d36ad015.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "abd4c010c4316bf190cc26d6a1f12cdc6d4288d7e1ead5d946aa88028d36c6dd",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_ConcreteWorn_8690",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_foodcoffee_10827_b519a171c4",
+      "name": "TX_poliigon_foodcoffee_10827_b519a171c4",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_foodcoffee_10827_b519a171c4.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "3117064a06c106a7762da109060b3da4543d088be24096034ca4acde29da26e1",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_FoodCoffee_10827",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_foodglazestrawberry_10739_e8a7d0b84c",
+      "name": "TX_poliigon_foodglazestrawberry_10739_e8a7d0b84c",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_foodglazestrawberry_10739_e8a7d0b84c.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "87a52493e3beaab7ac34b0da65494f14ba06cf6673336dcb4c2f0199fcd06396",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_FoodGlazeStrawberry_10739",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_foodpastrydonut_10737_a9d3ec7e6e",
+      "name": "TX_poliigon_foodpastrydonut_10737_a9d3ec7e6e",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_foodpastrydonut_10737_a9d3ec7e6e.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "841767baa806e0f30e146f0d6a45d055b041f0f6678e7d235374138086135bec",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_FoodPastryDonut_10737",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_grasspatchyground_4585_5cfd7363f3",
+      "name": "TX_poliigon_grasspatchyground_4585_5cfd7363f3",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_grasspatchyground_4585_5cfd7363f3.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "457511160a32f58b1202fd8cdd0974af75e1223c3e815f77de35fd209c5a8075",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_GrassPatchyGround_4585",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_groundfieldagriculture_12105_81bcfd17cf",
+      "name": "TX_poliigon_groundfieldagriculture_12105_81bcfd17cf",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_groundfieldagriculture_12105_81bcfd17cf.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "bfb483265981f07b8d68f1cb779f325e9cf889db2d577f4ebfb89f25df55a867",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_GroundFieldAgriculture_12105",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_metalbronzeworn_7248_52ed6d269c",
+      "name": "TX_poliigon_metalbronzeworn_7248_52ed6d269c",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_metalbronzeworn_7248_52ed6d269c.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "e6fa1d5d1a20b9a2580fa1d90aedbe7aca621859d1f803abc16363e4f7e7d907",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_MetalBronzeWorn_7248",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_metalgalvanizedzinc_7184_038f36ff60",
+      "name": "TX_poliigon_metalgalvanizedzinc_7184_038f36ff60",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_metalgalvanizedzinc_7184_038f36ff60.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "1b5d07486d9198e86000a81775867335db69f7ceed9808f735367527bfbee2bc",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_MetalGalvanizedZinc_7184",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_metalgoldpaint_7253_1_b9bb82be13",
+      "name": "TX_poliigon_metalgoldpaint_7253_1_b9bb82be13",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_metalgoldpaint_7253_1_b9bb82be13.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "21e42338060580576a7084ab1ced4bb54d03c57b226f2950e2d158803b5e7dfe",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_MetalGoldPaint_7253 (1)",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_metalgoldpaint_7253_0e841a438e",
+      "name": "TX_poliigon_metalgoldpaint_7253_0e841a438e",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_metalgoldpaint_7253_0e841a438e.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "21e42338060580576a7084ab1ced4bb54d03c57b226f2950e2d158803b5e7dfe",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_MetalGoldPaint_7253",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_metalpaintedmatte_7037_9075d14aa1",
+      "name": "TX_poliigon_metalpaintedmatte_7037_9075d14aa1",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_metalpaintedmatte_7037_9075d14aa1.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "7763de3a086a811cdc31a07a25a8c410cf306f0b6cc9115d8cf05e685443288c",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_MetalPaintedMatte_7037",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_metalrust_7642_96dfb5a629",
+      "name": "TX_poliigon_metalrust_7642_96dfb5a629",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_metalrust_7642_96dfb5a629.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "5be0788dd975da70195365adec3c25436caae9597d7203cef46bb4f9eedf8427",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_MetalRust_7642",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_metalsteelbrushed_7174_98b3b642b8",
+      "name": "TX_poliigon_metalsteelbrushed_7174_98b3b642b8",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_metalsteelbrushed_7174_98b3b642b8.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "5007c672a56f7c9eae83402eed7a045d94a4926b8ed087eac910e3435d7cfe1c",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_MetalSteelBrushed_7174",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_plasterpainted_7664_c8781094d4",
+      "name": "TX_poliigon_plasterpainted_7664_c8781094d4",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_plasterpainted_7664_c8781094d4.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "8c80c43c0dd404bbb8942acdd1436fb155b14fe5689c8f725253d04958dbd1fc",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_PlasterPainted_7664",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_plasticmolddryblast_7495_ea3f96db88",
+      "name": "TX_poliigon_plasticmolddryblast_7495_ea3f96db88",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_plasticmolddryblast_7495_ea3f96db88.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "225c5555fd2550d1506634fe36e6a72f5facf0c0495ae805892da7bc9aecdc0c",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_PlasticMoldDryBlast_7495",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_plasticmoldworn_7486_021ee90fc0",
+      "name": "TX_poliigon_plasticmoldworn_7486_021ee90fc0",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_plasticmoldworn_7486_021ee90fc0.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "4c112e2129a54012b88f6a0e9d9a92f165966a1d8d4c7900704f425c622e3bf3",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_PlasticMoldWorn_7486",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_rattanweave_6945_cf0a331eff",
+      "name": "TX_poliigon_rattanweave_6945_cf0a331eff",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_rattanweave_6945_cf0a331eff.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "4a55bc66c3c1139574a7d571467e2b8d107f853e0473fc42ecef5fe3a9ddd64c",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_RattanWeave_6945",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_slatefloortile_7657_dff576aae7",
+      "name": "TX_poliigon_slatefloortile_7657_dff576aae7",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_slatefloortile_7657_dff576aae7.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "92e3dce887feddad0a6baf6795225d4b1211c279867c6676e1a690c7666ef3e7",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_SlateFloorTile_7657",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_stonequartzite_8060_dd84b55c01",
+      "name": "TX_poliigon_stonequartzite_8060_dd84b55c01",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_stonequartzite_8060_dd84b55c01.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "70f04a217991ca35be9e2617d707d37e41d72ba75542fdf81909f4a0b194f3eb",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_StoneQuartzite_8060",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_terrazzotilepolished_4818_db64940290",
+      "name": "TX_poliigon_terrazzotilepolished_4818_db64940290",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_terrazzotilepolished_4818_db64940290.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "243044682dddba38f2a8977f714c237e05792a450b68cd5b2563e1c20c450313",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_TerrazzoTilePolished_4818",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_woodfloorash_4186_04553f8fc8",
+      "name": "TX_poliigon_woodfloorash_4186_04553f8fc8",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_woodfloorash_4186_04553f8fc8.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "2af615e76721bb791867b30e77c0ccce699c3c4f44b6e7c2ac9155a975acd4ba",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_WoodFloorAsh_4186",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_woodroofshingle_7834_1b425e244d",
+      "name": "TX_poliigon_woodroofshingle_7834_1b425e244d",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_woodroofshingle_7834_1b425e244d.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "86836f63622fc245630824a38dcbf8fd395d563e7114a3d2bebb7a460e988c28",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_WoodRoofShingle_7834",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_poliigon_woodveneeroak_7760_0a7a6f1abc",
+      "name": "TX_poliigon_woodveneeroak_7760_0a7a6f1abc",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/poliigon_woodveneeroak_7760_0a7a6f1abc.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "e0b0bd82d351e25ab8b6ca10fa7509c2ed9bd8a37ad0c708dd7b248fb8ca55b3",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: Poliigon_WoodVeneerOak_7760",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_rammedearth006_a418defe07",
+      "name": "TX_rammedearth006_a418defe07",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/rammedearth006_a418defe07.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "35593a861ff9391fb9179b9e9ed522e6c6763edaeba1c0460c3aed98f8d8f419",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: RammedEarth006",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_rammedearth018_a3a8ce7728",
+      "name": "TX_rammedearth018_a3a8ce7728",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/rammedearth018_a3a8ce7728.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "19c13e4ae4c5a547a784bd6bfab0952e5a03dc9c42075e0c71307cab6d17fccf",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: RammedEarth018",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_stonebrickssplitface001_6c4f57c3a7",
+      "name": "TX_stonebrickssplitface001_6c4f57c3a7",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/stonebrickssplitface001_6c4f57c3a7.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "fbd089fb622309ff04b85f6368a9f352a8082ed3be2166e299158ce5f2497d45",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: StoneBricksSplitface001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_terrazzoslab028_8d5f7ed943",
+      "name": "TX_terrazzoslab028_8d5f7ed943",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/terrazzoslab028_8d5f7ed943.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "7752a4b06f2d99c49b8c1bb719fef7c862dfbc3bf65460f61bc32568a4297b77",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: TerrazzoSlab028",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_tilesmosaicpennyround001_a9900e2196",
+      "name": "TX_tilesmosaicpennyround001_a9900e2196",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/tilesmosaicpennyround001_a9900e2196.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "199ebffbe7e97eedee8787bed6c40d2b57522a44edc96e3c3199ae218ca2d26b",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: TilesMosaicPennyround001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_tilesmosaicyubi003_1_87b7455b4b",
+      "name": "TX_tilesmosaicyubi003_1_87b7455b4b",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/tilesmosaicyubi003_1_87b7455b4b.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "6c86615715c2e7aa9a5827161296df104189226f25712bf189e244d3cdde95c7",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: TilesMosaicYubi003 (1)",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_tilessquarepoolmixed001_f887ae92b6",
+      "name": "TX_tilessquarepoolmixed001_f887ae92b6",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/tilessquarepoolmixed001_f887ae92b6.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "bb3ac5e1c61e20754e713e8347355526aa646a912d1f2a5a6c5336135e9ca42d",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: TilesSquarePoolMixed001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_tilesterracottabeigesquarestacked001_0091540e5b",
+      "name": "TX_tilesterracottabeigesquarestacked001_0091540e5b",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/tilesterracottabeigesquarestacked001_0091540e5b.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "10e360d71fbde3e074f08cba009728f1089cdae9c9ea1dc499b792f0c5cbd384",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: TilesTerracottaBeigeSquareStacked001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_tilestravertine001_e6ec32837c",
+      "name": "TX_tilestravertine001_e6ec32837c",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/tilestravertine001_e6ec32837c.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "c5916bd6f87cb5159680c4c5ad3f4abf6b916075bceb8624372042db20711aa4",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: TilesTravertine001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_towelcotton001_1503f6c34c",
+      "name": "TX_towelcotton001_1503f6c34c",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/towelcotton001_1503f6c34c.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "d996f3f77faa71e8ff702efe811c4d86c72a5de048aa91194a1c0394f0b9b11d",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: TowelCotton001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "tx_lib_waterdropletsmixedbubbled001_e0964a5e93",
+      "name": "TX_waterdropletsmixedbubbled001_e0964a5e93",
+      "kind": "texture",
+      "zone": "A",
+      "source": {
+        "type": "local",
+        "file": "assets_bin/prepared/materials/waterdropletsmixedbubbled001_e0964a5e93.zip",
+        "page": "https://www.poliigon.com"
+      },
+      "author": "Poliigon (предоставлено владельцем)",
+      "license": "Royalty Free — Poliigon Free License",
+      "license_url": "https://www.poliigon.com/terms",
+      "approved_by_owner": true,
+      "owner_approval": "Владелец подтвердил лицензию и разрешил все предоставленные ассеты 2026-11-04.",
+      "retrieved": "2026-11-04",
+      "sha256": "305039563a365188a97d94b78fb20ef8659194e4f4232f2bac3b6fa897273232",
+      "texture_maps": {
+        "diff": "BC.png",
+        "nor": "N.png",
+        "rough": "R.png"
+      },
+      "used_in": "Город и интерьеры: WaterDropletsMixedBubbled001",
+      "modified": "PBR 1024, gloss→roughness где нужно, ORM; мипы KTX2. Исходник не распространяется."
+    },
+    {
+      "id": "pr_city_coffee_table_round_01",
+      "name": "PR_CafeRoundTable",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "polyhaven",
+        "asset_id": "coffee_table_round_01",
+        "page": "https://polyhaven.com/a/coffee_table_round_01"
+      },
+      "author": "Ulan Cabanilla",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-04",
+      "sha256": "5e5c7dafd43863e1ec796179cf62f8f5302901c60e127a049a830d88e983fd8d",
+      "used_in": "мебель и растительность готовых интерьеров кафе",
+      "modified": "GLB, бюджет 6000 треугольников, текстуры 1k, три LOD, простая коллизия",
+      "pipeline": {
+        "budget_triangles": 6000,
+        "max_texture_size": 1024,
+        "lods": [
+          0.5,
+          0.2,
+          0.07
+        ],
+        "collision_shape": "box"
+      }
+    },
+    {
+      "id": "pr_city_bar_chair_round_01",
+      "name": "PR_CafeBarStool",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "polyhaven",
+        "asset_id": "bar_chair_round_01",
+        "page": "https://polyhaven.com/a/bar_chair_round_01"
+      },
+      "author": "Dairon Sanchez",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-04",
+      "sha256": "2b22f32f6867421ef66e6e488abdf2306195be54dbab2b7bd1f0e3fb506d99d4",
+      "used_in": "мебель и растительность готовых интерьеров кафе",
+      "modified": "GLB, бюджет 6000 треугольников, текстуры 1k, три LOD, простая коллизия",
+      "pipeline": {
+        "budget_triangles": 6000,
+        "max_texture_size": 1024,
+        "lods": [
+          0.5,
+          0.2,
+          0.07
+        ],
+        "collision_shape": "box"
+      }
+    },
+    {
+      "id": "pr_city_potted_plant_04",
+      "name": "PR_CafePlant",
+      "kind": "model",
+      "zone": "A",
+      "source": {
+        "type": "polyhaven",
+        "asset_id": "potted_plant_04",
+        "page": "https://polyhaven.com/a/potted_plant_04"
+      },
+      "author": "James Ray Cock",
+      "license": "CC0",
+      "license_url": "https://polyhaven.com/license",
+      "retrieved": "2026-11-04",
+      "sha256": "74d8d719b8b7344e1fb71c88c2427f3e20b5814ee9ee0e6ee035933b5b327c7a",
+      "used_in": "мебель и растительность готовых интерьеров кафе",
+      "modified": "GLB, бюджет 6000 треугольников, текстуры 1k, три LOD, простая коллизия",
+      "pipeline": {
+        "budget_triangles": 6000,
+        "max_texture_size": 1024,
+        "lods": [
+          0.5,
+          0.2,
+          0.07
+        ],
+        "collision_shape": "box"
+      }
     }
   ]
 }

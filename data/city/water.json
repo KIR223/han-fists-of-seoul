@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "source": "assets_bin/city/seoul_water_areas.json",
+  "output": "assets_bin/processed/seoul_water.glb",
+  "mesh": "assets_bin/cooked/seoul_water.hmesh",
+  "mask": "assets_bin/processed/seoul_water.mask.json",
+  "mask_cell_size": 128,
+  "level": 4.0,
+  "roughness": 0.14,
+  "color": [0.055, 0.16, 0.13],
+  "description": "Начальный художественный уровень поверхности; география OSM с островами. Высоты мостов/набережных и физическая навигация требуют приёмки."
+}

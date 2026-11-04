@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "exterior": {
+    "asphalt": {"source": "CityStreetAsphaltGenericClean001"},
+    "sidewalk": {"source": "Poliigon_ConcretePaversSquare_7100"},
+    "plaza": {"source": "Poliigon_TerrazzoTilePolished_4818"},
+    "concrete": {"source": "Poliigon_ConcreteWorn_8690"},
+    "wall_brick": {"source": "BricksDragfacedRunning008"},
+    "facade_brick": {"source": "Poliigon_BrickReclaimedRunning_7787", "preserve_facade_details": true},
+    "wall_plaster": {"source": "Poliigon_PlasterPainted_7664"},
+    "wall_tile": {"source": "TilesTravertine001"},
+    "metal_dark": {"source": "Poliigon_MetalPaintedMatte_7037"},
+    "metal_light": {"source": "MetalGalvanizedSteelWorn001"},
+    "bark": {"source": "BarkPoplar001"}
+  },
+  "interior": {
+    "i_woodfloor": {"source": "Poliigon_WoodFloorAsh_4186"},
+    "i_plaster": {"source": "Poliigon_PlasterPainted_7664"},
+    "i_tile_floor": {"source": "Poliigon_SlateFloorTile_7657"},
+    "i_tile_white": {"source": "TilesMosaicYubi003 (1)"},
+    "i_terrazzo": {"source": "TerrazzoSlab028"},
+    "i_wood": {"source": "Poliigon_WoodVeneerOak_7760"},
+    "i_terr_top": {"source": "Poliigon_StoneQuartzite_8060"},
+    "i_metal": {"source": "Poliigon_MetalSteelBrushed_7174"},
+    "i_cloth": {"source": "Poliigon_BoucleFabricBubbly_7827"}
+  }
+}

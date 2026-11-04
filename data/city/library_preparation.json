@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "max_texture_size": 1024,
+  "lods": [0.5, 0.2, 0.07],
+  "prop_triangles": 12000,
+  "plant_triangles": 6000,
+  "building_triangles": 50000,
+  "scene_triangles": 250000,
+  "max_materials": 4,
+  "timeout_seconds": 240,
+  "path_overrides": {
+    "assets, material, texture,building,house,world/city 2/CITY+BUILDINGS.fbx": {"scale": 0.01},
+    "assets, material, texture,building,house,world/city 2/CITY+BUILDINGS.obj": {"scale": 0.01},
+    "assets, material, texture,building,house,world/city 2/CITY+BUILDINGS.3ds": {"scale": 0.003937007874015748}
+  },
+  "overrides": {
+    "building-set.zip": {"scale": 0.01, "collision": false, "pivot": "keep", "budget_triangles": 100000},
+    "stone-atelier-two-storey-shop-with-terrace.zip": {"exclude_prefixes": ["Plant_"], "budget_triangles": 40000},
+    "RockBoulderLarge054.zip": {"collision_shape": "box"},
+    "TreeLog008.zip": {"collision_shape": "box"},
+    "TreeStump024.zip": {"collision_shape": "box"}
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "version": 1,
+  "materials": ["roof", "facade_glass", "facade_ribbon", "facade_punched", "facade_brick", "facade_shop", "wall_brick", "wall_tile", "wall_plaster", "slab", "bark", "leaf_cards", "tent_tarp", "ac_unit", "window_glass", "storefront_glass"]
+}
