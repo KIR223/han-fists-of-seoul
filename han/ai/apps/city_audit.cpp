@@ -20,7 +20,10 @@
 #include "han/ai/navgrid.h"
 #include "han/ai/traffic.h"
 #include "han/world/city_style.h"
+#include "han/render/vehicle_pose.h"
 #include "han/world/osm.h"
+#include "han/world/road_profile.h"
+#include "han/world/terrain.h"
 #include "han/world/walk_layout.h"
 
 using namespace han;
@@ -102,7 +105,7 @@ float distanceToEdge(const ai::RoadEdge& e, ai::Vec2 p) {
 constexpr float kDepth = 0.75f;  // порог проникновения в здание/воду/проезжую часть, м
 
 struct Args {
-    std::string osm = "assets_src/osm/seoul_connected.osm", water, out;
+    std::string osm = "assets_src/osm/seoul_connected.osm", water, out, terrain;
     float focusX = 700.f, focusZ = 280.f, minutes = 30.f;
     int cars = 120, people = 280;
     bool legacyNav = false, smooth = true, turnLanes = false;
@@ -115,6 +118,12 @@ struct CarMetrics {
     float maxJump = 0.f, maxOutside = 0.f, maxTurnDegrees = 0.f;
     std::uint64_t spawned = 0, despawned = 0, stuckResets = 0;
     float meanSpeed = 0.f;
+};
+
+// Поза корпуса на реальном рельефе и мостах: прежняя горизонтальная поза против шага и крена по колёсам.
+struct PoseMetrics {
+    long steps = 0, legacySinkSteps = 0, legacyHoverSteps = 0, tiltedSteps = 0, newSinkSteps = 0, bridgeSteps = 0;
+    float legacySinkMax = 0.f, legacyHoverMax = 0.f, newSinkMax = 0.f, newHoverMax = 0.f, maxPitchDeg = 0.f, maxRollDeg = 0.f, rawStepMax = 0.f, filteredStepMax = 0.f;
 };
 
 struct PeopleMetrics {
@@ -133,6 +142,7 @@ int main(int argc, char** argv) {
         if (has("--osm", 1)) a.osm = argv[++i];
         else if (has("--water", 1)) a.water = argv[++i];
         else if (has("--out", 1)) a.out = argv[++i];
+        else if (has("--terrain", 1)) a.terrain = argv[++i];  // карта высот .hht: включает метрики позы корпуса (этап 05)
         else if (has("--focus", 2)) { a.focusX = static_cast<float>(std::atof(argv[i + 1])); a.focusZ = static_cast<float>(std::atof(argv[i + 2])); i += 2; }
         else if (has("--minutes", 1)) a.minutes = static_cast<float>(std::atof(argv[++i]));
         else if (has("--cars", 1)) a.cars = std::atoi(argv[++i]);
@@ -164,8 +174,19 @@ int main(int argc, char** argv) {
 
     // ---------------- Машины ----------------
     CarMetrics cm;
+    PoseMetrics pose;
     {
         ai::RoadGraphSettings gs;
+        world::Heightmap heights;
+        world::RoadProfile profile;
+        const bool withPose = !a.terrain.empty() && heights.load(a.terrain, error);
+        if (!a.terrain.empty() && !withPose) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
+        if (withPose) {
+            world::RoadProfileSettings rps;
+            if (!world::loadRoadProfileSettings("data/city/road_profile.json", rps, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
+            profile = world::computeRoadProfile(osm, projection, &heights, rps);
+            gs.profile = &profile;
+        }
         const auto graph = ai::RoadGraph::build(osm, projection, gs);
         ai::TrafficSettings ts;
         ts.maxCars = a.cars;
@@ -178,6 +199,9 @@ int main(int argc, char** argv) {
         ai::TrafficSim sim(graph, ts);
         sim.setFocus({a.focusX, a.focusZ});
         std::unordered_map<std::uint32_t, ai::Car> last;
+        std::unordered_map<std::uint32_t, render::VehiclePoseFilter> filters;
+        std::unordered_map<std::uint32_t, render::VehiclePose> lastRaw, lastSmooth;
+        const float baseLength = style.carLength * 0.6f, trackWidth = style.carWidth * 0.85f;
         double speedSum = 0;
         long speedCount = 0;
         for (long step = 0; step < steps; ++step) {
@@ -218,6 +242,52 @@ int main(int argc, char** argv) {
                     }
                 }
                 last[car.id] = car;
+                if (withPose) {
+                    ++pose.steps;
+                    const bool deck = std::isfinite(car.surfaceYFront) && std::isfinite(car.surfaceYRear);
+                    const float fx = std::sin(car.heading), fz = -std::cos(car.heading), rx = std::cos(car.heading), rz = std::sin(car.heading);
+                    const float hb = baseLength * 0.5f, ht = trackWidth * 0.5f;
+                    const auto at = [&](float along, float across) { return heights.heightAt(car.pos.x + fx * along + rx * across, car.pos.z + fz * along + rz * across); };
+                    render::WheelHeights w;
+                    if (deck) {
+                        ++pose.bridgeSteps;
+                        w = {car.surfaceYFront, car.surfaceYFront, car.surfaceYRear, car.surfaceYRear};
+                    } else {
+                        w = {at(hb, -ht), at(hb, ht), at(-hb, -ht), at(-hb, ht)};
+                    }
+                    const float centre = deck ? 0.5f * (car.surfaceYFront + car.surfaceYRear) : heights.heightAt(car.pos.x, car.pos.z);
+                    const float wheelGround[4] = {w.frontLeft, w.frontRight, w.rearLeft, w.rearRight};
+                    for (int k = 0; k < 4; ++k) {  // прежняя поза: корпус горизонтален на высоте дороги под центром
+                        const float sink = wheelGround[k] - centre, hover = centre - wheelGround[k];
+                        pose.legacySinkMax = std::max(pose.legacySinkMax, sink);
+                        pose.legacyHoverMax = std::max(pose.legacyHoverMax, hover);
+                    }
+                    const float legacyWorst = std::max({w.frontLeft, w.frontRight, w.rearLeft, w.rearRight}) - centre;
+                    const float legacyHover = centre - std::min({w.frontLeft, w.frontRight, w.rearLeft, w.rearRight});
+                    if (legacyWorst > 0.05f) ++pose.legacySinkSteps;
+                    if (legacyHover > 0.05f) ++pose.legacyHoverSteps;
+                    const render::VehiclePose raw = render::solveVehiclePose(w, baseLength, trackWidth);
+                    const render::VehiclePose smooth = filters[car.id].update(raw, dt);
+                    const core::Mat4 m = render::vehicleTransform(0.f, 0.f, 0.f, raw);
+                    const float lx[4] = {-ht, ht, -ht, ht}, lz[4] = {-hb, -hb, hb, hb};
+                    for (int k = 0; k < 4; ++k) {
+                        const float y = m.m[1] * lx[k] + m.m[9] * lz[k] + m.m[13];
+                        pose.newSinkMax = std::max(pose.newSinkMax, wheelGround[k] - y);
+                        pose.newHoverMax = std::max(pose.newHoverMax, y - wheelGround[k]);
+                    }
+                    if (wheelGround[0] - (m.m[1] * lx[0] + m.m[9] * lz[0] + m.m[13]) > 0.01f) ++pose.newSinkSteps;
+                    const float pitchDeg = std::fabs(raw.pitch) * 57.29578f, rollDeg = std::fabs(raw.roll) * 57.29578f;
+                    pose.maxPitchDeg = std::max(pose.maxPitchDeg, pitchDeg);
+                    pose.maxRollDeg = std::max(pose.maxRollDeg, rollDeg);
+                    if (pitchDeg > 3.f) ++pose.tiltedSteps;
+                    const auto prevRaw = lastRaw.find(car.id);
+                    if (prevRaw != lastRaw.end()) {
+                        pose.rawStepMax = std::max(pose.rawStepMax, std::fabs(raw.pitch - prevRaw->second.pitch));
+                        pose.filteredStepMax = std::max(pose.filteredStepMax, std::fabs(smooth.pitch - lastSmooth[car.id].pitch));
+                    }
+                    lastRaw[car.id] = raw;
+                    lastSmooth[car.id] = smooth;
+                }
             }
             cm.overlaps += sim.overlaps();
         }
@@ -337,7 +407,20 @@ int main(int argc, char** argv) {
         static_cast<double>(cm.maxTurnDegrees), cm.overlaps, cm.uTurns, static_cast<unsigned long long>(cm.spawned), static_cast<unsigned long long>(cm.despawned),
         static_cast<unsigned long long>(cm.stuckResets), static_cast<double>(cm.meanSpeed), pm.agents, pm.steps, pm.spawnedBlocked, pm.inBuilding, pm.inWater,
         pm.onRoadwayOutsideCrossing, pm.crossingSteps, pm.outsideNav, pm.jumps, pm.nearJumps, static_cast<double>(pm.maxJump), pm.stuck, pm.maxStuckSeconds, pm.pathQueries, pm.pathFailures);
-    std::fputs(buffer, stdout);
-    if (!a.out.empty()) std::ofstream(a.out, std::ios::binary) << buffer;
+    std::string text = buffer;
+    if (!a.terrain.empty()) {
+        char poseBuffer[2048];
+        std::snprintf(poseBuffer, sizeof(poseBuffer),
+            "{\"pose\": {\"car_steps\": %ld, \"on_bridge_steps\": %ld, \"tilted_over_3deg_steps\": %ld, \"max_pitch_deg\": %.1f, \"max_roll_deg\": %.1f,\n"
+            "  \"legacy_flat_body\": {\"steps_wheel_inside_road_over_5cm\": %ld, \"steps_wheel_floating_over_5cm\": %ld, \"max_wheel_inside_road_m\": %.2f, \"max_wheel_floating_m\": %.2f},\n"
+            "  \"new_pose\": {\"steps_wheel_inside_road_over_1cm\": %ld, \"max_wheel_inside_road_m\": %.3f, \"max_wheel_floating_m\": %.2f},\n"
+            "  \"pitch_step_max_rad_per_0_1s\": {\"raw\": %.3f, \"filtered\": %.3f}}}\n",
+            pose.steps, pose.bridgeSteps, pose.tiltedSteps, static_cast<double>(pose.maxPitchDeg), static_cast<double>(pose.maxRollDeg), pose.legacySinkSteps, pose.legacyHoverSteps,
+            static_cast<double>(pose.legacySinkMax), static_cast<double>(pose.legacyHoverMax), pose.newSinkSteps, static_cast<double>(pose.newSinkMax), static_cast<double>(pose.newHoverMax),
+            static_cast<double>(pose.rawStepMax), static_cast<double>(pose.filteredStepMax));
+        text += poseBuffer;
+    }
+    std::fputs(text.c_str(), stdout);
+    if (!a.out.empty()) std::ofstream(a.out, std::ios::binary) << text;
     return 0;
 }

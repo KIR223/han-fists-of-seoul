@@ -326,3 +326,36 @@ TEST_CASE("road_profile: физика — пешком по мосту в обе
     }
 }
 #endif
+
+TEST_CASE("road_profile: у машин на мосту есть высоты полотна под осями, перепад между осями не больше уклона на базе; на земле NaN") {
+    const auto data = straightBridge();
+    const auto terrain = flatTerrain(0.f);
+    const auto settings = repoSettings();
+    const auto profile = computeRoadProfile(data, kProjection, &terrain, settings);
+    han::ai::RoadGraphSettings graphSettings;
+    graphSettings.profile = &profile;
+    const auto graph = han::ai::RoadGraph::build(data, kProjection, graphSettings);
+    han::ai::TrafficSettings traffic;
+    traffic.maxCars = 12;
+    han::ai::TrafficSim sim(graph, traffic);
+    int onBridge = 0;
+    float maxDrop = 0.f;
+    for (int step = 0; step < 1500; ++step) {
+        sim.update(0.1f);
+        for (const auto& car : sim.cars()) {
+            if (car.edge < 0) continue;
+            const bool bridgeEdge = !graph.edges()[static_cast<std::size_t>(car.edge)].ys.empty();
+            if (bridgeEdge) {
+                ++onBridge;
+                REQUIRE(std::isfinite(car.surfaceYFront));
+                REQUIRE(std::isfinite(car.surfaceYRear));
+                maxDrop = std::max(maxDrop, std::fabs(car.surfaceYFront - car.surfaceYRear));
+            } else {
+                CHECK(std::isnan(car.surfaceYFront));
+                CHECK(std::isnan(car.surfaceYRear));
+            }
+        }
+    }
+    CHECK(onBridge > 0);
+    CHECK(maxDrop <= settings.maxGrade * traffic.wheelbase + 0.02f);  // не круче допустимого уклона на колёсной базе
+}

@@ -644,6 +644,11 @@ void TrafficSim::step(float dt) {
         const CarPose pose = poseOf(c);
         c.pos = pose.pos;
         c.surfaceY = pose.surfaceY;
+        {  // высоты полотна под осями (мост): по оси текущей дороги на полубазе впереди и позади центра
+            const float centre = std::max(0.f, c.s - c.length * 0.5f), half = cfg_.wheelbase * 0.5f;
+            c.surfaceYFront = e->surfaceAt(std::clamp(centre + half, 0.f, e->length));
+            c.surfaceYRear = e->surfaceAt(std::clamp(centre - half, 0.f, e->length));
+        }
         c.heading = pose.heading;
     }
     for (std::size_t k = remove.size(); k-- > 0;) removeCar(remove[k]);

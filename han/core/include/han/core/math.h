@@ -46,6 +46,25 @@ struct Mat4 {
         r.m[10] = c;
         return r;
     }
+    // Правые повороты вокруг осей: rotationX поднимает нос, смотрящий по -Z, при положительном угле; rotationZ поднимает правый борт (+X).
+    static Mat4 rotationX(float radians) {
+        Mat4 r;
+        const float c = std::cos(radians), s = std::sin(radians);
+        r.m[5] = c;
+        r.m[6] = s;
+        r.m[9] = -s;
+        r.m[10] = c;
+        return r;
+    }
+    static Mat4 rotationZ(float radians) {
+        Mat4 r;
+        const float c = std::cos(radians), s = std::sin(radians);
+        r.m[0] = c;
+        r.m[1] = s;
+        r.m[4] = -s;
+        r.m[5] = c;
+        return r;
+    }
     // Перспектива под Vulkan: вид вдоль -Z, глубина 0..1, ось Y клипа направлена вниз.
     static Mat4 perspective(float fovYRadians, float aspect, float nearZ, float farZ) {
         Mat4 r;
