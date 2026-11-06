@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "description": "Контрольные сцены этапа 01 плана города. Координаты — метры карты (проекция Мапо: x на восток, z на юг), camera = [x, высота над рельефом, z, рыскание°, тангаж°]. Рыскание 0 смотрит на север (−z), 90 — на восток (+x). Точки найдены по seoul_connected.osm и seoul.hht (han/tools/pipeline/city_baseline.py не пересчитывает их).",
+  "defaults": {"size": [1280, 720], "frames": 900, "warmup": 120, "traffic": 120, "hours": [13, 21]},
+  "scenes": [
+    {"id": "mapo_hongdae", "title": "Хондэ, улица", "camera": [700, 2, 280, 90, 0], "note": "центр границ района из data/world/districts/hongdae.json"},
+    {"id": "mapo_yeonnam", "title": "Ённам, улица", "camera": [780, 2, -610, 90, 0], "note": "центр границ района yeonnam.json"},
+    {"id": "mapo_mangwon", "title": "Мангвон, улица", "camera": [-980, 2, -110, 90, 0], "note": "центр границ района mangwon.json"},
+    {"id": "mapo_hapjeong", "title": "Хапчон, улица", "camera": [-230, 2, 275, 90, 0], "note": "центр границ района hapjeong.json"},
+    {"id": "kandam_boulevard", "title": "Кандам, бульвар (эталонная камера владельца)", "camera": [9870, 2, 6574, 86.7, 0],
+     "requires": ["assets_bin/cooked/kandam/kandam_district.hmesh"], "note": "камера из замеров владельца 38,43/27,91 мс"},
+    {"id": "slope_41", "title": "Склон около 41%", "camera": [-170, 2, -600, 90, 0], "note": "самый крутой участок рельефа старого Мапо по seoul.hht (около (-100,-600), h=41 м)"},
+    {"id": "junction_sinchon", "title": "Сложный перекрёсток (6 магистральных линий)", "camera": [1960, 2, 211, 90, 0], "note": "узел OSM с 6 линиями primary/secondary/trunk в (2026,211)"},
+    {"id": "trunk_riverside", "title": "Магистраль на эстакаде вдоль Хангана", "camera": [971, 14, 1732, 106, 0], "note": "trunk layer=1 way 261477947, середина; высота камеры оценочная"},
+    {"id": "han_bridge_north_south", "title": "Мост через Ханган, вид по ходу первого направления", "camera": [1283, 16, 1621, 26.7, 0], "note": "primary bridge ways 338588827 / 620357093, середина; высота камеры оценочная, настоящая отметка полотна — этап 03"},
+    {"id": "han_bridge_south_north", "title": "Тот же мост, обратное направление", "camera": [1283, 16, 1621, 206.7, 0], "note": "обратное направление к han_bridge_north_south"},
+    {"id": "aerial_far_view", "title": "Дальний городской вид с юга", "camera": [800, 150, 2600, 0, -10], "note": "обзор Мапо с высоты над рекой"},
+    {"id": "route_old_mapo", "title": "Пролёт Мангвон → Ённам (стриминг и толпа старых районов)", "camera": [-1300, 2, 0, 90, 0], "fly": [1400, -600, 30], "frames": 5600, "hours": [13],
+     "note": "2,76 км со скоростью 30 м/с вдоль всех четырёх старых районов; худшие кадры показывают пики стриминга/пересборки толпы"},
+    {"id": "route_mapo_kandam", "title": "Пролёт Мапо → Кандам (длинный переход)", "camera": [1200, 2, -400, 120, 0], "fly": [9870, 6574, 100], "frames": 8200, "hours": [13],
+     "requires": ["assets_bin/cooked/kandam/kandam_district.hmesh"], "note": "около 11 км со скоростью 100 м/с; пересекает реку и внешние ячейки"},
+    {"id": "kandam_interior", "title": "Интерьер Кандама", "camera": [10020, 1.6, 6560, 0, 0],
+     "requires": ["assets_bin/cooked/kandam/kandam_interiors.hmesh"], "blocked_without_data": true, "note": "без интерьеров Кандама сцена не измеряется; координаты кафе уточняются по kandam_interiors.json владельца"}
+  ]
+}

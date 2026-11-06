@@ -19,6 +19,7 @@ namespace han::render {
 
 struct RendererDesc {
     std::vector<const char*> instanceExtensions;  // расширения для поверхности окна (от SDL)
+    bool vsync = true;                            // false — IMMEDIATE/MAILBOX для замеров без привязки к частоте монитора
     bool validation = true;                       // слой VK_LAYER_KHRONOS_validation, если установлен
     int width = 1280, height = 720;
     int shadowMapSize = 2048;  // сторона карты теней каждого из трёх каскадов (1024 / 2048 / 4096 — пресеты качества)
@@ -80,6 +81,17 @@ struct FrameParams {
     float bloomRadius = 1.0f;     // ширина ореола
 };
 
+// Счётчики последнего drawFrame и GPU-время (измерения этапа 01 плана города).
+// Основной проход считает вызовы по частям меша после отсечения; теневой — суммарно по всем каскадам.
+struct FrameStats {
+    std::uint32_t items = 0;
+    std::uint32_t mainDrawCalls = 0, shadowDrawCalls = 0;
+    std::uint64_t mainTriangles = 0, shadowTriangles = 0;
+    // GPU-время кадра, чьи результаты уже готовы (кадр отстаёт на число кадров в полёте); -1 — запросы времени недоступны.
+    // gpuShadowMs — каскады теней, gpuSceneMs — основной проход; gpuMs — весь кадр с постобработкой (при FIFO там может быть ожидание swapchain).
+    double gpuMs = -1.0, gpuSceneMs = -1.0, gpuShadowMs = -1.0;  // gpuShadowMs — каскады теней
+};
+
 class Renderer {
 public:
     // nullptr при ошибке; причина пишется в error.
@@ -121,6 +133,8 @@ public:
     bool screenshotPending() const;
     const std::string& screenshotError() const;
 
+    const FrameStats& lastFrameStats() const;
+    const char* presentModeName() const;  // FIFO / MAILBOX / IMMEDIATE
     const std::string& deviceName() const;
     bool validationEnabled() const;
     // Сколько сообщений уровня ERROR и WARNING выдал слой валидации (критерий E2: ноль).
