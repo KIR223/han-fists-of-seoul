@@ -1,7 +1,7 @@
 {
   "version": 1,
   "description": "Контрольные сцены этапа 01 плана города. Координаты — метры карты (проекция Мапо: x на восток, z на юг), camera = [x, высота над рельефом, z, рыскание°, тангаж°]. Рыскание 0 смотрит на север (−z), 90 — на восток (+x). Точки найдены по seoul_connected.osm и seoul.hht (han/tools/pipeline/city_baseline.py не пересчитывает их).",
-  "defaults": {"size": [1280, 720], "frames": 600, "warmup": 120, "traffic": 120, "hours": [13, 21]},
+  "defaults": {"size": [1280, 720], "frames": 900, "warmup": 120, "traffic": 120, "hours": [13, 21]},
   "scenes": [
     {"id": "mapo_hongdae", "title": "Хондэ, улица", "camera": [700, 2, 280, 90, 0], "note": "центр границ района из data/world/districts/hongdae.json"},
     {"id": "mapo_yeonnam", "title": "Ённам, улица", "camera": [780, 2, -610, 90, 0], "note": "центр границ района yeonnam.json"},

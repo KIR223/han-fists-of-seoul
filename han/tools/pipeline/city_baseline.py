@@ -48,16 +48,18 @@ def missing_data(scene: dict, root: Path) -> list[str]:
     return [p for p in scene.get("requires", []) if not (root / p).exists()]
 
 
-def build_command(exe: str, scene: dict, defaults: dict, hour: float, metrics: Path, no_vsync: bool) -> list[str]:
+def build_command(exe: str, scene: dict, defaults: dict, hour: float, metrics: Path, no_vsync: bool, screenshot: Path | None = None) -> list[str]:
     size = scene.get("size", defaults.get("size", [1280, 720]))
     cmd = [exe, "--camera", *[str(v) for v in scene["camera"]], "--hour", str(hour),
            "--frames", str(scene.get("frames", defaults.get("frames", 600))), "--warmup", str(scene.get("warmup", defaults.get("warmup", 120))),
            "--size", str(size[0]), str(size[1]), "--traffic", str(scene.get("traffic", defaults.get("traffic", 120))),
-           "--deterministic", "--no-ui", "--metrics", str(metrics)]
+           "--deterministic", "--no-ui", "--no-capture", "--metrics", str(metrics)]
     if scene.get("fly"):  # [x, z, скорость м/с]: одинаковый пролёт свободной камеры для замеров стриминга
         cmd += ["--fly", *[str(v) for v in scene["fly"]]]
     if no_vsync:
         cmd.append("--no-vsync")
+    if screenshot:
+        cmd += ["--screenshot", str(screenshot)]  # снимок последнего кадра: доказательство для таблицы дефектов
     return cmd
 
 
@@ -123,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", default="")
     ap.add_argument("--hours", default="")
     ap.add_argument("--no-vsync", action="store_true")
+    ap.add_argument("--shots", action="store_true", help="сохранять PNG последнего кадра каждой сцены рядом с метриками")
     ap.add_argument("--root", type=Path, default=REPO_ROOT, help="корень репозитория (демо запускается оттуда)")
     args = ap.parse_args(argv)
 
@@ -147,7 +150,8 @@ def main(argv: list[str] | None = None) -> int:
                 runs.append(run)
                 continue
             metrics_path = out / f"{scene['id']}-h{int(hour)}.json"
-            cmd = build_command(args.exe, scene, defaults, hour, metrics_path, args.no_vsync)
+            shot = out / f"{scene['id']}-h{int(hour)}.png" if args.shots else None
+            cmd = build_command(args.exe, scene, defaults, hour, metrics_path, args.no_vsync, shot)
             print("запуск:", scene["id"], "час", hour, flush=True)
             proc = subprocess.run(cmd, cwd=args.root, capture_output=True, text=True, errors="replace")
             (out / f"{scene['id']}-h{int(hour)}.log").write_text(proc.stdout + proc.stderr, encoding="utf-8")

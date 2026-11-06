@@ -638,6 +638,8 @@ int main(int argc, char** argv) {
     Uint64 lastWall = start;
     std::vector<double> frameTimes;
     han::render::MetricsRecorder metrics(warmupFrames);
+    // Замер начинается, когда стриминг успокоился (нет загрузок и запросов 30 кадров подряд); у пролёта (--fly) стриминг входит в замер.
+    long settledStreak = 0, settledAtFrame = -1;
     std::size_t drawnPeople = 0, carsNear = 0, carsMid = 0;
     std::size_t activeLights = 0;
     std::size_t visibleProps = 0;
@@ -968,7 +970,10 @@ int main(int argc, char** argv) {
         const Uint64 prepEnd = SDL_GetTicksNS();
         renderer->drawFrame(params, items, w, h);
         const Uint64 frameEnd = SDL_GetTicksNS();
-        if (frame >= static_cast<long>(warmupFrames)) frameTimes.push_back(static_cast<double>(frameEnd - wallBegin) * 1e-6);
+        settledStreak = (stats.loading == 0 && stats.requestedThisFrame == 0) ? settledStreak + 1 : 0;
+        const bool measuring = flySpeed > 0.f || settledStreak >= 30;
+        if (measuring && settledAtFrame < 0) settledAtFrame = frame;
+        if (measuring && frame >= static_cast<long>(warmupFrames)) frameTimes.push_back(static_cast<double>(frameEnd - wallBegin) * 1e-6);
         {
             const auto& gpuStats = renderer->lastFrameStats();
             han::render::FrameSample sample;
@@ -998,7 +1003,7 @@ int main(int argc, char** argv) {
             PROCESS_MEMORY_COUNTERS counters{};
             if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) sample.workingSetMb = static_cast<double>(counters.WorkingSetSize) / (1024.0 * 1024.0);
 #endif
-            metrics.add(sample);
+            if (measuring) metrics.add(sample);
         }
         if (shootNow && !screenshotFailed && (renderer->screenshotPending() || !renderer->screenshotError().empty())) {
             std::fprintf(stderr, "снимок экрана не сохранён: %s\n", renderer->screenshotError().c_str());
@@ -1024,7 +1029,7 @@ int main(int argc, char** argv) {
             {"window", std::to_string(windowSize[0]) + "x" + std::to_string(windowSize[1])}, {"camera", cameraText},
             {"hour", std::to_string(hourArg)}, {"frames_requested", std::to_string(maxFrames)}, {"traffic_requested", std::to_string(trafficCars)},
             {"deterministic", deterministic ? "yes" : "no"}, {"walk", walk ? "yes" : "no"}, {"taa", "yes"}, {"shadows", "yes"},
-            {"cooked", cookedExplicit ? "explicit" : "default"}, {"timing_note", "wall = CPU подготовка + drawFrame (ожидание GPU); gpu_ms отстаёт на кадры в полёте"}};
+            {"streaming_settled_at_frame", std::to_string(settledAtFrame)}, {"cooked", cookedExplicit ? "explicit" : "default"}, {"timing_note", "wall = CPU подготовка + drawFrame (ожидание GPU); gpu_ms отстаёт на кадры в полёте"}};
         std::ofstream out(metricsPath, std::ios::binary);
         out << han::render::metricsToJson(metrics, meta);
         std::printf("метрики записаны: %s (%zu кадров)\n", metricsPath.string().c_str(), metrics.samples().size());

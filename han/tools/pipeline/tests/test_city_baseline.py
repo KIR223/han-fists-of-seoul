@@ -34,6 +34,7 @@ class CityBaselineTests(unittest.TestCase):
         self.assertEqual(cmd[:2], ["demo.exe", "--camera"])
         self.assertIn("--deterministic", cmd)
         self.assertIn("--no-vsync", cmd)
+        self.assertIn("--no-capture", cmd)  # захват мыши поворачивал камеру и менял кадр
         self.assertEqual(cmd[cmd.index("--frames") + 1], "50")
         self.assertEqual(cmd[cmd.index("--size") + 1:cmd.index("--size") + 3], ["640", "360"])
         self.assertEqual(cmd[cmd.index("--traffic") + 1], "7")
