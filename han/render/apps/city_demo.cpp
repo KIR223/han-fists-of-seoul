@@ -25,6 +25,7 @@
 #include "han/ai/crowd.h"
 #include "han/ai/archetype.h"
 #include "han/render/street_models.h"
+#include "han/render/vehicle_pose.h"
 #include "han/render/asset_loader.h"
 #include "han/core/repo_root.h"
 #include "han/core/console.h"
@@ -188,6 +189,8 @@ int main(int argc, char** argv) {
     float exposureArg = 1.0f;  // нейтральный множитель; дневная и ночная экспозиция — в streetscape.json
     float hourArg = -1.f;
     bool vsync = true;  // --no-vsync: IMMEDIATE/MAILBOX для замеров
+    bool watchSteepCar = false;
+    bool carPoseEnabled = true;  // --flat-cars: без шага и крена корпуса
     bool taaEnabled = true;  // --no-taa: диагностика резкости (TAA не должен оставаться выключенным как исправление)
     float flyTarget[2] = {0.f, 0.f}, flySpeed = 0.f;  // --fly
     std::filesystem::path metricsPath;  // --metrics файл.json: сводка кадров (этап 01)
@@ -200,6 +203,8 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--deterministic")) deterministic = true;
         if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atol(argv[i + 1]);
         if (!std::strcmp(argv[i], "--no-vsync")) vsync = false;
+        if (!std::strcmp(argv[i], "--watch-steep-car")) watchSteepCar = true;  // камера сбоку от машины на самом крутом уклоне (для кадров «до/после»)
+        if (!std::strcmp(argv[i], "--flat-cars")) carPoseEnabled = false;  // прежняя горизонтальная поза корпуса (для сравнения)
         if (!std::strcmp(argv[i], "--no-taa")) taaEnabled = false;
         if (!std::strcmp(argv[i], "--fly") && i + 3 < argc) {  // скриптовый пролёт свободной камеры: x z скорость (м/с) — одинаковый маршрут для замеров
             flyTarget[0] = static_cast<float>(std::atof(argv[i + 1]));
@@ -680,6 +685,8 @@ int main(int argc, char** argv) {
     // Замер начинается, когда стриминг успокоился (нет загрузок и запросов 30 кадров подряд); у пролёта (--fly) стриминг входит в замер.
     long settledStreak = 0, settledAtFrame = -1;
     std::size_t drawnPeople = 0, carsNear = 0, carsMid = 0;
+    std::unordered_map<std::uint32_t, han::render::VehiclePoseFilter> carPoseFilters;  // подвеска каждой машины
+    std::unordered_map<std::uint32_t, long> carPoseSeen;
     std::size_t activeLights = 0;
     std::size_t visibleProps = 0;
     std::size_t visibleTrees = 0;
@@ -747,6 +754,23 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (watchSteepCar && haveTerrain && !walk) {  // по состоянию машин прошлого кадра
+            const han::ai::Car* steepest = nullptr;
+            float steepestSlope = 0.f;
+            for (const auto& c : traffic.cars()) {
+                if (std::hypot(c.pos.x - cameraArgs[0], c.pos.z - cameraArgs[2]) > 250.f) continue;
+                const float fx = std::sin(c.heading), fz = -std::cos(c.heading);
+                const float slope = std::fabs(terrain.heightAt(c.pos.x + fx * 1.3f, c.pos.z + fz * 1.3f) - terrain.heightAt(c.pos.x - fx * 1.3f, c.pos.z - fz * 1.3f)) / 2.6f;
+                if (slope > steepestSlope) { steepestSlope = slope; steepest = &c; }
+            }
+            if (steepest) {  // слева от машины на 7 м, взгляд на неё (направление вправо от курса: (cos h, sin h))
+                const float rx = std::cos(steepest->heading), rz = std::sin(steepest->heading);
+                const float ground = std::isfinite(steepest->surfaceY) ? steepest->surfaceY : terrain.heightAt(steepest->pos.x, steepest->pos.z);
+                camera.position = {steepest->pos.x - rx * 7.f, ground + 1.3f, steepest->pos.z - rz * 7.f};
+                camera.yaw = steepest->heading + 1.5707963f;
+                camera.pitch = -0.02f;
+            }
+        }
         const auto fwd = camera.forward();
         loader.finishLoads();
         stats = streaming.update(camera.position.x, camera.position.z, fwd.x, fwd.z);
@@ -855,13 +879,41 @@ int main(int argc, char** argv) {
             const float dx = car.pos.x - camera.position.x, dz = car.pos.z - camera.position.z, distance = std::hypot(dx, dz);
             carsNear += distance < 150.f;
             carsMid += distance < 400.f;
-            const float carGround = std::isfinite(car.surfaceY) ? car.surfaceY : (haveTerrain ? terrain.heightAt(car.pos.x, car.pos.z) : 0.f);  // на мосту — полотно, иначе рельеф
-            const auto model = han::render::streetModelTransform({car.pos.x, 0.10f + carGround, car.pos.z}, car.heading);
+            // Поза корпуса: высота и наклон по четырём колёсам. На мосту высоты задаёт полотно (по осям), иначе — рельеф под каждым колесом.
+            han::render::VehiclePose carPose;
+            const float baseLength = citySettings.style.carLength * 0.6f, trackWidth = citySettings.style.carWidth * 0.85f;
+            if (std::isfinite(car.surfaceYFront) && std::isfinite(car.surfaceYRear)) {
+                carPose = han::render::solveVehiclePose({car.surfaceYFront, car.surfaceYFront, car.surfaceYRear, car.surfaceYRear}, baseLength, trackWidth);
+            } else {
+                const float fx = std::sin(car.heading), fz = -std::cos(car.heading), rx = std::cos(car.heading), rz = std::sin(car.heading);  // вперёд и вправо
+                const auto wheelGround = [&](float along, float across) {
+                    const float x = car.pos.x + fx * along + rx * across, z = car.pos.z + fz * along + rz * across;
+                    return haveTerrain ? terrain.heightAt(x, z) : 0.f;
+                };
+                const float hb = baseLength * 0.5f, ht = trackWidth * 0.5f;
+                carPose = han::render::solveVehiclePose({wheelGround(hb, -ht), wheelGround(hb, ht), wheelGround(-hb, -ht), wheelGround(-hb, ht)}, baseLength, trackWidth);
+            }
+            if (!carPoseEnabled) {
+                carPose.pitch = carPose.roll = 0.f;
+                carPose.y = std::isfinite(car.surfaceY) ? car.surfaceY : (haveTerrain ? terrain.heightAt(car.pos.x, car.pos.z) : 0.f);
+            } else {
+                carPose = carPoseFilters[car.id].update(carPose, dt);
+            }
+            carPoseSeen[car.id] = frame;
+            const auto model = han::render::vehicleTransform(car.pos.x, car.pos.z, car.heading, carPose, 0.10f);
             if (!importedCars.empty()) {
                 const std::size_t level = distance < vehicleModels.lodNear ? 0 : (distance < vehicleModels.lodMid ? 1 : (distance < vehicleModels.lodFar ? 2 : 3));
                 const auto& meshes = importedCars[car.id % importedCars.size()];
                 items.push_back({meshes[level].id, model, distance < vehicleModels.shadowRadius, meshes[3].id});
             } else items.push_back({carMeshes[color], model});
+        }
+        if (frame % 600 == 0) {  // убрать подвески машин, которых давно нет
+            for (auto it = carPoseSeen.begin(); it != carPoseSeen.end();) {
+                if (it->second < frame - 600) {
+                    carPoseFilters.erase(it->first);
+                    it = carPoseSeen.erase(it);
+                } else ++it;
+            }
         }
         if (haveMetro) {
             for (const auto& st : metro.stations()) {

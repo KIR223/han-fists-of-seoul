@@ -86,6 +86,8 @@ struct Car {
     std::vector<int> heldNodes;         // перекрёстки, которые машина сейчас занимает (на коротких дорогах их может быть два)
     float stoppedFor = 0.f;             // сколько секунд почти стоит (сторожевой таймер)
     Vec2 pos;                           // положение в мире (обновляется каждый шаг)
+    // Высота полотна под передней и задней осью на мосту (по оси дороги); NaN — по рельефу. По ним вызывающий считает шаг корпуса.
+    float surfaceYFront = std::numeric_limits<float>::quiet_NaN(), surfaceYRear = std::numeric_limits<float>::quiet_NaN();
     float surfaceY = std::numeric_limits<float>::quiet_NaN();  // высота полотна под машиной на мосту; NaN — по рельефу
     float heading = 0.f;                // радианы: 0 — на север (-Z), положительные — к востоку (+X)
 };
@@ -93,6 +95,7 @@ struct Car {
 struct TrafficSettings {
     int maxCars = 120;
     float carLength = 4.5f;
+    float wheelbase = 2.6f;              // расстояние между осями, м: по нему считаются высоты полотна под осями на мосту
     float minGap = 2.0f, timeHeadway = 1.4f, maxAccel = 2.2f, comfortBrake = 3.2f;
     float stuckSeconds = 40.f;           // машина почти стоит дольше — убирается и появляется в другом месте
     bool smoothTurns = true;             // дуга Безье через перекрёсток и полоса по типу поворота; false — прежний рывок на смещение полосы
