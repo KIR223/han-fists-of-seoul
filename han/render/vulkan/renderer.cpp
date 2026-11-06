@@ -1930,6 +1930,10 @@ const char* Renderer::presentModeName() const {
         default: return "FIFO";
     }
 }
+void Renderer::renderExtent(int& width, int& height) const {
+    width = static_cast<int>(impl_->extent.width);
+    height = static_cast<int>(impl_->extent.height);
+}
 const FrameStats& Renderer::lastFrameStats() const { return impl_->stats; }
 std::uint32_t Renderer::validationErrors() const { return impl_->counters.errors; }
 std::uint32_t Renderer::validationWarnings() const { return impl_->counters.warnings; }

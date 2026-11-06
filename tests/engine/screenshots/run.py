@@ -29,6 +29,10 @@ SIZE = ("640", "360")
 # Допуски: кадры детерминированы на одной видеокарте (побайтово), но разные видеокарты округляют по-разному.
 MAX_MEAN_ABS = 1.0       # средний модуль отличия по каналам, из 255
 MAX_BAD_FRACTION = 0.004  # доля пикселей с отличием больше 24 из 255
+# Строже общего: фильтр истории TAA меняет кадр на сотые доли процента (билинейная история даёт среднее 0,28/255 на этой сцене),
+# общий допуск 1,0 такую регрессию не заметил бы. Эталон снят на RTX 5060 Ti; на другой видеокарте при ложном срабатывании
+# проверить diff-кадр глазами и только затем пересоздавать эталон.
+TOLERANCES: dict[str, tuple[float, float]] = {"taa_motion": (0.12, 0.0004)}
 
 # Сцены: имя → аргументы демо. Названия отражают проверяемое: свет, тени, bloom, каскады.
 SCENES: dict[str, list[str]] = {
@@ -41,6 +45,8 @@ SCENES: dict[str, list[str]] = {
     "night": ["--sun", "-30", "0", "4000", "--exposure", "14"],
     "foliage_front": ["--alpha-test", "--camera", "-8", "4", "3", "0", "-20"],
     "foliage_back": ["--alpha-test", "--camera", "-8", "3", "-8", "180", "-10"],
+    # Движущаяся камера: при неподвижной история TAA берётся ровно по пикселю и фильтр истории не проверяется.
+    "taa_motion": ["--camera", "-3", "2", "7", "0", "-8", "--drift", "1.2"],
     "foliage_night": ["--alpha-test", "--camera", "-8", "4", "3", "0", "-20", "--sun", "-12", "0", "4000", "--exposure", "3"],
 }
 
@@ -94,7 +100,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{name}: ОТЛИЧАЕТСЯ — {e}", file=sys.stderr)
             failed.append(name)
             continue
-        ok = diff.mean_abs <= MAX_MEAN_ABS and diff.bad_fraction <= MAX_BAD_FRACTION
+        mean_limit, bad_limit = TOLERANCES.get(name, (MAX_MEAN_ABS, MAX_BAD_FRACTION))
+        ok = diff.mean_abs <= mean_limit and diff.bad_fraction <= bad_limit
         print(f"{name}: {'совпало' if ok else 'ОТЛИЧАЕТСЯ'} (среднее {diff.mean_abs:.3f}/255, плохих пикселей {diff.bad_fraction * 100:.3f}%, макс. {diff.max_abs})")
         if not ok:
             failed.append(name)

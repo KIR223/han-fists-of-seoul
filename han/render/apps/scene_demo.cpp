@@ -56,6 +56,7 @@ int main(int argc, char** argv) {
     int windowSize[2] = {1280, 720};
     std::filesystem::path screenshotPath;
     float bloomArg = 0.08f;
+    float driftSpeed = 0.0f;
     float cameraArgs[5] = {0.0f, 2.6f, 9.5f, 0.0f, -8.0f};  // x y z, рыскание и тангаж в градусах
     std::filesystem::path meshPath;
     for (int i = 1; i < argc; ++i) {
@@ -66,6 +67,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--cascades")) cascadesArg = true;
         if (!std::strcmp(argv[i], "--no-taa")) taaArg = false;
         if (!std::strcmp(argv[i], "--no-ui")) noUi = true;                  // без ImGui: чистый кадр для снимков
+        if (!std::strcmp(argv[i], "--drift") && i + 1 < argc) driftSpeed = static_cast<float>(std::atof(argv[i + 1]));  // боковой снос камеры, м/с: проверка TAA в движении
         if (!std::strcmp(argv[i], "--deterministic")) deterministic = true;  // фиксированный шаг 1/60 с вместо часов: кадры воспроизводимы
         if (!std::strcmp(argv[i], "--size") && i + 2 < argc) {               // --size ширина высота
             windowSize[0] = std::max(64, std::atoi(argv[i + 1]));
@@ -305,6 +307,7 @@ int main(int argc, char** argv) {
             return uiKeys ? 0.f : (input.held(pos) ? 1.f : 0.f) - (input.held(neg) ? 1.f : 0.f);
         };
         camera.move(axis("forward", "back"), axis("right", "left"), axis("up", "down"), input.held("fast") && !uiKeys ? speed * 3.f : speed, dt);
+        if (driftSpeed != 0.0f) camera.move(0.0f, 1.0f, 0.0f, driftSpeed, dt);
 
 #ifdef HAN_WITH_IMGUI
         if (!noUi) ui.drawStats({fmt("FPS: %.0f", fps), "GPU: " + renderer->deviceName(),

@@ -38,6 +38,10 @@ public:
     std::vector<const char*> vulkanInstanceExtensions() const;
     std::uint64_t createVulkanSurface(void* vkInstance);
     void pixelSize(int& width, int& height) const;
+    // Диагностика разрешения: плотность пикселей окна (пиксели / логические единицы) и масштаб дисплея (Windows: 1,25 = 125%).
+    void logicalSize(int& width, int& height) const;  // размер окна в логических единицах (SDL_GetWindowSize)
+    float pixelDensity() const;
+    float displayScale() const;
 
 private:
     Window();

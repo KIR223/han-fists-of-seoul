@@ -34,6 +34,29 @@ vec3 clipToBox(vec3 lo, vec3 hi, vec3 history) {
     return m > 1.0 ? center + v / m : history;
 }
 
+// История в сжатом цвете, бикубический фильтр Catmull-Rom (5 выборок, угловые отброшены, веса нормируются). Билинейная выборка истории
+// размывает картинку при любом сдвиге: каждый кадр чуть усредняет соседние пиксели, а накопление на 0,9 копит этот эффект.
+vec3 sampleHistorySharp(vec2 uv) {
+    vec2 size = vec2(textureSize(uHistory, 0));
+    vec2 pos = uv * size;
+    vec2 center = floor(pos - 0.5) + 0.5;
+    vec2 f = pos - center;
+    vec2 f2 = f * f, f3 = f2 * f;
+    vec2 w0 = -0.5 * f3 + f2 - 0.5 * f;
+    vec2 w1 = 1.5 * f3 - 2.5 * f2 + 1.0;
+    vec2 w2 = -1.5 * f3 + 2.0 * f2 + 0.5 * f;
+    vec2 w3 = 0.5 * f3 - 0.5 * f2;
+    vec2 w12 = w1 + w2;
+    vec2 tc0 = (center - 1.0) / size;
+    vec2 tc3 = (center + 2.0) / size;
+    vec2 tc12 = (center + w2 / w12) / size;
+    float wTop = w12.x * w0.y, wLeft = w0.x * w12.y, wMid = w12.x * w12.y, wRight = w3.x * w12.y, wBottom = w12.x * w3.y;
+    vec3 sum = compress(texture(uHistory, vec2(tc12.x, tc0.y)).rgb) * wTop + compress(texture(uHistory, vec2(tc0.x, tc12.y)).rgb) * wLeft +
+               compress(texture(uHistory, tc12).rgb) * wMid + compress(texture(uHistory, vec2(tc3.x, tc12.y)).rgb) * wRight +
+               compress(texture(uHistory, vec2(tc12.x, tc3.y)).rgb) * wBottom;
+    return max(sum / (wTop + wLeft + wMid + wRight + wBottom), vec3(0.0));
+}
+
 void main() {
     ivec2 size = textureSize(uCurrent, 0);
     ivec2 p = ivec2(gl_FragCoord.xy);
@@ -63,7 +86,7 @@ void main() {
     const float kGamma = 1.25;
 
     vec3 currentY = toYCoCg(compress(current));
-    vec3 historyY = toYCoCg(compress(texture(uHistory, prevUv).rgb));
+    vec3 historyY = toYCoCg(sampleHistorySharp(prevUv));
     historyY = clipToBox(mean - kGamma * sigma, mean + kGamma * sigma, historyY);
 
     // Чем быстрее пиксель смещается на экране, тем меньше доверия истории (размытие в движении).
