@@ -84,7 +84,7 @@ float laneOffsetOf(const RoadEdge& r, int lane) { return r.centerOffset + (stati
 int TrafficSim::laneOnto(int lane, int fromEdge, int toEdge) const {
     const RoadEdge& a = g_.edges()[static_cast<std::size_t>(fromEdge)];
     const RoadEdge& b = g_.edges()[static_cast<std::size_t>(toEdge)];
-    if (!cfg_.smoothTurns) return std::min(lane, b.lanes - 1);
+    if (!cfg_.smoothTurns || !cfg_.turnLanes) return std::min(lane, b.lanes - 1);
     const Vec2 da = a.directionAt(a.length), db = b.directionAt(0.f);
     const float cross = da.x * db.z - da.z * db.x;  // > 0 — поворот направо (x на восток, z на юг)
     if (cross > 0.5f) return b.lanes - 1;
@@ -109,7 +109,7 @@ TrafficSim::CarPose TrafficSim::poseOf(const Car& c) const {
     const auto halfLength = [&](const RoadEdge& a, int laneA, const RoadEdge& b, int laneB) {
         const Vec2 da = a.directionAt(a.length), db = b.directionAt(0.f);
         if (da.x * db.x + da.z * db.z < -0.7f) return 0.f;  // разворот (в тупике): дуга пересекла бы разделитель, остаётся прежний переезд
-        const float configured = cfg_.connectorRadius > 0.f ? cfg_.connectorRadius : std::clamp(4.f + 1.2f * (laneOffsetOf(a, laneA) + laneOffsetOf(b, laneB)), 5.f, 16.f);
+        const float configured = cfg_.connectorRadius > 0.f ? cfg_.connectorRadius : std::clamp(3.f + 0.6f * (laneOffsetOf(a, laneA) + laneOffsetOf(b, laneB)), 4.f, 7.f);
         return std::min({configured, 0.45f * a.length, 0.45f * b.length});
     };
     // Дуга Безье между точкой на a за r до узла и точкой на b через r после узла; x — расстояние центра от узла (< 0 — на a).
@@ -502,7 +502,6 @@ float TrafficSim::gapAhead(const Car& c, float& leaderSpeed) const {
         }
     }
     if (best < 1e8f || c.next < 0) return best;
-    const RoadEdge& n = g_.edges()[static_cast<std::size_t>(c.next)];
     const int lane = laneOnto(c.lane, c.edge, c.next);
     for (int idx : lanes_[static_cast<std::size_t>(c.next)][static_cast<std::size_t>(lane)]) {
         const Car& o = cars_[static_cast<std::size_t>(idx)];
@@ -517,7 +516,6 @@ float TrafficSim::gapAhead(const Car& c, float& leaderSpeed) const {
 
 bool TrafficSim::canEnter(const Car& c) const {
     if (c.next < 0) return true;
-    const RoadEdge& n = g_.edges()[static_cast<std::size_t>(c.next)];
     const int lane = laneOnto(c.lane, c.edge, c.next);
     for (int idx : lanes_[static_cast<std::size_t>(c.next)][static_cast<std::size_t>(lane)]) {
         const Car& o = cars_[static_cast<std::size_t>(idx)];

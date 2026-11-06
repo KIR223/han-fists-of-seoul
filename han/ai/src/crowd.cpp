@@ -134,6 +134,7 @@ void Crowd::chooseDestination(Agent& a) {
 void Crowd::follow(Agent& a, float dt, bool collide, Vec2 push) {
     float remaining = a.archetype->walkSpeed * a.speedScale * dt;
     Vec2 dir = normalized(a.vel);
+    if (a.pathIndex + 1 == a.path.size() && length(a.path[a.pathIndex] - a.pos) <= settings_.arrivalRadius) a.pathIndex = a.path.size();  // пришёл
     while (remaining > 0.f && a.pathIndex < a.path.size()) {
         const Vec2 d = a.path[a.pathIndex] - a.pos;
         const float dist = length(d);
@@ -365,6 +366,11 @@ void Crowd::update(float dt, Vec2 camera) {
                         else if (dist <= 1e-4f) push = push + Vec2{0.3f, 0.f};
                     }
                 }
+            // Расталкивание не должно останавливать идущего: сумма сил соседей в скученной группе у двери превышала скорость ходьбы, и прохожие стояли
+            // минутами в равновесии. Предел — 60% скорости ходьбы; у последней точки пути расталкивание отключено.
+            const float cap = a->archetype->walkSpeed * a->speedScale * 0.6f;
+            if (length(push) > cap) push = normalized(push) * cap;
+            if (a->pathIndex + 1 == a->path.size() && length(a->path[a->pathIndex] - a->pos) < 2.f * settings_.arrivalRadius) push = {};
             const Vec2 before = a->pos;
             tickAgent(*a, step, false);
             if (movingState(a->state) || a->state == AgentState::Waiting) {

@@ -39,6 +39,7 @@
 #include "han/world/cell_io.h"
 #include "han/world/city_day_cycle.h"
 #include "han/world/city_props.h"
+#include "han/world/walk_layout.h"
 #include "han/world/district_scene.h"
 #include "han/world/water_surface.h"
 #include "han/world/city_builder.h"
@@ -544,20 +545,40 @@ int main(int argc, char** argv) {
         for (const auto& p : footprint) polygon.push_back({scene.origin.x + p.x, scene.origin.z + p.y});
         footprints.push_back(std::move(polygon));
     }
+    // Где можно ходить: здания и вода — стены, проезжая часть улиц от 8 м закрыта, переходы (зебры строителя) — проёмы.
+    world::WalkLayout walkLayout;
+    if (haveOsm) {
+        walkLayout = world::buildWalkLayout(osm, projection, citySettings.style);
+        walkLayout.buildings.clear();  // здания берутся из footprints (вместе с контурами районов)
+        std::string waterError;
+        const std::string waterFile = "assets_bin/city/seoul_water_areas.json";
+        if (std::filesystem::exists(waterFile) && !walkLayout.addWaterAreas(waterFile, projection, waterError)) std::fprintf(stderr, "%s\n", waterError.c_str());
+    }
     std::vector<std::array<han::render::MeshId, 4>> pedestrianMeshes;
+    const auto toNav = [](const std::vector<std::vector<world::Vec2>>& polygons, float minX, float minZ, float maxX, float maxZ, std::vector<std::vector<han::ai::Vec2>>& out) {
+        for (const auto& poly : polygons) {
+            float lox = 1e30f, hix = -1e30f, loz = 1e30f, hiz = -1e30f;
+            for (const auto& p : poly) { lox = std::min(lox, p.x); hix = std::max(hix, p.x); loz = std::min(loz, p.y); hiz = std::max(hiz, p.y); }
+            if (hix < minX || lox > maxX || hiz < minZ || loz > maxZ) continue;
+            std::vector<han::ai::Vec2> converted;
+            converted.reserve(poly.size());
+            for (const auto& p : poly) converted.push_back({p.x, p.y});
+            out.push_back(std::move(converted));
+        }
+    };
     const auto rebuildCrowd = [&](float focusX, float focusZ) {
         crowd.reset();
         const float radius = citySettings.style.crowdNavRadius;
-        std::vector<std::vector<han::ai::Vec2>> obstacles;
-        for (const auto& footprint : footprints) {
-            std::vector<han::ai::Vec2> polygon;
-            for (const auto& p : footprint) polygon.push_back({p.x, p.y});
-            obstacles.push_back(std::move(polygon));
-        }
+        std::vector<std::vector<han::ai::Vec2>> obstacles, roadPolygons, openings;
+        const float navMinX = focusX - radius, navMinZ = focusZ - radius, navMaxX = focusX + radius, navMaxZ = focusZ + radius;
+        toNav(footprints, navMinX, navMinZ, navMaxX, navMaxZ, obstacles);
+        toNav(walkLayout.water, navMinX, navMinZ, navMaxX, navMaxZ, obstacles);
+        toNav(walkLayout.carriageways, navMinX, navMinZ, navMaxX, navMaxZ, roadPolygons);
+        toNav(walkLayout.crossings, navMinX, navMinZ, navMaxX, navMaxZ, openings);
         han::ai::NavGrid::Settings navSettings;
         navSettings.cellSize = citySettings.style.crowdNavCell;
         navSettings.maxExpansions = static_cast<std::size_t>(citySettings.style.crowdPathExpansions);
-        crowdGrid = han::ai::NavGrid::build(focusX - radius, focusZ - radius, focusX + radius, focusZ + radius, obstacles, navSettings);
+        crowdGrid = han::ai::NavGrid::build(navMinX, navMinZ, navMaxX, navMaxZ, obstacles, roadPolygons, openings, navSettings);
         if (!crowdGrid.valid() || people.size() == 0) return;
         static const char* categories[] = {"work", "cafe", "shop", "eat", "park", "campus", "market", "nightlife", "sights", "delivery", "security"};
         std::vector<han::ai::Poi> pois, nearby;
