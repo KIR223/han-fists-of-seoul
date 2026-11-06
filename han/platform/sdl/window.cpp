@@ -76,5 +76,8 @@ std::uint64_t Window::createVulkanSurface(void* vkInstance) {
 }
 
 void Window::pixelSize(int& width, int& height) const { SDL_GetWindowSizeInPixels(impl_->window, &width, &height); }
+void Window::logicalSize(int& width, int& height) const { SDL_GetWindowSize(impl_->window, &width, &height); }
+float Window::pixelDensity() const { return SDL_GetWindowPixelDensity(impl_->window); }
+float Window::displayScale() const { return SDL_GetWindowDisplayScale(impl_->window); }
 
 }  // namespace han::platform

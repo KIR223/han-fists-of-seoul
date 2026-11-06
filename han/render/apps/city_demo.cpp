@@ -187,6 +187,7 @@ int main(int argc, char** argv) {
     float exposureArg = 1.0f;  // нейтральный множитель; дневная и ночная экспозиция — в streetscape.json
     float hourArg = -1.f;
     bool vsync = true;  // --no-vsync: IMMEDIATE/MAILBOX для замеров
+    bool taaEnabled = true;  // --no-taa: диагностика резкости (TAA не должен оставаться выключенным как исправление)
     float flyTarget[2] = {0.f, 0.f}, flySpeed = 0.f;  // --fly
     std::filesystem::path metricsPath;  // --metrics файл.json: сводка кадров (этап 01)
     std::size_t warmupFrames = 60;      // --warmup N: кадры прогрева, не входящие в сводку
@@ -198,6 +199,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--deterministic")) deterministic = true;
         if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atol(argv[i + 1]);
         if (!std::strcmp(argv[i], "--no-vsync")) vsync = false;
+        if (!std::strcmp(argv[i], "--no-taa")) taaEnabled = false;
         if (!std::strcmp(argv[i], "--fly") && i + 3 < argc) {  // скриптовый пролёт свободной камеры: x z скорость (м/с) — одинаковый маршрут для замеров
             flyTarget[0] = static_cast<float>(std::atof(argv[i + 1]));
             flyTarget[1] = static_cast<float>(std::atof(argv[i + 2]));
@@ -346,6 +348,12 @@ int main(int argc, char** argv) {
     if (!noUi) renderer->setOverlay(&ui);
 #endif
     std::printf("GPU: %s; слой валидации: %s\n", renderer->deviceName().c_str(), renderer->validationEnabled() ? "включён" : "НЕ найден");
+    int logicalW = 0, logicalH = 0, pixelW = 0, pixelH = 0, extentW = 0, extentH = 0;
+    window->logicalSize(logicalW, logicalH);
+    window->pixelSize(pixelW, pixelH);
+    renderer->renderExtent(extentW, extentH);
+    std::printf("разрешение: окно %dx%d, пиксели окна %dx%d, цель рендера %dx%d, плотность пикселей %.2f, масштаб дисплея %.2f\n", logicalW, logicalH, pixelW, pixelH,
+                extentW, extentH, window->pixelDensity(), window->displayScale());
 
     // Земля вокруг: большая плоскость под городом (дороги и дома лежат выше неё).
     const auto ground = han::render::citytex::uploadGround(*renderer);
@@ -960,7 +968,7 @@ int main(int argc, char** argv) {
         params.nearPlane = camera.nearZ;
         params.farPlane = camera.farZ;
         params.shadows = true;
-        params.taa = true;
+        params.taa = taaEnabled;
         params.bloomIntensity = citySettings.style.bloomIntensity;
         const bool shootNow = !screenshotPath.empty() && maxFrames > 0 && frame == maxFrames - 1;
         if (shootNow && !renderer->requestScreenshot(screenshotPath)) {
@@ -1025,10 +1033,10 @@ int main(int argc, char** argv) {
         char cameraText[160];
         std::snprintf(cameraText, sizeof(cameraText), "%.2f %.2f %.2f %.2f %.2f", cameraArgs[0], cameraArgs[1], cameraArgs[2], cameraArgs[3], cameraArgs[4]);
         const std::vector<std::pair<std::string, std::string>> meta = {
-            {"gpu", renderer->deviceName()}, {"present_mode", renderer->presentModeName()}, {"validation_layer", renderer->validationEnabled() ? "yes" : "no"},
+            {"gpu", renderer->deviceName()}, {"present_mode", renderer->presentModeName()}, {"window_logical", std::to_string(logicalW) + "x" + std::to_string(logicalH)}, {"window_pixels", std::to_string(pixelW) + "x" + std::to_string(pixelH)}, {"render_extent", std::to_string(extentW) + "x" + std::to_string(extentH)}, {"pixel_density", std::to_string(window->pixelDensity())}, {"display_scale", std::to_string(window->displayScale())}, {"validation_layer", renderer->validationEnabled() ? "yes" : "no"},
             {"window", std::to_string(windowSize[0]) + "x" + std::to_string(windowSize[1])}, {"camera", cameraText},
             {"hour", std::to_string(hourArg)}, {"frames_requested", std::to_string(maxFrames)}, {"traffic_requested", std::to_string(trafficCars)},
-            {"deterministic", deterministic ? "yes" : "no"}, {"walk", walk ? "yes" : "no"}, {"taa", "yes"}, {"shadows", "yes"},
+            {"deterministic", deterministic ? "yes" : "no"}, {"walk", walk ? "yes" : "no"}, {"taa", taaEnabled ? "yes" : "no"}, {"shadows", "yes"},
             {"streaming_settled_at_frame", std::to_string(settledAtFrame)}, {"cooked", cookedExplicit ? "explicit" : "default"}, {"timing_note", "wall = CPU подготовка + drawFrame (ожидание GPU); gpu_ms отстаёт на кадры в полёте"}};
         std::ofstream out(metricsPath, std::ios::binary);
         out << han::render::metricsToJson(metrics, meta);

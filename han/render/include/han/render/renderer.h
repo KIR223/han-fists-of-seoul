@@ -140,6 +140,8 @@ public:
     // Сколько сообщений уровня ERROR и WARNING выдал слой валидации (критерий E2: ноль).
     std::uint32_t validationErrors() const;
     std::uint32_t validationWarnings() const;
+    // Фактический размер цели рендера (swapchain/HDR) в пикселях: сравнивается с размером окна в пикселях.
+    void renderExtent(int& width, int& height) const;
 
 private:
     Renderer();
