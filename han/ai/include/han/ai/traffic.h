@@ -82,6 +82,7 @@ struct Car {
     float s = 0.f, v = 0.f, v0 = 13.f;  // положение по дороге, скорость, желаемая скорость
     float length = 4.5f;
     int next = -1;                      // следующая дорога (выбирается заранее)
+    int prev = -1, prevLane = 0;        // дорога и полоса, с которых машина только что съехала (для плавной дуги через перекрёсток)
     std::vector<int> heldNodes;         // перекрёстки, которые машина сейчас занимает (на коротких дорогах их может быть два)
     float stoppedFor = 0.f;             // сколько секунд почти стоит (сторожевой таймер)
     Vec2 pos;                           // положение в мире (обновляется каждый шаг)
@@ -94,6 +95,8 @@ struct TrafficSettings {
     float carLength = 4.5f;
     float minGap = 2.0f, timeHeadway = 1.4f, maxAccel = 2.2f, comfortBrake = 3.2f;
     float stuckSeconds = 40.f;           // машина почти стоит дольше — убирается и появляется в другом месте
+    bool smoothTurns = true;             // дуга Безье через перекрёсток и полоса по типу поворота; false — прежний рывок на смещение полосы
+    float connectorRadius = 0.f;         // половина длины дуги, м; 0 — по ширине полос соединяемых дорог
     float spawnRadius = 0.f;             // > 0 — появляться только вокруг точки фокуса (игрока) в этом радиусе
     float despawnRadius = 0.f;           // > 0 — убирать машины дальше этого расстояния от фокуса
     std::uint32_t seed = 1;
@@ -122,6 +125,13 @@ public:
     int overlaps() const;
 
 private:
+    struct CarPose {
+        Vec2 pos;
+        float heading = 0.f, surfaceY = std::numeric_limits<float>::quiet_NaN();
+    };
+    CarPose poseOf(const Car& c) const;
+    int laneOnto(int lane, int fromEdge, int toEdge) const;
+
     struct Lock {
         int holder = -1;                    // индекс машины в cars_ (по id), -1 — свободен
         std::vector<std::uint32_t> queue;   // id машин в порядке прибытия
