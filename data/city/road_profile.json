@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "description": "Профиль мостов и эстакад (этап 03): габарит над землёй по слою layer, наибольший продольный уклон, балка, опоры и ступеньки коллайдера. Габарит — допущение модели, в OSM его нет.",
+  "max_grade": 0.07,
+  "max_height_above_ground": 30.0,
+  "clearance_layer1": 6.0,
+  "clearance_layer2": 10.0,
+  "clearance_layer3": 14.0,
+  "deck_thickness": 1.2,
+  "pier_spacing": 40.0,
+  "pier_size": 1.6,
+  "min_pier_clearance": 2.5,
+  "collider_step": 2.5,
+  "collider_thickness": 0.6
+}

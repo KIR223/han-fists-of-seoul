@@ -291,13 +291,23 @@ int main(int argc, char** argv) {
     auto dayState = dayCycle.sample(cityHour);
     if (!cookedDir.empty()) citySettings.cellSize = bake.cellSize;
     citySettings.terrain = haveTerrain ? &terrain : nullptr;
+    if (!world::loadRoadProfileSettings("data/city/road_profile.json", citySettings.roadProfile, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
     citySettings.shopTileMeters = han::render::citytex::shopTileMeters();
     const world::GeoProjection projection(origin[0], origin[1]);
     std::map<world::CellCoord, world::CityChunk> chunks;
+    // Профиль мостов один для геометрии города и трафика: машины едут по высоте полотна, а не по рельефу под мостом.
+    const world::RoadProfile roadProfile = haveOsm ? world::computeRoadProfile(osm, projection, citySettings.terrain, citySettings.roadProfile) : world::RoadProfile();
+    citySettings.roadProfileData = &roadProfile;
+    if (!roadProfile.empty()) std::printf("мосты: %d путей, %d узлов, наибольший габарит %.1f м, уклон до %.1f%%, закопанных узлов %d, на рельефе %d, проходов %d%s, крутых участков %d, худший узел %lld\n", roadProfile.stats().bridgeWays,
+                                          roadProfile.stats().bridgeNodes, static_cast<double>(roadProfile.stats().maxClearance), static_cast<double>(roadProfile.stats().maxGradeUsed) * 100.0,
+                                          roadProfile.stats().buriedNodes, roadProfile.stats().terrainFollowingNodes, roadProfile.stats().solverPasses,
+                                          roadProfile.stats().converged ? "" : " (НЕ сошлось)", roadProfile.stats().steepSegments, static_cast<long long>(roadProfile.stats().worstGradeNode));
     if (cookedDir.empty()) chunks = world::buildCity(osm, projection, citySettings, &cityStats);
     else std::printf("город с диска: %s\n", cookedDir.c_str());
     // Трафик (G7): граф дорог из тех же данных; машины едут вокруг камеры (появляются в радиусе 350 м, уходят за 550 м).
-    const han::ai::RoadGraph roads = haveOsm ? han::ai::RoadGraph::build(osm, projection) : han::ai::RoadGraph();
+    han::ai::RoadGraphSettings roadGraphSettings;
+    roadGraphSettings.profile = &roadProfile;
+    const han::ai::RoadGraph roads = haveOsm ? han::ai::RoadGraph::build(osm, projection, roadGraphSettings) : han::ai::RoadGraph();
     han::ai::TrafficSettings trafficSettings;
     trafficSettings.maxCars = trafficCars;
     trafficSettings.spawnRadius = 350.f;
@@ -824,7 +834,8 @@ int main(int argc, char** argv) {
             const float dx = car.pos.x - camera.position.x, dz = car.pos.z - camera.position.z, distance = std::hypot(dx, dz);
             carsNear += distance < 150.f;
             carsMid += distance < 400.f;
-            const auto model = han::render::streetModelTransform({car.pos.x, 0.10f + (haveTerrain ? terrain.heightAt(car.pos.x, car.pos.z) : 0.f), car.pos.z}, car.heading);
+            const float carGround = std::isfinite(car.surfaceY) ? car.surfaceY : (haveTerrain ? terrain.heightAt(car.pos.x, car.pos.z) : 0.f);  // на мосту — полотно, иначе рельеф
+            const auto model = han::render::streetModelTransform({car.pos.x, 0.10f + carGround, car.pos.z}, car.heading);
             if (!importedCars.empty()) {
                 const std::size_t level = distance < vehicleModels.lodNear ? 0 : (distance < vehicleModels.lodMid ? 1 : (distance < vehicleModels.lodFar ? 2 : 3));
                 const auto& meshes = importedCars[car.id % importedCars.size()];

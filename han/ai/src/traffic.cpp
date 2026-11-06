@@ -65,6 +65,16 @@ Vec2 RoadEdge::pointAt(float s, float offset) const {
     return {p.x - d.z * offset, p.z + d.x * offset};  // вправо от направления движения: (-dz, dx)
 }
 
+float RoadEdge::surfaceAt(float s) const {
+    if (ys.size() != pts.size() || pts.size() < 2) return std::numeric_limits<float>::quiet_NaN();
+    s = std::clamp(s, 0.f, length);
+    std::size_t i = static_cast<std::size_t>(std::upper_bound(cum.begin(), cum.end(), s) - cum.begin());
+    i = std::clamp<std::size_t>(i, 1, pts.size() - 1);
+    const float seg = cum[i] - cum[i - 1];
+    const float t = seg > 1e-6f ? (s - cum[i - 1]) / seg : 0.f;
+    return ys[i - 1] + (ys[i] - ys[i - 1]) * t;
+}
+
 void RoadGraph::finish() {
     for (RoadNode& n : nodes_) {
         n.out.clear();
@@ -131,7 +141,7 @@ RoadGraph RoadGraph::fromLines(const std::vector<Line>& lines) {
     return g;
 }
 
-RoadGraph RoadGraph::build(const world::OsmData& data, const world::GeoProjection& projection, const RoadGraphSettings&) {
+RoadGraph RoadGraph::build(const world::OsmData& data, const world::GeoProjection& projection, const RoadGraphSettings& settings) {
     RoadGraph g;
     // Сколько раз узел встречается в дорогах для машин; узел-ключ — перекрёсток, конец линии или самопересечение.
     std::unordered_map<std::int64_t, int> uses;
@@ -168,6 +178,7 @@ RoadGraph RoadGraph::build(const world::OsmData& data, const world::GeoProjectio
         }
         if (pts.size() < 2) continue;
         const RoadClass cls = classOf(highway);
+        const bool onBridge = settings.profile && !settings.profile->empty() && world::isBridgeWay(w);
         const std::string_view onewayTag = w.tag("oneway");
         bool oneway = onewayTag == "yes" || onewayTag == "true" || onewayTag == "1" || onewayTag == "-1" || w.tag("junction") == "roundabout";
         if (onewayTag == "no") oneway = false;
@@ -192,14 +203,21 @@ RoadGraph RoadGraph::build(const world::OsmData& data, const world::GeoProjectio
             const bool key = i + 1 == pts.size() || uses[ids[i]] >= 2;
             if (!key) continue;
             std::vector<Vec2> seg(pts.begin() + static_cast<std::ptrdiff_t>(start), pts.begin() + static_cast<std::ptrdiff_t>(i) + 1);
+            const std::size_t segStart = start;
             const int a = nodeFor(ids[start], pts[start]), b = nodeFor(ids[i], pts[i]);
             start = i;
             if (a == b || lengthOf(seg) < 0.5f) continue;
-            const auto add = [&](int from, int to, std::vector<Vec2> line) {
+            std::vector<float> segHeights;  // высота полотна по точкам сегмента (только для моста)
+            if (onBridge) {
+                for (std::size_t k = segStart; k <= i; ++k) segHeights.push_back(settings.profile->height(ids[k]));
+                if (std::any_of(segHeights.begin(), segHeights.end(), [](float h) { return !std::isfinite(h); })) segHeights.clear();
+            }
+            const auto add = [&](int from, int to, std::vector<Vec2> line, std::vector<float> heights) {
                 RoadEdge e;
                 e.from = from;
                 e.to = to;
                 e.pts = std::move(line);
+                e.ys = std::move(heights);
                 e.cls = cls;
                 e.lanes = perDir;
                 e.laneWidth = laneW;
@@ -208,13 +226,14 @@ RoadGraph RoadGraph::build(const world::OsmData& data, const world::GeoProjectio
                 g.edges_.push_back(std::move(e));
             };
             std::vector<Vec2> rev(seg.rbegin(), seg.rend());
+            std::vector<float> revHeights(segHeights.rbegin(), segHeights.rend());
             if (!oneway) {
-                add(a, b, seg);
-                add(b, a, rev);
+                add(a, b, seg, segHeights);
+                add(b, a, rev, revHeights);
             } else if (backwards) {
-                add(b, a, rev);
+                add(b, a, rev, revHeights);
             } else {
-                add(a, b, seg);
+                add(a, b, seg, segHeights);
             }
         }
     }
@@ -540,6 +559,7 @@ void TrafficSim::step(float dt) {
         const float off = e->centerOffset + (static_cast<float>(c.lane) + 0.5f) * e->laneWidth;
         const float mid = std::max(0.f, c.s - c.length * 0.5f);
         c.pos = e->pointAt(mid, off);
+        c.surfaceY = e->surfaceAt(mid);
         const Vec2 d = e->directionAt(mid);
         c.heading = std::atan2(d.x, -d.z);
     }
