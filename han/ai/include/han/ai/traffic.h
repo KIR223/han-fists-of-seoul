@@ -4,12 +4,14 @@
 // Данные OSM — только геометрия и классы дорог. Скорости — по классам (городские лимиты Кореи: 50 км/ч, жилые зоны 30, магистрали 80).
 #pragma once
 #include <cstdint>
+#include <limits>
 #include <random>
 #include <string>
 #include <vector>
 
 #include "han/ai/navgrid.h"
 #include "han/world/osm.h"
+#include "han/world/road_profile.h"
 
 namespace han::ai {
 
@@ -26,10 +28,13 @@ struct RoadEdge {
     float centerOffset = 0.f;  // половина разделительной полосы (метры), если она есть в данных дороги
     RoadClass cls = RoadClass::Local;
     int reverse = -1;            // встречное направление той же дороги (или -1: односторонняя)
+    std::vector<float> ys;       // абсолютная высота полотна в точках pts (мост или эстакада); пусто — дорога идёт по рельефу
 
     // Точка и направление на расстоянии s от начала; offset — смещение вправо от оси (правостороннее движение).
     Vec2 pointAt(float s, float offset = 0.f) const;
     Vec2 directionAt(float s) const;
+    // Высота полотна на расстоянии s от начала; NaN — дорога идёт по рельефу (высоту берёт вызывающий из карты высот).
+    float surfaceAt(float s) const;
 };
 
 struct RoadNode {
@@ -41,6 +46,7 @@ struct RoadNode {
 
 struct RoadGraphSettings {
     float minEdgeLength = 3.f;  // короче — склеиваем с соседним узлом (шум данных)
+    const world::RoadProfile* profile = nullptr;  // профиль мостов: рёбра на мосту получают высоту полотна (тот же, что у геометрии города)
 };
 
 class RoadGraph {
@@ -79,6 +85,7 @@ struct Car {
     std::vector<int> heldNodes;         // перекрёстки, которые машина сейчас занимает (на коротких дорогах их может быть два)
     float stoppedFor = 0.f;             // сколько секунд почти стоит (сторожевой таймер)
     Vec2 pos;                           // положение в мире (обновляется каждый шаг)
+    float surfaceY = std::numeric_limits<float>::quiet_NaN();  // высота полотна под машиной на мосту; NaN — по рельефу
     float heading = 0.f;                // радианы: 0 — на север (-Z), положительные — к востоку (+X)
 };
 

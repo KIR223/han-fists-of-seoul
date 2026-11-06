@@ -641,11 +641,104 @@ std::vector<std::vector<Vec2>> buildingFootprints(const OsmData& data, const Geo
     return out;
 }
 
+// --- Мосты и эстакады (этап 03): конструкция под полотном и коллайдеры. Высоты полотна считает computeRoadProfile (road_profile.h).
+// Четырёхугольник с нормалью: порядок вершин подбирается так, чтобы лицевая сторона смотрела по (nx, ny, nz).
+void addSolidQuad(GeoMesh& m, const float p[4][3], const float uv[4][2], float nx, float ny, float nz, Color c) {
+    const auto base = static_cast<std::uint32_t>(m.vertices.size());
+    for (int k = 0; k < 4; ++k) pushVertex(m, p[k][0], p[k][1], p[k][2], nx, ny, nz, c, uv[k][0], uv[k][1]);
+    const float e1[3] = {p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]}, e2[3] = {p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]};
+    const float cx = e1[1] * e2[2] - e1[2] * e2[1], cy = e1[2] * e2[0] - e1[0] * e2[2], cz = e1[0] * e2[1] - e1[1] * e2[0];
+    if (cx * nx + cy * ny + cz * nz >= 0.f) m.indices.insert(m.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
+    else m.indices.insert(m.indices.end(), {base, base + 2, base + 1, base, base + 3, base + 2});
+}
+
+float deckHeightAt(float x, float z, Vec2 a, Vec2 b, float hA, float hB) {
+    const float dx = b.x - a.x, dz = b.y - a.y, len2 = std::max(dx * dx + dz * dz, 1e-6f);
+    const float t = std::clamp(((x - a.x) * dx + (z - a.y) * dz) / len2, 0.f, 1.f);
+    return hA + (hB - hA) * t;
+}
+
+// Балка (бока и низ) и опоры под одним сегментом полотна, коллайдеры полотна и опор. Вершины задаются в абсолютной высоте.
+void addBridgeStructure(CityChunk& chunk, Vec2 a, Vec2 b, float hA, float hB, float width, const CityBuildSettings& settings, CityStats& st) {
+    const RoadProfileSettings& rp = settings.roadProfile;
+    const float dx = b.x - a.x, dz = b.y - a.y, length = std::hypot(dx, dz);
+    if (length < 0.5f) return;
+    const float ux = dx / length, uz = dz / length, nx = -uz, nz = ux, hw = width * 0.5f;
+    const Color concrete{0.62f, 0.62f, 0.60f};
+    const float tile = kWallTile;
+    const bool savedFixed = gFixed;
+    const float savedBase = gFixedBase;
+    gFixed = true;
+    gFixedBase = 0.f;
+    const auto firstIndex = static_cast<std::uint32_t>(chunk.ground.indices.size());
+    const float t0 = 0.f, t1 = length / tile, v1 = rp.deckThickness / tile;
+    const float th = rp.deckThickness;
+    {
+        const float side[4][3] = {{a.x + nx * hw, hA, a.y + nz * hw}, {b.x + nx * hw, hB, b.y + nz * hw}, {b.x + nx * hw, hB - th, b.y + nz * hw}, {a.x + nx * hw, hA - th, a.y + nz * hw}};
+        const float uv[4][2] = {{t0, 0}, {t1, 0}, {t1, v1}, {t0, v1}};
+        addSolidQuad(chunk.ground, side, uv, nx, 0.f, nz, concrete);
+    }
+    {
+        const float side[4][3] = {{a.x - nx * hw, hA, a.y - nz * hw}, {b.x - nx * hw, hB, b.y - nz * hw}, {b.x - nx * hw, hB - th, b.y - nz * hw}, {a.x - nx * hw, hA - th, a.y - nz * hw}};
+        const float uv[4][2] = {{t0, 0}, {t1, 0}, {t1, v1}, {t0, v1}};
+        addSolidQuad(chunk.ground, side, uv, -nx, 0.f, -nz, concrete);
+    }
+    {
+        const float bottom[4][3] = {{a.x + nx * hw, hA - th, a.y + nz * hw}, {b.x + nx * hw, hB - th, b.y + nz * hw}, {b.x - nx * hw, hB - th, b.y - nz * hw}, {a.x - nx * hw, hA - th, a.y - nz * hw}};
+        const float uv[4][2] = {{t0, 0}, {t1, 0}, {t1, width / tile}, {t0, width / tile}};
+        addSolidQuad(chunk.ground, bottom, uv, 0.f, -1.f, 0.f, concrete);
+    }
+    // Опоры: квадратные колонны от земли до низа балки, если под полотном есть габарит.
+    const int pierCount = std::max(length > rp.pierSpacing * 0.6f ? 1 : 0, static_cast<int>(length / rp.pierSpacing));
+    const float half = rp.pierSize * 0.5f;
+    for (int k = 0; k < pierCount; ++k) {
+        const float t = (static_cast<float>(k) + 0.5f) / static_cast<float>(pierCount);
+        const float px = a.x + dx * t, pz = a.y + dz * t;
+        const float deckBottom = hA + (hB - hA) * t - th;
+        const float ground = groundAt(px, pz);
+        if (deckBottom - ground < rp.minPierClearance) continue;
+        const float corners[4][2] = {{px + ux * half + nx * half, pz + uz * half + nz * half}, {px + ux * half - nx * half, pz + uz * half - nz * half},
+                                     {px - ux * half - nx * half, pz - uz * half - nz * half}, {px - ux * half + nx * half, pz - uz * half + nz * half}};
+        const float v = (deckBottom - ground) / tile;
+        for (int side = 0; side < 4; ++side) {
+            const int next = (side + 1) % 4;
+            const float quad[4][3] = {{corners[side][0], deckBottom, corners[side][1]}, {corners[next][0], deckBottom, corners[next][1]},
+                                      {corners[next][0], ground, corners[next][1]}, {corners[side][0], ground, corners[side][1]}};
+            const float uv[4][2] = {{0, 0}, {rp.pierSize / tile, 0}, {rp.pierSize / tile, v}, {0, v}};
+            const float mx = (corners[side][0] + corners[next][0]) * 0.5f - px, mz = (corners[side][1] + corners[next][1]) * 0.5f - pz, ml = std::max(std::hypot(mx, mz), 1e-4f);
+            addSolidQuad(chunk.ground, quad, uv, mx / ml, 0.f, mz / ml, concrete);
+        }
+        if (settings.colliders) {
+            chunk.walls.push_back({{px, (deckBottom + ground) * 0.5f, pz}, {half, (deckBottom - ground) * 0.5f, half}, std::atan2(-uz, ux)});
+            ++st.piers;
+        }
+    }
+    chunk.ground.tag(GeoMaterial::WallConcrete, firstIndex);
+    gFixed = savedFixed;
+    gFixedBase = savedBase;
+    // Коллайдеры полотна: коробки без наклона, уклон — ступеньками по colliderStep (верх коробки на высоте полотна в её центре).
+    if (settings.colliders) {
+        const int steps = std::max(1, static_cast<int>(std::ceil(length / rp.colliderStep)));
+        const float stepLength = length / static_cast<float>(steps);
+        for (int k = 0; k < steps; ++k) {
+            const float t = (static_cast<float>(k) + 0.5f) / static_cast<float>(steps);
+            const float cx = a.x + dx * t, cz = a.y + dz * t, top = hA + (hB - hA) * t + settings.roadLift;
+            chunk.walls.push_back({{cx, top - rp.colliderThickness * 0.5f, cz}, {stepLength * 0.55f, rp.colliderThickness * 0.5f, hw}, std::atan2(-uz, ux)});
+            ++st.deckColliders;
+        }
+    }
+    ++st.bridgeSegments;
+}
+
 std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjection& projection, const CityBuildSettings& settings, CityStats* stats) {
     std::map<CellCoord, CityChunk> chunks;
     CityStats st;
     gTerrain = settings.terrain && settings.terrain->valid() ? settings.terrain : nullptr;
     gFixed = gHaveBase = false;
+    RoadProfile ownProfile;
+    if (settings.bridges && !settings.roadProfileData) ownProfile = computeRoadProfile(data, projection, gTerrain, settings.roadProfile);
+    const RoadProfile& profile = !settings.bridges ? ownProfile : (settings.roadProfileData ? *settings.roadProfileData : ownProfile);
+    st.bridgeWays = profile.stats().bridgeWays;
     CellGrid grid(settings.cellSize);
     bool haveBounds = false;
     const auto grow = [&](float x, float z) {
@@ -755,12 +848,25 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             // Дорога делится по ячейкам: каждый сегмент идёт в ячейку своей середины, стыки добавляются вместе с сегментом.
             const float lift = settings.roadLift + (14.f - width) * 0.002f;  // шире — ниже, чтобы перекрытия не мерцали
             const Color color = roadColor(highway);
+            const bool bridgeWay = !profile.empty() && isBridgeWay(way) && pts.size() == way.nodes.size() && profile.hasNode(way.nodes.front());
             for (std::size_t i = 0; i + 1 < pts.size(); ++i) {
+                // Полотно с балкой — если хотя бы один конец рассчитан профилем; между двумя узлами на земле — только пологий участок без узлов на рельефе,
+                // иначе (крутой склон) дорога идёт по земле, как обычная.
+                const bool nodesKnown = bridgeWay && profile.hasNode(way.nodes[i]) && profile.hasNode(way.nodes[i + 1]);
+                const bool profiled = nodesKnown && (profile.isProfileNode(way.nodes[i]) || profile.isProfileNode(way.nodes[i + 1]));
+                const bool gentle = nodesKnown && !profile.followsTerrain(way.nodes[i]) && !profile.followsTerrain(way.nodes[i + 1]) &&
+                                    std::fabs(profile.height(way.nodes[i]) - profile.height(way.nodes[i + 1])) <= 0.12f * std::max(1.f, std::hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y));
+                const bool deck = profiled || gentle;
+                const float deckA = deck ? profile.height(way.nodes[i]) : 0.f, deckB = deck ? profile.height(way.nodes[i + 1]) : 0.f;
                 const std::vector<Vec2> seg = {pts[i], pts[i + 1]};
                 const Vec2 mid{(pts[i].x + pts[i + 1].x) * 0.5f, (pts[i].y + pts[i + 1].y) * 0.5f};
                 CityChunk& chunk = chunkAt(mid);
                 const auto vertsBefore = chunk.ground.vertices.size();
                 const auto indexBefore = static_cast<std::uint32_t>(chunk.ground.indices.size());
+                if (deck) {  // полотно моста: высота задаётся профилем, а не рельефом; локальные подъёмы вершин остаются относительно полотна
+                    gFixed = true;
+                    gFixedBase = 0.f;
+                }
                 chunk.roadSegments += addRoad(chunk.ground, seg, width * 0.5f, lift, color, static_cast<int>(settings.junctionSides));
                 // Диск в конце сегмента, чтобы поворот не оставлял щелей (концы дороги тоже получают круглую «шапку»).
                 const auto base = static_cast<std::uint32_t>(chunk.ground.vertices.size());
@@ -787,6 +893,14 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                     }
                 }
                 chunk.ground.tag(GeoMaterial::Marking, markFirst);
+                if (deck) {
+                    gFixed = false;
+                    for (std::size_t vi = vertsBefore; vi < chunk.ground.vertices.size(); ++vi) {
+                        auto& v = chunk.ground.vertices[vi];
+                        v.position[1] += deckHeightAt(v.position[0], v.position[2], pts[i], pts[i + 1], deckA, deckB);
+                    }
+                    addBridgeStructure(chunk, pts[i], pts[i + 1], deckA, deckB, width, settings, st);
+                }
                 grow(pts[i].x, pts[i].y);
                 grow(pts[i + 1].x, pts[i + 1].y);
             }
@@ -867,6 +981,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             const std::string_view highway = way.tag("highway");
             const float width = highway.empty() ? 0.f : roadWidth(way);
             if (width < 6.f || highway == "motorway" || highway == "trunk" || highway == "service") continue;
+            if (!profile.empty() && isBridgeWay(way)) continue;  // деревья и фонари у земли не ставятся вдоль полотна на высоте
             const auto pts = project(way);
             float sinceTree = 8.f, sinceLamp = 15.f, sinceFurniture = 0.f;
             int side = 1;

@@ -4,6 +4,7 @@
 #include <map>
 #include <vector>
 
+#include "han/world/road_profile.h"
 #include "han/world/geometry.h"
 #include "han/world/osm.h"
 #include "han/world/streaming.h"
@@ -13,6 +14,9 @@
 namespace han::world {
 struct CityBuildSettings {
     CityStyle style;
+    RoadProfileSettings roadProfile;       // габарит, уклон и конструкция мостов (data/city/road_profile.json)
+    bool bridges = true;                   // поднимать мосты и эстакады над землёй (по тегам bridge/layer); false — всё по рельефу
+    const RoadProfile* roadProfileData = nullptr;  // готовый профиль (общий с трафиком); nullptr — считается внутри buildCity
     float cellSize = 256.f;
     float defaultBuildingHeight = 9.f;   // если нет ни height, ни building:levels
     float levelHeight = 3.2f;
@@ -56,6 +60,7 @@ struct CityChunk {
 };
 
 struct CityStats {
+    int bridgeWays = 0, bridgeSegments = 0, deckColliders = 0, piers = 0;  // мосты: пути, сегменты полотна, коллайдеры полотна и опор
     int roads = 0, buildings = 0, parks = 0, waters = 0, skipped = 0;  // skipped: слишком мелкие, не замкнутые, самопересекающиеся
     float minX = 0, maxX = 0, minZ = 0, maxZ = 0;                      // границы построенного
 };

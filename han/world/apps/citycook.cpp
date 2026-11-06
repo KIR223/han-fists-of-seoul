@@ -72,6 +72,10 @@ int main(int argc, char** argv) {
         return 1;
     }
     settings.terrain = terrain.valid() ? &terrain : nullptr;
+    if (!loadRoadProfileSettings("data/city/road_profile.json", settings.roadProfile, error)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return 1;
+    }
     if (!originSet) { origin[0] = settings.style.originLat; origin[1] = settings.style.originLon; }
     // Размер полного атласа брендов; --shop-tile сохраняется как явное переопределение.
     settings.shopTileMeters = shopTile > 0.f ? shopTile : settings.style.shopBayWidth * static_cast<float>(settings.style.signBays);
@@ -98,5 +102,6 @@ int main(int argc, char** argv) {
               << ",\n  \"terrain\": " << (terrain.valid() ? "true" : "false") << "\n}\n";
     }
     std::printf("запечено ячеек: %d из %zu, %.1f МБ; домов %d, дорог %d, парков %d\n", written, chunks.size(), static_cast<double>(bytes) / 1048576.0, stats.buildings, stats.roads, stats.parks);
+    std::printf("мосты: путей %d, сегментов полотна %d, коллайдеров полотна %d, опор %d\n", stats.bridgeWays, stats.bridgeSegments, stats.deckColliders, stats.piers);
     return 0;
 }
