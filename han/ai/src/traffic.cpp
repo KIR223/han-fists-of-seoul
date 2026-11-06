@@ -65,6 +65,91 @@ Vec2 RoadEdge::pointAt(float s, float offset) const {
     return {p.x - d.z * offset, p.z + d.x * offset};  // вправо от направления движения: (-dz, dx)
 }
 
+namespace {
+Vec2 bezierPoint(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, float u) {
+    const float v = 1.f - u;
+    const float a = v * v * v, b = 3.f * v * v * u, c = 3.f * v * u * u, d = u * u * u;
+    return {a * p0.x + b * p1.x + c * p2.x + d * p3.x, a * p0.z + b * p1.z + c * p2.z + d * p3.z};
+}
+Vec2 bezierTangent(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, float u) {
+    const float v = 1.f - u;
+    const float a = 3.f * v * v, b = 6.f * v * u, c = 3.f * u * u;
+    return {a * (p1.x - p0.x) + b * (p2.x - p1.x) + c * (p3.x - p2.x), a * (p1.z - p0.z) + b * (p2.z - p1.z) + c * (p3.z - p2.z)};
+}
+float laneOffsetOf(const RoadEdge& r, int lane) { return r.centerOffset + (static_cast<float>(std::clamp(lane, 0, r.lanes - 1)) + 0.5f) * r.laneWidth; }
+}  // namespace
+
+// Полоса на следующей дороге по типу поворота (правостороннее движение, полосы считаются от осевой наружу вправо): правый поворот — в
+// крайнюю правую, левый — в ближайшую к оси, прямо — та же по номеру, но не больше числа полос.
+int TrafficSim::laneOnto(int lane, int fromEdge, int toEdge) const {
+    const RoadEdge& a = g_.edges()[static_cast<std::size_t>(fromEdge)];
+    const RoadEdge& b = g_.edges()[static_cast<std::size_t>(toEdge)];
+    if (!cfg_.smoothTurns || !cfg_.turnLanes) return std::min(lane, b.lanes - 1);
+    const Vec2 da = a.directionAt(a.length), db = b.directionAt(0.f);
+    const float cross = da.x * db.z - da.z * db.x;  // > 0 — поворот направо (x на восток, z на юг)
+    if (cross > 0.5f) return b.lanes - 1;
+    if (cross < -0.5f) return 0;
+    return std::min(lane, b.lanes - 1);
+}
+
+TrafficSim::CarPose TrafficSim::poseOf(const Car& c) const {
+    const auto& edges = g_.edges();
+    const RoadEdge& e = edges[static_cast<std::size_t>(c.edge)];
+    const auto straight = [&](const RoadEdge& r, float s, int lane) {
+        CarPose p;
+        p.pos = r.pointAt(s, laneOffsetOf(r, lane));
+        const Vec2 d = r.directionAt(s);
+        p.heading = std::atan2(d.x, -d.z);
+        p.surfaceY = r.surfaceAt(s);
+        return p;
+    };
+    const float m = c.s - c.length * 0.5f;  // расстояние центра машины от начала текущей дороги; < 0 — центр ещё на прежней дороге
+    if (!cfg_.smoothTurns) return straight(e, std::max(0.f, m), c.lane);
+    const float ownSurface = e.surfaceAt(std::max(0.f, m));
+    const auto halfLength = [&](const RoadEdge& a, int laneA, const RoadEdge& b, int laneB) {
+        const Vec2 da = a.directionAt(a.length), db = b.directionAt(0.f);
+        if (da.x * db.x + da.z * db.z < -0.7f) return 0.f;  // разворот (в тупике): дуга пересекла бы разделитель, остаётся прежний переезд
+        const float configured = cfg_.connectorRadius > 0.f ? cfg_.connectorRadius : std::clamp(3.f + 0.6f * (laneOffsetOf(a, laneA) + laneOffsetOf(b, laneB)), 4.f, 7.f);
+        return std::min({configured, 0.45f * a.length, 0.45f * b.length});
+    };
+    // Дуга Безье между точкой на a за r до узла и точкой на b через r после узла; x — расстояние центра от узла (< 0 — на a).
+    const auto across = [&](const RoadEdge& a, int laneA, const RoadEdge& b, int laneB, float x) {
+        const float r = halfLength(a, laneA, b, laneB);
+        if (r < 0.5f) return x < 0.f ? straight(a, std::max(0.f, a.length + x), laneA) : straight(b, x, laneB);
+        if (x <= -r) return straight(a, a.length + x, laneA);
+        if (x >= r) return straight(b, x, laneB);
+        const Vec2 p0 = a.pointAt(a.length - r, laneOffsetOf(a, laneA)), p3 = b.pointAt(r, laneOffsetOf(b, laneB));
+        const Vec2 d0 = a.directionAt(a.length - r), d3 = b.directionAt(r);
+        const float k = std::hypot(p3.x - p0.x, p3.z - p0.z) / 3.f;
+        const Vec2 p1{p0.x + d0.x * k, p0.z + d0.z * k}, p2{p3.x - d3.x * k, p3.z - d3.z * k};
+        const float u = (x + r) / (2.f * r);
+        CarPose p;
+        p.pos = bezierPoint(p0, p1, p2, p3, u);
+        const Vec2 t = bezierTangent(p0, p1, p2, p3, u);
+        p.heading = std::atan2(t.x, -t.z);
+        p.surfaceY = std::numeric_limits<float>::quiet_NaN();  // высоту задаёт собственная дорога машины (см. ниже): соседняя может идти по земле
+        return p;
+    };
+    if (c.prev >= 0) {
+        const RoadEdge& a = edges[static_cast<std::size_t>(c.prev)];
+        if (m < halfLength(a, c.prevLane, e, c.lane)) {
+            CarPose p = across(a, c.prevLane, e, c.lane, m);
+            p.surfaceY = ownSurface;
+            return p;
+        }
+    }
+    if (c.next >= 0) {
+        const RoadEdge& b = edges[static_cast<std::size_t>(c.next)];
+        const int laneB = laneOnto(c.lane, c.edge, c.next);
+        if (e.length - m < halfLength(e, c.lane, b, laneB)) {
+            CarPose p = across(e, c.lane, b, laneB, -(e.length - m));
+            p.surfaceY = ownSurface;
+            return p;
+        }
+    }
+    return straight(e, std::max(0.f, m), c.lane);
+}
+
 float RoadEdge::surfaceAt(float s) const {
     if (ys.size() != pts.size() || pts.size() < 2) return std::numeric_limits<float>::quiet_NaN();
     s = std::clamp(s, 0.f, length);
@@ -417,8 +502,7 @@ float TrafficSim::gapAhead(const Car& c, float& leaderSpeed) const {
         }
     }
     if (best < 1e8f || c.next < 0) return best;
-    const RoadEdge& n = g_.edges()[static_cast<std::size_t>(c.next)];
-    const int lane = std::min(c.lane, n.lanes - 1);
+    const int lane = laneOnto(c.lane, c.edge, c.next);
     for (int idx : lanes_[static_cast<std::size_t>(c.next)][static_cast<std::size_t>(lane)]) {
         const Car& o = cars_[static_cast<std::size_t>(idx)];
         const float gap = (e.length - c.s) + o.s - o.length;
@@ -432,8 +516,7 @@ float TrafficSim::gapAhead(const Car& c, float& leaderSpeed) const {
 
 bool TrafficSim::canEnter(const Car& c) const {
     if (c.next < 0) return true;
-    const RoadEdge& n = g_.edges()[static_cast<std::size_t>(c.next)];
-    const int lane = std::min(c.lane, n.lanes - 1);
+    const int lane = laneOnto(c.lane, c.edge, c.next);
     for (int idx : lanes_[static_cast<std::size_t>(c.next)][static_cast<std::size_t>(lane)]) {
         const Car& o = cars_[static_cast<std::size_t>(idx)];
         if (o.s - o.length < c.length + 3.f) return false;  // на входе не хватает места для машины
@@ -522,9 +605,11 @@ void TrafficSim::step(float dt) {
             }
             // Въезд на следующую дорогу. Если узел-перекрёсток не отдан этой машине (данные без ограничений), всё равно едем: стоп-линия уже удерживала.
             c.s -= e->length;
+            c.prev = c.edge;
+            c.prevLane = c.lane;
+            c.lane = laneOnto(c.lane, c.edge, c.next);
             c.edge = c.next;
             e = &g_.edges()[static_cast<std::size_t>(c.edge)];
-            c.lane = std::min(c.lane, e->lanes - 1);
             c.v0 = std::min(c.v0, e->speed * 1.1f);
             c.v0 = std::max(c.v0, e->speed * 0.8f);
             c.next = pickNext(c, c.edge);
@@ -556,12 +641,10 @@ void TrafficSim::step(float dt) {
             remove.push_back(i);
             continue;
         }
-        const float off = e->centerOffset + (static_cast<float>(c.lane) + 0.5f) * e->laneWidth;
-        const float mid = std::max(0.f, c.s - c.length * 0.5f);
-        c.pos = e->pointAt(mid, off);
-        c.surfaceY = e->surfaceAt(mid);
-        const Vec2 d = e->directionAt(mid);
-        c.heading = std::atan2(d.x, -d.z);
+        const CarPose pose = poseOf(c);
+        c.pos = pose.pos;
+        c.surfaceY = pose.surfaceY;
+        c.heading = pose.heading;
     }
     for (std::size_t k = remove.size(); k-- > 0;) removeCar(remove[k]);
 }

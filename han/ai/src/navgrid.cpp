@@ -16,6 +16,11 @@ void NavGrid::cellOf(float x, float z, int& cx, int& cz) const {
 }
 
 NavGrid NavGrid::build(float minX, float minZ, float maxX, float maxZ, const std::vector<std::vector<Vec2>>& obstacles, const Settings& settings) {
+    return build(minX, minZ, maxX, maxZ, obstacles, {}, {}, settings);
+}
+
+NavGrid NavGrid::build(float minX, float minZ, float maxX, float maxZ, const std::vector<std::vector<Vec2>>& obstacles,
+                       const std::vector<std::vector<Vec2>>& roads, const std::vector<std::vector<Vec2>>& openings, const Settings& settings) {
     NavGrid g;
     g.cell_ = std::max(settings.cellSize, 0.1f);
     g.maxExpansions_ = settings.maxExpansions;
@@ -31,7 +36,8 @@ NavGrid NavGrid::build(float minX, float minZ, float maxX, float maxZ, const std
 
     // Заливка контуров построчно: по центрам клеток строки считаем пересечения с рёбрами, закрашиваем между парами.
     std::vector<float> xs;
-    for (const auto& poly : obstacles) {
+    const auto fill = [&](const std::vector<std::vector<Vec2>>& polygons, std::uint8_t value) {
+    for (const auto& poly : polygons) {
         const std::size_t n = poly.size();
         if (n < 3) continue;
         float zmin = poly[0].z, zmax = poly[0].z;
@@ -52,10 +58,14 @@ NavGrid NavGrid::build(float minX, float minZ, float maxX, float maxZ, const std
             for (std::size_t i = 0; i + 1 < xs.size(); i += 2) {
                 const int c0 = std::max(0, static_cast<int>(std::ceil((xs[i] - minX) / g.cell_ - 0.5f)));
                 const int c1 = std::min(g.width_ - 1, static_cast<int>(std::floor((xs[i + 1] - minX) / g.cell_ - 0.5f)));
-                for (int c = c0; c <= c1; ++c) g.blocked_[static_cast<std::size_t>(row) * static_cast<std::size_t>(g.width_) + static_cast<std::size_t>(c)] = 1;
+                for (int c = c0; c <= c1; ++c) g.blocked_[static_cast<std::size_t>(row) * static_cast<std::size_t>(g.width_) + static_cast<std::size_t>(c)] = value;
             }
         }
     }
+    };
+    fill(roads, 1);
+    fill(openings, 0);  // проёмы открывают проезжую часть
+    fill(obstacles, 1);  // здания и вода закрываются последними
     g.walkable_ = static_cast<std::size_t>(std::count(g.blocked_.begin(), g.blocked_.end(), std::uint8_t{0}));
     g.gCost_.assign(total, 0.f);
     g.parent_.assign(total, -1);

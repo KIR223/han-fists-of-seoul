@@ -26,6 +26,10 @@ public:
     static NavGrid build(float minX, float minZ, float maxX, float maxZ, const std::vector<std::vector<Vec2>>& obstacles) {
         return build(minX, minZ, maxX, maxZ, obstacles, Settings{});
     }
+    // obstacles — жёсткие препятствия (здания, вода); roads — проезжая часть, которую открывают проёмы openings (переходы).
+    // Порядок: roads закрываются, openings открываются, затем закрываются obstacles — проём не пробивает здание или воду.
+    static NavGrid build(float minX, float minZ, float maxX, float maxZ, const std::vector<std::vector<Vec2>>& obstacles,
+                         const std::vector<std::vector<Vec2>>& roads, const std::vector<std::vector<Vec2>>& openings, const Settings& settings);
 
     int width() const { return width_; }
     int height() const { return height_; }

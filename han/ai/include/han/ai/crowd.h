@@ -59,6 +59,7 @@ struct CrowdSettings {
     std::size_t maxAgents = 1000;
     float nearRadius = 60.f, midRadius = 150.f, farRadius = 300.f;
     float agentRadius = 0.35f;
+    float arrivalRadius = 1.5f;  // ближе этого к последней точке пути агент считается пришедшим: у двери скученные прохожие расталкивали друг друга и не доходили
     int maxPathQueriesPerFrame = 4;
     std::uint32_t seed = 12345;
     float fleeSpeedScale = 1.9f;
