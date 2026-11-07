@@ -263,7 +263,7 @@ RoadGraph RoadGraph::build(const world::OsmData& data, const world::GeoProjectio
         }
         if (pts.size() < 2) continue;
         const RoadClass cls = classOf(highway);
-        const bool onBridge = settings.profile && !settings.profile->empty() && world::isBridgeWay(w);
+        const bool onBridge = settings.profile && !settings.profile->empty() && (world::isBridgeWay(w) || world::isTunnelWay(w));  // высоты полотна: мост или тоннель
         const std::string_view onewayTag = w.tag("oneway");
         bool oneway = onewayTag == "yes" || onewayTag == "true" || onewayTag == "1" || onewayTag == "-1" || w.tag("junction") == "roundabout";
         if (onewayTag == "no") oneway = false;

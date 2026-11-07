@@ -11,5 +11,6 @@
   "pier_size": 1.6,
   "min_pier_clearance": 2.5,
   "collider_step": 2.5,
-  "collider_thickness": 0.6
+  "collider_thickness": 0.6,
+  "tunnel_cover": 2.0
 }

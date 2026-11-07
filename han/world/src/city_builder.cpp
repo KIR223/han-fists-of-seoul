@@ -849,7 +849,8 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             // Дорога делится по ячейкам: каждый сегмент идёт в ячейку своей середины, стыки добавляются вместе с сегментом.
             const float lift = settings.roadLift + (14.f - width) * 0.002f;  // шире — ниже, чтобы перекрытия не мерцали
             const Color color = roadColor(highway);
-            const bool bridgeWay = !profile.empty() && isBridgeWay(way) && pts.size() == way.nodes.size() && profile.hasNode(way.nodes.front());
+            const bool tunnelWay = !profile.empty() && isTunnelWay(way);
+            const bool bridgeWay = !profile.empty() && (isBridgeWay(way) || tunnelWay) && pts.size() == way.nodes.size() && profile.hasNode(way.nodes.front());
             for (std::size_t i = 0; i + 1 < pts.size(); ++i) {
                 // Полотно с балкой — если хотя бы один конец рассчитан профилем; между двумя узлами на земле — только пологий участок без узлов на рельефе,
                 // иначе (крутой склон) дорога идёт по земле, как обычная.
@@ -900,7 +901,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                         auto& v = chunk.ground.vertices[vi];
                         v.position[1] += deckHeightAt(v.position[0], v.position[2], pts[i], pts[i + 1], deckA, deckB);
                     }
-                    addBridgeStructure(chunk, pts[i], pts[i + 1], deckA, deckB, width, settings, st);
+                    if (!tunnelWay) addBridgeStructure(chunk, pts[i], pts[i + 1], deckA, deckB, width, settings, st);
                 }
                 grow(pts[i].x, pts[i].y);
                 grow(pts[i + 1].x, pts[i + 1].y);
@@ -982,7 +983,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             const std::string_view highway = way.tag("highway");
             const float width = highway.empty() ? 0.f : roadWidth(way);
             if (width < 6.f || highway == "motorway" || highway == "trunk" || highway == "service") continue;
-            if (!profile.empty() && isBridgeWay(way)) continue;  // деревья и фонари у земли не ставятся вдоль полотна на высоте
+            if (!profile.empty() && (isBridgeWay(way) || isTunnelWay(way))) continue;  // деревья и фонари у земли не ставятся вдоль полотна на высоте
             const auto pts = project(way);
             float sinceTree = 8.f, sinceLamp = 15.f, sinceFurniture = 0.f;
             int side = 1;

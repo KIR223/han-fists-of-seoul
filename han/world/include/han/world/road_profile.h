@@ -26,6 +26,7 @@ struct RoadProfileSettings {
     float minPierClearance = 2.5f;         // ниже этого габарита опор нет
     float colliderStep = 2.5f;             // длина одной ступеньки коллайдера полотна (коробки без наклона: уклон ступеньками)
     float colliderThickness = 0.6f;        // толщина коробки коллайдера полотна
+    float tunnelCover = 2.f;               // м грунта над полотном тоннеля, достигается на удалении от портала (уклон не круче maxGrade)
 };
 
 // Читает настройки из JSON (data/city/road_profile.json). Ошибки не меняют out.
@@ -33,6 +34,8 @@ bool loadRoadProfileSettings(const std::string& file, RoadProfileSettings& out, 
 
 // Дорога на мосту: тег bridge не пуст и не "no", тег highway задан.
 bool isBridgeWay(const OsmWay& way);
+// Дорога в тоннеле: tunnel не пуст, не "no", не "building_passage" (проезд сквозь здание остаётся на земле) и не "culvert" (водопропуск).
+bool isTunnelWay(const OsmWay& way);
 // Значение тега layer; для моста без тега — 1.
 int wayLayer(const OsmWay& way);
 
@@ -40,7 +43,13 @@ struct RoadProfileStats {
     int bridgeWays = 0, bridgeNodes = 0, anchorNodes = 0;
     int buriedNodes = 0;               // полотно ниже рельефа более чем на 0,5 м (остаточные случаи после перехода узлов на рельеф)
     int terrainFollowingNodes = 0;     // узлы моста, перешедшие на высоту рельефа: якоря несовместимы по уклону или габарит выше предела
-    int tunnelWays = 0;                // туннели пока рисуются по земле (не обработаны)
+    int tunnelWays = 0;                // пути с тегом tunnel (в том числе проезды сквозь здания и водопропуски)
+    int tunnelNodes = 0;               // узлы тоннелей с высотой под землёй (без порталов)
+    float maxTunnelDepth = 0.f;        // наибольшая глубина полотна под рельефом, м
+    float tunnelMaxGrade = 0.f;        // наибольший уклон между соседними узлами тоннеля
+    int tunnelSegments = 0, tunnelSteepSegments = 0;  // участки длиннее 10 м всего и круче 12%
+    int tunnelSurfaceSteepSegments = 0;  // для сравнения: сколько из тех же участков были бы круче 12%, если бы дорога шла по поверхности земли (прежнее поведение)
+    int tunnelAboveGround = 0;         // узлы тоннеля выше рельефа более чем на 0,1 м (должно быть 0)
     float maxClearance = 0.f;          // наибольшая высота полотна над рельефом в узлах
     int steepSegments = 0;             // участки длиннее 10 м круче 12% (в основном узлы на рельефе: полотно между ними идёт прямой)
     int solverPasses = 0;              // проходов решателя до устойчивого набора узлов на рельефе

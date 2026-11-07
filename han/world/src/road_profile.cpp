@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <set>
 #include <limits>
 #include <queue>
 #include <unordered_set>
@@ -36,6 +37,11 @@ bool isBridgeWay(const OsmWay& way) {
     return !way.tag("highway").empty() && !bridge.empty() && bridge != "no";
 }
 
+bool isTunnelWay(const OsmWay& way) {
+    const auto tunnel = way.tag("tunnel");
+    return !way.tag("highway").empty() && !tunnel.empty() && tunnel != "no" && tunnel != "building_passage" && tunnel != "culvert";
+}
+
 int wayLayer(const OsmWay& way) {
     const auto text = way.tag("layer");
     if (text.empty()) return isBridgeWay(way) ? 1 : 0;
@@ -63,7 +69,7 @@ bool loadRoadProfileSettings(const std::string& file, RoadProfileSettings& out, 
         {"max_grade", &s.maxGrade, 0.005f, 0.2f}, {"max_height_above_ground", &s.maxHeightAboveGround, 5.f, 200.f}, {"clearance_layer1", &s.clearanceLayer1, 0.5f, 60.f}, {"clearance_layer2", &s.clearanceLayer2, 0.5f, 60.f},
         {"clearance_layer3", &s.clearanceLayer3, 0.5f, 60.f}, {"deck_thickness", &s.deckThickness, 0.1f, 10.f}, {"pier_spacing", &s.pierSpacing, 5.f, 500.f},
         {"pier_size", &s.pierSize, 0.2f, 10.f}, {"min_pier_clearance", &s.minPierClearance, 0.f, 30.f}, {"collider_step", &s.colliderStep, 0.5f, 20.f},
-        {"collider_thickness", &s.colliderThickness, 0.1f, 5.f},
+        {"collider_thickness", &s.colliderThickness, 0.1f, 5.f}, {"tunnel_cover", &s.tunnelCover, 0.5f, 30.f},
     };
     for (const auto& f : fields) {
         const auto& value = root[f.name];
@@ -94,7 +100,7 @@ RoadProfile computeRoadProfile(const OsmData& data, const GeoProjection& project
     for (const OsmWay& way : data.ways) {
         if (way.tag("highway").empty() || roadWidth(way) <= 0.f) continue;
         if (way.tag("tunnel").empty() ? false : way.tag("tunnel") != "no") ++result.stats_.tunnelWays;
-        if (isBridgeWay(way)) continue;
+        if (isBridgeWay(way) || isTunnelWay(way)) continue;
         for (const auto id : way.nodes) groundNodes.insert(id);
     }
 
@@ -131,7 +137,101 @@ RoadProfile computeRoadProfile(const OsmData& data, const GeoProjection& project
             b.next.push_back({ids[i], length});
         }
     }
-    if (nodes.empty()) return result;
+    const auto solveTunnels = [&]() {
+        // Тоннели: путь режется на цепочки между порталами. Портал — узел, общий с обычной дорогой, узел с другой высотой (мост), тупик или развилка тоннелей;
+        // он стоит на земле. Между порталами полотно идёт по прямой между отметками порталов, но не выше рельефа за вычетом слоя грунта,
+        // который нарастает от портала не круче maxGrade. Поверхность земли закрывает дорогу сверху.
+        std::unordered_map<std::int64_t, std::vector<std::int64_t>> tunnelAdj;
+        for (const OsmWay& way : data.ways) {
+            if (!isTunnelWay(way) || roadWidth(way) <= 0.f || isBridgeWay(way)) continue;
+            std::int64_t previous = 0;
+            bool havePrevious = false;
+            for (const auto id : way.nodes) {
+                float x, z;
+                if (!position(id, x, z)) continue;
+                if (havePrevious && previous != id) {
+                    auto& a = tunnelAdj[previous];
+                    auto& b = tunnelAdj[id];
+                    if (std::find(a.begin(), a.end(), id) == a.end()) a.push_back(id);
+                    if (std::find(b.begin(), b.end(), previous) == b.end()) b.push_back(previous);
+                }
+                previous = id;
+                havePrevious = true;
+            }
+        }
+        const auto isPortal = [&](std::int64_t id) { return groundNodes.count(id) != 0 || result.deck_.count(id) != 0 || tunnelAdj[id].size() != 2; };
+        std::set<std::pair<std::int64_t, std::int64_t>> walked;
+        const auto edgeKey = [](std::int64_t a, std::int64_t b) { return std::make_pair(std::min(a, b), std::max(a, b)); };
+        std::vector<std::int64_t> portalIds;
+        for (const auto& [id, neighbours] : tunnelAdj) {
+            (void)neighbours;
+            if (isPortal(id)) portalIds.push_back(id);
+        }
+        std::sort(portalIds.begin(), portalIds.end());  // детерминированный порядок
+        for (const std::int64_t portal : portalIds) {
+            for (const std::int64_t first : std::vector<std::int64_t>(tunnelAdj[portal])) {
+                if (walked.count(edgeKey(portal, first))) continue;
+                std::vector<std::int64_t> ids = {portal, first};
+                walked.insert(edgeKey(portal, first));
+                std::int64_t previous = portal, current = first;
+                while (!isPortal(current)) {
+                    std::int64_t next = 0;
+                    for (const auto candidate : tunnelAdj[current])
+                        if (candidate != previous) next = candidate;
+                    if (next == 0 || walked.count(edgeKey(current, next))) break;
+                    walked.insert(edgeKey(current, next));
+                    ids.push_back(next);
+                    previous = current;
+                    current = next;
+                }
+                std::vector<float> xs(ids.size()), zs(ids.size()), chain(ids.size(), 0.f);
+                for (std::size_t i = 0; i < ids.size(); ++i) {
+                    position(ids[i], xs[i], zs[i]);
+                    if (i > 0) chain[i] = chain[i - 1] + std::hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1]);
+                }
+                const std::size_t last = ids.size() - 1;
+                const float hA = groundAt(xs[0], zs[0]), hB = groundAt(xs[last], zs[last]), total = std::max(chain[last], 0.01f);
+                std::vector<float> planned(ids.size());
+                for (std::size_t i = 0; i <= last; ++i) {
+                    const float ground = groundAt(xs[i], zs[i]);
+                    planned[i] = ground;
+                    if (i != 0 && i != last) {
+                        const float d = std::min(chain[i], chain[last] - chain[i]);
+                        const float line = hA + (hB - hA) * (chain[i] / total);
+                        planned[i] = std::min(line, ground - std::min(settings.tunnelCover, settings.maxGrade * d));
+                    }
+                }
+                // Уклон: полотно может только опускаться (оно остаётся под землёй), поэтому ограничиваем рост высоты от соседа в обе стороны.
+                for (std::size_t i = 1; i < last; ++i) planned[i] = std::min(planned[i], planned[i - 1] + settings.maxGrade * (chain[i] - chain[i - 1]));
+                for (std::size_t i = last - 1; i > 0; --i) planned[i] = std::min(planned[i], planned[i + 1] + settings.maxGrade * (chain[i + 1] - chain[i]));
+                for (std::size_t i = 0; i <= last; ++i) {
+                    if (result.deck_.count(ids[i])) continue;  // узел уже получил высоту (портал соседней цепочки)
+                    const float ground = groundAt(xs[i], zs[i]);
+                    const float h = planned[i];
+                    result.deck_[ids[i]] = h;
+                    if (i != 0 && i != last) {
+                        result.free_.insert(ids[i]);
+                        ++result.stats_.tunnelNodes;
+                        result.stats_.maxTunnelDepth = std::max(result.stats_.maxTunnelDepth, ground - h);
+                        if (h > ground + 0.1f) ++result.stats_.tunnelAboveGround;
+                    }
+                }
+                for (std::size_t i = 0; i < last; ++i) {
+                    const float length = chain[i + 1] - chain[i];
+                    if (length > 3.f) result.stats_.tunnelMaxGrade = std::max(result.stats_.tunnelMaxGrade, std::fabs(result.deck_[ids[i]] - result.deck_[ids[i + 1]]) / length);
+                    if (length > 10.f) {
+                        ++result.stats_.tunnelSegments;
+                        if (std::fabs(groundAt(xs[i], zs[i]) - groundAt(xs[i + 1], zs[i + 1])) / length > 0.12f) ++result.stats_.tunnelSurfaceSteepSegments;
+                        if (std::fabs(result.deck_[ids[i]] - result.deck_[ids[i + 1]]) / length > 0.12f) ++result.stats_.tunnelSteepSegments;
+                    }
+                }
+            }
+        }
+    };
+    if (nodes.empty()) {
+        solveTunnels();
+        return result;
+    }
 
     for (auto& [id, n] : nodes) {
         n.ground = groundAt(n.x, n.z);
@@ -250,6 +350,7 @@ RoadProfile computeRoadProfile(const OsmData& data, const GeoProjection& project
             }
         }
     }
+    solveTunnels();
     return result;
 }
 
