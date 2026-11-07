@@ -23,6 +23,7 @@ struct Slot {
     const char* folder;     // assets_bin/cooked/<folder>/diff.ktx2; nullptr — текстура строится кодом
     float fallback[3];      // цвет, если текстуры нет
     float roughness;
+    const char* alt = nullptr;  // свободный аналог (CC0), если набора библиотеки владельца нет на этой машине
 };
 
 inline const world::CityStyle& style() {
@@ -35,25 +36,33 @@ inline const world::CityStyle& style() {
     return settings;
 }
 
+// Папка набора: основная, если в ней есть альбедо, иначе свободный аналог; nullptr — нет ни того ни другого.
+inline const char* resolveFolder(const Slot& s, const std::filesystem::path& cooked) {
+    if (!s.folder) return nullptr;
+    if (std::filesystem::exists(cooked / s.folder / "diff.ktx2")) return s.folder;
+    if (s.alt && std::filesystem::exists(cooked / s.alt / "diff.ktx2")) return s.alt;
+    return s.folder;
+}
+
 inline const std::array<Slot, 17>& slots() {
     static const std::array<Slot, 17> s = {{
-        {world::GeoMaterial::Road, "tx_lib_citystreetasphaltgenericclean001_87b5e4b62c", {0.22f, 0.22f, 0.23f}, 0.9f},
-        {world::GeoMaterial::Park, "tx_lib_poliigon_grasspatchyground_4585_5cfd7363f3", {0.30f, 0.46f, 0.26f}, 0.95f},
-        {world::GeoMaterial::WallPlaster, "tx_lib_poliigon_plasterpainted_7664_c8781094d4", {0.72f, 0.69f, 0.64f}, 0.85f},
-        {world::GeoMaterial::WallBrick, "tx_lib_bricksdragfacedrunning008_a9b2e41ada", {0.62f, 0.38f, 0.32f}, 0.85f},
-        {world::GeoMaterial::WallConcrete, "tx_lib_poliigon_concreteworn_8690_63d36ad015", {0.60f, 0.60f, 0.62f}, 0.8f},
+        {world::GeoMaterial::Road, "tx_lib_citystreetasphaltgenericclean001_87b5e4b62c", {0.22f, 0.22f, 0.23f}, 0.9f, "tx_road_asphalt"},
+        {world::GeoMaterial::Park, "tx_lib_poliigon_grasspatchyground_4585_5cfd7363f3", {0.30f, 0.46f, 0.26f}, 0.95f, "tx_ground_grass"},
+        {world::GeoMaterial::WallPlaster, "tx_lib_poliigon_plasterpainted_7664_c8781094d4", {0.72f, 0.69f, 0.64f}, 0.85f, "tx_wall_plaster_beige"},
+        {world::GeoMaterial::WallBrick, "tx_lib_bricksdragfacedrunning008_a9b2e41ada", {0.62f, 0.38f, 0.32f}, 0.85f, "tx_wall_brick_brown"},
+        {world::GeoMaterial::WallConcrete, "tx_lib_poliigon_concreteworn_8690_63d36ad015", {0.60f, 0.60f, 0.62f}, 0.8f, "tx_wall_concrete"},
         {world::GeoMaterial::Roof, "tx_roof_bitumen", {0.30f, 0.30f, 0.32f}, 0.9f},
-        {world::GeoMaterial::Sidewalk, "tx_lib_poliigon_concretepaverssquare_7100_2973dfdbb0", {0.50f, 0.46f, 0.42f}, 0.9f},
+        {world::GeoMaterial::Sidewalk, "tx_lib_poliigon_concretepaverssquare_7100_2973dfdbb0", {0.50f, 0.46f, 0.42f}, 0.9f, "tx_sidewalk_brick"},
         {world::GeoMaterial::Storefront, nullptr, {0.35f, 0.30f, 0.28f}, 0.5f},  // процедурная (makeStorefront), файла нет
         {world::GeoMaterial::BladeSign, nullptr, {0.8f, 0.8f, 0.75f}, 0.35f},
         {world::GeoMaterial::LampGlass, nullptr, {1.f, 0.9f, 0.7f}, 0.25f},
-        {world::GeoMaterial::Terrain, "tx_lib_poliigon_concretefloorpoured_7656_5ae654b0aa", {0.68f, 0.68f, 0.66f}, 0.92f},
-        {world::GeoMaterial::Metal, "tx_lib_metalgalvanizedsteelworn001_8c8173dc22", {0.65f, 0.66f, 0.68f}, 0.55f},
-        {world::GeoMaterial::RoofPaint, "tx_lib_poliigon_plasterpainted_7664_c8781094d4", {0.50f, 0.7f, 0.6f}, 0.75f},
-        {world::GeoMaterial::WallRedBrick, "tx_lib_poliigon_brickreclaimedrunning_7787_0a74d3a97b", {0.7f, 0.38f, 0.3f}, 0.9f},
-        {world::GeoMaterial::WallWornBrick, "tx_lib_poliigon_brickwallreclaimed_8320_5eb75f895f", {0.55f, 0.4f, 0.3f}, 0.92f},
-        {world::GeoMaterial::WallCladding, "tx_lib_poliigon_concretewallcladding_7856_fc8f8033b9", {0.65f, 0.65f, 0.62f}, 0.7f},
-        {world::GeoMaterial::Plaza, "tx_lib_terrazzoslab028_8d5f7ed943", {0.65f, 0.6f, 0.55f}, 0.92f},
+        {world::GeoMaterial::Terrain, "tx_lib_poliigon_concretefloorpoured_7656_5ae654b0aa", {0.68f, 0.68f, 0.66f}, 0.92f, "tx_sidewalk_brick"},
+        {world::GeoMaterial::Metal, "tx_lib_metalgalvanizedsteelworn001_8c8173dc22", {0.65f, 0.66f, 0.68f}, 0.55f, "tx_wall_metal_sheet"},
+        {world::GeoMaterial::RoofPaint, "tx_lib_poliigon_plasterpainted_7664_c8781094d4", {0.50f, 0.7f, 0.6f}, 0.75f, "tx_wall_plaster_beige"},
+        {world::GeoMaterial::WallRedBrick, "tx_lib_poliigon_brickreclaimedrunning_7787_0a74d3a97b", {0.7f, 0.38f, 0.3f}, 0.9f, "tx_wall_brick_brown"},
+        {world::GeoMaterial::WallWornBrick, "tx_lib_poliigon_brickwallreclaimed_8320_5eb75f895f", {0.55f, 0.4f, 0.3f}, 0.92f, "tx_wall_brick_brown"},
+        {world::GeoMaterial::WallCladding, "tx_lib_poliigon_concretewallcladding_7856_fc8f8033b9", {0.65f, 0.65f, 0.62f}, 0.7f, "tx_wall_concrete"},
+        {world::GeoMaterial::Plaza, "tx_lib_terrazzoslab028_8d5f7ed943", {0.65f, 0.6f, 0.55f}, 0.92f, "tx_sidewalk_brick"},
     }};
     return s;
 }
@@ -197,7 +206,7 @@ inline std::vector<TextureId> load(Renderer& renderer, bool windows = true, cons
         }
         TextureData texture;
         std::string error;
-        if (!loadKtx2File(cooked / slots()[i].folder / "diff.ktx2", texture, error)) continue;
+        if (!loadKtx2File(cooked / resolveFolder(slots()[i], cooked) / "diff.ktx2", texture, error)) continue;
         const world::GeoMaterial m = slots()[i].material;
         const bool newWall = m == world::GeoMaterial::WallRedBrick || m == world::GeoMaterial::WallWornBrick || m == world::GeoMaterial::WallCladding;
         const bool windowed = windows && texture.width >= 256 && texture.width == texture.height &&
@@ -207,7 +216,7 @@ inline std::vector<TextureId> load(Renderer& renderer, bool windows = true, cons
         for (std::size_t kind = 1; kind <= 2; ++kind) {
             TextureData map;
             std::string mapError;
-            if (loadKtx2File(cooked / slots()[i].folder / (kind == 1 ? "nor.ktx2" : "rough.ktx2"), map, mapError)) {
+            if (loadKtx2File(cooked / resolveFolder(slots()[i], cooked) / (kind == 1 ? "nor.ktx2" : "rough.ktx2"), map, mapError)) {
                 const auto mat = slots()[i].material;
                 if (style().enabled && (mat == world::GeoMaterial::WallBrick || mat == world::GeoMaterial::WallRedBrick || mat == world::GeoMaterial::WallWornBrick || mat == world::GeoMaterial::WallCladding)) retileTexture(map, style().facadeDetailRepeat);
                 if (windowed && style().enabled) applyGlassSurface(map, texture, kind == 1, style().windowRoughness);
@@ -221,6 +230,12 @@ inline std::vector<TextureId> load(Renderer& renderer, bool windows = true, cons
     return ids;
 }
 
+inline int slotOf(world::GeoMaterial m) {
+    for (std::size_t i = 0; i < slots().size(); ++i)
+        if (slots()[i].material == m) return static_cast<int>(i);
+    return -1;
+}
+
 // Земля между дорогами и домами: мощёная плитка (тротуар) с картой нормалей и шероховатости; нет текстур — плоский цвет.
 inline MeshId uploadGround(Renderer& renderer, float halfSize = 4000.f, const std::filesystem::path& cooked = "assets_bin/cooked") {
     TextureId ids[3] = {0, 0, 0};
@@ -228,7 +243,7 @@ inline MeshId uploadGround(Renderer& renderer, float halfSize = 4000.f, const st
     for (int i = 0; i < 3; ++i) {
         TextureData t;
         std::string error;
-        if (loadKtx2File(cooked / "tx_lib_poliigon_concretefloorpoured_7656_5ae654b0aa" / files[i], t, error)) ids[i] = renderer.uploadTexture(t);
+        if (loadKtx2File(cooked / resolveFolder(slots()[static_cast<std::size_t>(slotOf(world::GeoMaterial::Terrain))], cooked) / files[i], t, error)) ids[i] = renderer.uploadTexture(t);
     }
     const bool textured = ids[0] != 0;
     constexpr float kTile = 4.f;  // метров на плитку
@@ -236,12 +251,6 @@ inline MeshId uploadGround(Renderer& renderer, float halfSize = 4000.f, const st
     g.textures = {"ground_albedo", "ground_normal", "ground_rough"};
     g.submeshes = {{0, static_cast<std::uint32_t>(g.indices.size()), textured ? 0 : -1, 0.0f, 0.9f, ids[1] ? 1 : -1, ids[2] ? 2 : -1}};
     return renderer.uploadMesh(g, ids);
-}
-
-inline int slotOf(world::GeoMaterial m) {
-    for (std::size_t i = 0; i < slots().size(); ++i)
-        if (slots()[i].material == m) return static_cast<int>(i);
-    return -1;
 }
 
 // GeoMesh → MeshData: по части на материал; материал с текстурой берёт её, без текстуры — плоский цвет-запас.
