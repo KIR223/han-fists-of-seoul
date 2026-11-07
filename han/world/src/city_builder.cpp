@@ -17,6 +17,7 @@ struct Color {
 Color roadColor(std::string_view highway) {
     if (highway == "footway" || highway == "pedestrian" || highway == "path" || highway == "steps" || highway == "cycleway") return {1.f, 0.97f, 0.93f};
     if (highway == "motorway" || highway == "trunk" || highway == "primary") return {0.80f, 0.80f, 0.82f};
+    if (highway == "busway") return {0.78f, 0.36f, 0.33f};  // красное покрытие автобусных полос
     return {1.f, 1.f, 1.f};
 }
 [[maybe_unused]] Color roadColorFlat(std::string_view highway) {
@@ -602,6 +603,12 @@ float roadWidth(std::string_view h) {
     if (h == "pedestrian") return 5.f;
     if (h == "footway" || h == "path" || h == "steps") return 2.f;
     if (h == "cycleway") return 2.5f;
+    // Этап 08c: ранее не рисовались. Выделенные автобусные полосы Сеула (прокрашены красным), грунтовые дороги, трасса и «road» (тип не уточнён).
+    // Не рисуются сознательно: construction (дорога строится, не проезжая), corridor/platform/elevator (внутри зданий и станций), bus_stop (точка).
+    if (h == "busway") return 3.5f;
+    if (h == "track") return 3.f;
+    if (h == "raceway") return 8.f;
+    if (h == "road") return 5.f;
     return 0.f;
 }
 
@@ -824,7 +831,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
             if (width <= 0.f) continue;
             auto pts = project(way);
             if (pts.size() < 2) continue;
-            const bool walking = highway == "pedestrian" || highway == "footway" || highway == "path" || highway == "steps" || highway == "cycleway";
+            const bool walking = highway == "pedestrian" || highway == "footway" || highway == "path" || highway == "steps" || highway == "cycleway" || highway == "track";
             if (walking && way.closed() && way.tag("area") == "yes") {
                 auto& chunk = chunkAt(centroid(pts));
                 const auto first = static_cast<std::uint32_t>(chunk.ground.indices.size());

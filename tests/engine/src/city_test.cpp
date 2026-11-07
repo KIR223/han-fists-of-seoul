@@ -350,6 +350,14 @@ TEST_CASE("city: высота зданий и ширина дорог берут
     CHECK(roadWidth("motorway") > roadWidth("residential"));
     CHECK(roadWidth("residential") > roadWidth("footway"));
     CHECK(roadWidth("proposed") == 0.f);
+    CHECK(roadWidth("busway") > 0.f);  // этап 08c: автобусные полосы, грунтовые дороги, трасса и «road» рисуются
+    CHECK(roadWidth("track") > 0.f);
+    CHECK(roadWidth("raceway") > 0.f);
+    CHECK(roadWidth("road") > 0.f);
+    CHECK(roadWidth("construction") == 0.f);  // стройка, помещения и станции не рисуются
+    CHECK(roadWidth("corridor") == 0.f);
+    CHECK(roadWidth("platform") == 0.f);
+    CHECK(roadWidth("elevator") == 0.f);
 }
 
 namespace {
