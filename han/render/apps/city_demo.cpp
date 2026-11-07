@@ -302,6 +302,7 @@ int main(int argc, char** argv) {
     float cityHour = hourArg >= 0.f ? std::fmod(hourArg, 24.f) : (manualSun ? (sunArgs[0] < 0.f ? 21.f : 14.f) : dayCycle.startHour());
     auto dayState = dayCycle.sample(cityHour);
     if (!cookedDir.empty()) citySettings.cellSize = bake.cellSize;
+    if (!world::loadHeightProfile("data/city/height_profile.json", citySettings.heights, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
     citySettings.terrain = haveTerrain ? &terrain : nullptr;
     if (!world::loadRoadProfileSettings("data/city/road_profile.json", citySettings.roadProfile, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
     citySettings.shopTileMeters = han::render::citytex::shopTileMeters();

@@ -612,12 +612,13 @@ float roadWidth(const OsmWay& way) {
     return std::isfinite(specified) && specified >= 1.f && specified <= 80.f ? specified : fallback;
 }
 
-float buildingHeight(const OsmWay& way, const CityBuildSettings& s) {
+float buildingHeight(const OsmWay& way, const CityBuildSettings& s, float footprintArea) {
     float h = parseMeters(way.tag("height"));
     if (h <= 0.f) {
         const float levels = parseMeters(way.tag("building:levels"));
         if (levels > 0.f) h = levels * s.levelHeight + 1.f;  // + крыша и цоколь
     }
+    if (h <= 0.f) h = s.heights.heightFor(way.tag("building"), footprintArea);
     if (h <= 0.f) h = s.defaultBuildingHeight;
     return std::clamp(h, 2.5f, s.maxBuildingHeight);
 }
@@ -790,7 +791,7 @@ std::map<CellCoord, CityChunk> buildCity(const OsmData& data, const GeoProjectio
                 continue;
             }
             CityChunk& chunk = chunkAt(centroid(pts));
-            const float height = buildingHeight(way, settings);
+            const float height = buildingHeight(way, settings, static_cast<float>(std::fabs(signedArea(pts))));
             BuildingLook look;
             look.wall = wallMaterial(way.id, height);
             const std::uint32_t seed = static_cast<std::uint32_t>((way.id < 0 ? -way.id : way.id) * 2246822519u) >> 7;
