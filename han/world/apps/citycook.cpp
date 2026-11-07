@@ -107,5 +107,12 @@ int main(int argc, char** argv) {
     }
     std::printf("запечено ячеек: %d из %zu, %.1f МБ; домов %d, дорог %d, парков %d\n", written, chunks.size(), static_cast<double>(bytes) / 1048576.0, stats.buildings, stats.roads, stats.parks);
     std::printf("мосты: путей %d, сегментов полотна %d, коллайдеров полотна %d, опор %d\n", stats.bridgeWays, stats.bridgeSegments, stats.deckColliders, stats.piers);
+    {
+        const auto profile = computeRoadProfile(osm, GeoProjection(origin[0], origin[1]), settings.terrain, settings.roadProfile);
+        const auto& ps = profile.stats();
+        std::printf("тоннели: путей с тегом %d, узлов под землёй %d, наибольшая глубина %.1f м, наибольший уклон %.1f%%, узлов выше земли %d, участков >10 м %d, из них круче 12%% %d (по поверхности земли было бы %d)\n", ps.tunnelWays, ps.tunnelNodes,
+                    static_cast<double>(ps.maxTunnelDepth), static_cast<double>(ps.tunnelMaxGrade) * 100.0, ps.tunnelAboveGround, ps.tunnelSegments, ps.tunnelSteepSegments,
+                    ps.tunnelSurfaceSteepSegments);
+    }
     return 0;
 }

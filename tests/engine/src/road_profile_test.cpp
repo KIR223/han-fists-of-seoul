@@ -162,12 +162,14 @@ TEST_CASE("road_profile: без рельефа и без мостов профи
     CHECK(flat.height(4) == doctest::Approx(repoSettings().clearanceLayer1).epsilon(0.01));  // плоская земля y = 0
 }
 
-TEST_CASE("road_profile: туннели считаются, но не поднимаются и не опускаются (пока не обработаны)") {
+TEST_CASE("road_profile: тоннель без внутренних узлов — только порталы на земле, под землю нечему уходить (подробнее — tunnel_test)") {
     const auto data = parse(osmText({{1, 0, 0}, {2, 100, 0}}, {{100, {1, 2}, "<tag k=\"highway\" v=\"primary\"/><tag k=\"tunnel\" v=\"yes\"/>"}}));
     const auto terrain = flatTerrain(0.f);
     const auto profile = computeRoadProfile(data, kProjection, &terrain, repoSettings());
-    CHECK(profile.empty());
     CHECK(profile.stats().tunnelWays == 1);
+    CHECK(profile.stats().tunnelNodes == 0);
+    CHECK(profile.height(1) == doctest::Approx(0.f));
+    CHECK(profile.height(2) == doctest::Approx(0.f));
 }
 
 TEST_CASE("road_profile: геометрия города — полотно на габарите, опоры и коллайдеры; без моста всё по рельефу") {
