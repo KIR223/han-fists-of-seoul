@@ -24,6 +24,7 @@
 #include "han/ai/traffic.h"
 #include "han/ai/city_crowd.h"
 #include "han/ai/life_profile.h"
+#include "han/world/far_skyline.h"
 #include "han/ai/crowd.h"
 #include "han/ai/archetype.h"
 #include "han/render/street_models.h"
@@ -192,7 +193,7 @@ int main(int argc, char** argv) {
     float exposureArg = 1.0f;  // нейтральный множитель; дневная и ночная экспозиция — в streetscape.json
     float hourArg = -1.f;
     bool vsync = true;  // --no-vsync: IMMEDIATE/MAILBOX для замеров
-    bool legacyCrowd = false, legacyLife = false;
+    bool legacyCrowd = false, legacyLife = false, noFarSkyline = false;
     bool watchSteepCar = false;
     bool carPoseEnabled = true;  // --flat-cars: без шага и крена корпуса
     bool taaEnabled = true;  // --no-taa: диагностика резкости (TAA не должен оставаться выключенным как исправление)
@@ -209,6 +210,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--no-vsync")) vsync = false;
         if (!std::strcmp(argv[i], "--watch-steep-car")) watchSteepCar = true;  // камера сбоку от машины на самом крутом уклоне (для кадров «до/после»)
         if (!std::strcmp(argv[i], "--legacy-crowd")) legacyCrowd = true;  // прежняя пересборка толпы (для сравнения)
+        if (!std::strcmp(argv[i], "--no-far-skyline")) noFarSkyline = true;  // без дальнего силуэта высоких зданий (для сравнения)
         if (!std::strcmp(argv[i], "--legacy-life")) legacyLife = true;  // прежние радиусы и политика трафика и толпы без профиля (для сравнения)
         if (!std::strcmp(argv[i], "--flat-cars")) carPoseEnabled = false;  // прежняя горизонтальная поза корпуса (для сравнения)
         if (!std::strcmp(argv[i], "--no-taa")) taaEnabled = false;
@@ -500,6 +502,28 @@ int main(int argc, char** argv) {
         if (loader.waterMask) landscape=waterMask.removeCoveredTerrain(landscape);
         for (auto& range : landscape.ranges) range.material = world::GeoMaterial::Park;
         farTerrain = renderer->uploadMesh(han::render::citytex::toMesh(landscape, loader.textureIds, 0.95f), loader.textureIds);
+    }
+    // Дальний силуэт (этап 08d): высокие здания за радиусом загрузки ячеек. Плитка рисуется, только если ни одна её ячейка не загружена.
+    struct FarTile { han::render::MeshId mesh = 0; int cellX = 0, cellZ = 0; float minX = 0, minZ = 0, maxX = 0, maxZ = 0; };
+    std::vector<FarTile> farTiles;
+    constexpr float kFarSkylineRange = 2500.f;  // дальность рисования силуэта (радиус HLOD из настроек стриминга по замыслу этапа 01)
+    if (haveOsm && !noFarSkyline) {
+        world::FarSkylineSettings skylineSettings;
+        skylineSettings.tileSize = citySettings.cellSize * 2.f;
+        world::FarSkylineStats skylineStats;
+        const auto tiles = world::buildFarSkyline(osm, projection, citySettings, citySettings.terrain, skylineSettings, &skylineStats);
+        for (const auto& [key, mesh] : tiles) {
+            FarTile tile;
+            tile.mesh = renderer->uploadMesh(han::render::citytex::toMesh(mesh, loader.textureIds, 0.9f), loader.textureIds);
+            tile.cellX = key.first * 2;
+            tile.cellZ = key.second * 2;
+            tile.minX = static_cast<float>(key.first) * skylineSettings.tileSize;
+            tile.minZ = static_cast<float>(key.second) * skylineSettings.tileSize;
+            tile.maxX = tile.minX + skylineSettings.tileSize;
+            tile.maxZ = tile.minZ + skylineSettings.tileSize;
+            if (tile.mesh) farTiles.push_back(tile);
+        }
+        std::printf("дальний силуэт: зданий %d, плиток %zu, треугольников %d\n", skylineStats.buildings, farTiles.size(), skylineStats.triangles);
     }
     loader.cookedDir = cookedDir;
     world::StreamingManager streaming(ss, loader);
@@ -909,6 +933,14 @@ int main(int argc, char** argv) {
             }
         }
         if (farTerrain) items.push_back({farTerrain, Mat4::identity()});
+        for (const auto& tile : farTiles) {
+            const float nx = std::clamp(camera.position.x, tile.minX, tile.maxX) - camera.position.x, nz = std::clamp(camera.position.z, tile.minZ, tile.maxZ) - camera.position.z;
+            if (nx * nx + nz * nz > kFarSkylineRange * kFarSkylineRange) continue;  // дальше — за дымкой, вклад в кадр мал
+            bool covered = false;  // хоть одна ячейка плитки загружена — ближний город уже рисует эти здания
+            for (int dx = 0; dx < 2 && !covered; ++dx)
+                for (int dz = 0; dz < 2 && !covered; ++dz) covered = loader.gpu.count({tile.cellX + dx, tile.cellZ + dz}) != 0;
+            if (!covered) items.push_back({tile.mesh, Mat4::identity(), false});
+        }
         if (riverWater.id) items.push_back({riverWater.id,Mat4::identity(),false});
         items.push_back({ground, Mat4::translation({0.f, haveTerrain ? terrain.minHeight() - 2.f : -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
         for (const auto& [cell, g] : loader.gpu) {
