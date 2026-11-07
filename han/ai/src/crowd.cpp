@@ -57,6 +57,83 @@ AgentId Crowd::spawn(const Archetype& archetype, Vec2 pos) {
     return agents_.back().id;
 }
 
+namespace {
+// Точка вне взгляда: далеко, либо вне конуса зрения (при неизвестном направлении — только по расстоянию).
+bool hiddenFrom(const Crowd::RebaseView& view, Vec2 p) {
+    const Vec2 d = p - view.camera;
+    const float dist = std::sqrt(d.x * d.x + d.z * d.z);
+    if (dist < view.minDistance) return false;
+    if (dist > view.farVisible) return true;
+    const bool knownDirection = view.direction.x != 0.f || view.direction.z != 0.f;
+    return knownDirection && (d.x * view.direction.x + d.z * view.direction.z) / std::max(dist, 1e-3f) < view.viewCos;
+}
+}  // namespace
+
+// Переселяет агента к двери вне взгляда; preferAhead — из нескольких подходящих берётся та, что дальше всего впереди по ходу камеры.
+bool Crowd::relocate(Agent& a, const RebaseView& view, bool preferAhead) {
+    const auto inside = [&](Vec2 p) { return p.x >= grid_.minX() && p.x <= grid_.maxX() && p.z >= grid_.minZ() && p.z <= grid_.maxZ() && grid_.walkable(p.x, p.z); };
+    const Poi* chosen = nullptr;
+    float bestAhead = -2.f;
+    int found = 0;
+    for (int attempt = 0; attempt < 60 && !pois_.empty() && found < (preferAhead ? 6 : 1); ++attempt) {
+        const Poi& poi = pois_[static_cast<std::size_t>(rand01() * static_cast<float>(pois_.size())) % pois_.size()];
+        if (!inside(poi.pos) || !hiddenFrom(view, poi.pos)) continue;
+        ++found;
+        const Vec2 d = poi.pos - view.camera;
+        const float ahead = (d.x * view.direction.x + d.z * view.direction.z) / std::max(length(d), 1e-3f);
+        if (!chosen || ahead > bestAhead) {
+            chosen = &poi;
+            bestAhead = ahead;
+        }
+    }
+    if (!chosen) return false;
+    a.pos = a.home = a.destination = chosen->pos;
+    a.path.clear();
+    a.pathIndex = 0;
+    a.needsPath = false;
+    a.state = AgentState::Idle;
+    a.entry = nullptr;
+    a.vel = {};
+    return true;
+}
+
+std::size_t Crowd::recycleFar(const RebaseView& view, float eligibleDistance, std::size_t maxMoves) {
+    if (agents_.empty() || (view.direction.x == 0.f && view.direction.z == 0.f)) return 0;  // без направления камеры «вперёд» не определено
+    std::size_t moved = 0;
+    for (std::size_t n = 0; n < agents_.size() && moved < maxMoves; ++n) {
+        Agent& a = agents_[(recycleCursor_ + n) % agents_.size()];
+        if (reacting(a.state) || distance(a.pos, view.camera) < eligibleDistance || !hiddenFrom(view, a.pos)) continue;
+        if (relocate(a, view, true)) ++moved;
+    }
+    recycleCursor_ = (recycleCursor_ + 1) % agents_.size();
+    return moved;
+}
+
+std::size_t Crowd::rebase(std::vector<Poi> pois, const RebaseView& view) {
+    pois_ = std::move(pois);
+    std::size_t moved = 0;
+    const auto inside = [&](Vec2 p) { return p.x >= grid_.minX() && p.x <= grid_.maxX() && p.z >= grid_.minZ() && p.z <= grid_.maxZ() && grid_.walkable(p.x, p.z); };
+    for (Agent& a : agents_) {
+        if (inside(a.pos)) {
+            if (!a.path.empty() && a.pathIndex < a.path.size()) {  // путь, ставший непроходимым в новой сетке, сбрасывается: агент выберет дело заново
+                bool valid = true;
+                for (std::size_t i = a.pathIndex; i < a.path.size() && valid; ++i) valid = inside(a.path[i]);
+                if (!valid) {
+                    a.path.clear();
+                    a.pathIndex = 0;
+                    a.needsPath = false;
+                    a.state = AgentState::Idle;
+                    a.entry = nullptr;
+                }
+            }
+            continue;
+        }
+        // Переселение: случайная дверь вне взгляда (впереди по ходу, если направление известно); негде — агент остаётся, не на глазах.
+        if (relocate(a, view, view.direction.x != 0.f || view.direction.z != 0.f)) ++moved;
+    }
+    return moved;
+}
+
 std::size_t Crowd::populate(const std::vector<const Archetype*>& archetypes, std::size_t n) {
     if (archetypes.empty() || !grid_.valid()) return 0;
     std::size_t made = 0;

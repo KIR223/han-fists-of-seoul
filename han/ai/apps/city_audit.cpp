@@ -16,6 +16,8 @@
 #include <vector>
 
 #include "han/ai/archetype.h"
+#include "han/ai/city_crowd.h"
+#include "han/ai/life_profile.h"
 #include "han/ai/crowd.h"
 #include "han/ai/navgrid.h"
 #include "han/ai/traffic.h"
@@ -105,10 +107,13 @@ float distanceToEdge(const ai::RoadEdge& e, ai::Vec2 p) {
 constexpr float kDepth = 0.75f;  // порог проникновения в здание/воду/проезжую часть, м
 
 struct Args {
-    std::string osm = "assets_src/osm/seoul_connected.osm", water, out, terrain;
+    std::string osm = "assets_src/osm/seoul_connected.osm", water, out, terrain, profile;
     float focusX = 700.f, focusZ = 280.f, minutes = 30.f;
     int cars = 120, people = 280;
-    bool legacyNav = false, smooth = true, turnLanes = false;
+    bool legacyNav = false, smooth = true, turnLanes = false, legacyCrowd = false;
+    float hour = 12.f;
+    bool carsExplicit = false, peopleExplicit = false;
+    float flyX = 0.f, flyZ = 0.f, flySpeed = 0.f;  // --fly x z м/с: фокус (камера) движется к точке; видимые появления и исчезновения машин считаются отдельно
     float connectorRadius = 0.f;  // --connector-radius R: половина длины дуги, м (0 — по умолчанию движка)
     unsigned seed = 1;
 };
@@ -121,17 +126,28 @@ struct CarMetrics {
 };
 
 // Поза корпуса на реальном рельефе и мостах: прежняя горизонтальная поза против шага и крена по колёсам.
+// Видимость появлений и исчезновений машин при движущейся камере (область видимости: до 300 м, в конусе ±62° по ходу, либо ближе 25 м).
+struct PopMetrics {
+    long spawned = 0, removed = 0, popInVisible = 0, popOutVisible = 0, popInUnder100 = 0, popOutUnder150 = 0;
+    long activeSum = 0, activeSteps = 0, near150Sum = 0, near400Sum = 0;
+    int minActive = 1 << 30, maxActive = 0;
+};
+
 struct PoseMetrics {
     long steps = 0, legacySinkSteps = 0, legacyHoverSteps = 0, tiltedSteps = 0, newSinkSteps = 0, bridgeSteps = 0;
     float legacySinkMax = 0.f, legacyHoverMax = 0.f, newSinkMax = 0.f, newHoverMax = 0.f, maxPitchDeg = 0.f, maxRollDeg = 0.f, rawStepMax = 0.f, filteredStepMax = 0.f;
 };
 
 struct PeopleMetrics {
-    long steps = 0, inBuilding = 0, inWater = 0, onRoadwayOutsideCrossing = 0, jumps = 0, nearJumps = 0, outsideNav = 0;
+    long steps = 0, inBuilding = 0, inWater = 0, onRoadwayOutsideCrossing = 0, jumps = 0, nearJumps = 0, outsideNav = 0, teleports = 0, visibleTeleports = 0;
     float maxJump = 0.f;
     std::size_t agents = 0, spawnedBlocked = 0, stuck = 0, maxStuckSeconds = 0;
     int pathFailures = 0, pathQueries = 0;
     long crossingSteps = 0;
+    int rebuilds = 0;
+    std::size_t recycled = 0;
+    double maxRebuildMs = 0.0, within180Mean = 0.0;
+    long within180Min = 0;
 };
 }  // namespace
 
@@ -142,15 +158,19 @@ int main(int argc, char** argv) {
         if (has("--osm", 1)) a.osm = argv[++i];
         else if (has("--water", 1)) a.water = argv[++i];
         else if (has("--out", 1)) a.out = argv[++i];
+        else if (has("--fly", 3)) { a.flyX = static_cast<float>(std::atof(argv[i + 1])); a.flyZ = static_cast<float>(std::atof(argv[i + 2])); a.flySpeed = static_cast<float>(std::atof(argv[i + 3])); i += 3; }
+        else if (has("--profile", 1)) a.profile = argv[++i];  // data/city/life_profile.json: политика трафика и толпы из данных (без него — прежнее поведение)
+        else if (has("--hour", 1)) a.hour = static_cast<float>(std::atof(argv[++i]));
         else if (has("--terrain", 1)) a.terrain = argv[++i];  // карта высот .hht: включает метрики позы корпуса (этап 05)
         else if (has("--focus", 2)) { a.focusX = static_cast<float>(std::atof(argv[i + 1])); a.focusZ = static_cast<float>(std::atof(argv[i + 2])); i += 2; }
         else if (has("--minutes", 1)) a.minutes = static_cast<float>(std::atof(argv[++i]));
-        else if (has("--cars", 1)) a.cars = std::atoi(argv[++i]);
-        else if (has("--people", 1)) a.people = std::atoi(argv[++i]);
+        else if (has("--cars", 1)) { a.cars = std::atoi(argv[++i]); a.carsExplicit = true; }
+        else if (has("--people", 1)) { a.people = std::atoi(argv[++i]); a.peopleExplicit = true; }
         else if (has("--seed", 1)) a.seed = static_cast<unsigned>(std::atoi(argv[++i]));
         else if (has("--connector-radius", 1)) a.connectorRadius = static_cast<float>(std::atof(argv[++i]));
         else if (!std::strcmp(argv[i], "--legacy-nav")) a.legacyNav = true;
         else if (!std::strcmp(argv[i], "--no-smooth")) a.smooth = false;
+        else if (!std::strcmp(argv[i], "--legacy-crowd")) a.legacyCrowd = true;  // прежняя пересборка толпы: пересоздание у камеры
         else if (!std::strcmp(argv[i], "--turn-lanes")) a.turnLanes = true;
     }
     std::string error;
@@ -158,6 +178,9 @@ int main(int argc, char** argv) {
     if (!world::loadOsmFile(a.osm, osm, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
     world::CityStyle style;
     if (!world::loadCityStyle("data/city/streetscape.json", style, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
+    ai::LifeProfile lifeProfile;
+    const bool useProfile = !a.profile.empty();
+    if (useProfile && !ai::loadLifeProfile(a.profile, lifeProfile, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
     const world::GeoProjection projection(style.originLat, style.originLon);
     world::WalkLayout layout = world::buildWalkLayout(osm, projection, style);
     if (!a.water.empty() && !layout.addWaterAreas(a.water, projection, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
@@ -174,6 +197,7 @@ int main(int argc, char** argv) {
 
     // ---------------- Машины ----------------
     CarMetrics cm;
+    PopMetrics pop;
     PoseMetrics pose;
     {
         ai::RoadGraphSettings gs;
@@ -189,15 +213,22 @@ int main(int argc, char** argv) {
         }
         const auto graph = ai::RoadGraph::build(osm, projection, gs);
         ai::TrafficSettings ts;
-        ts.maxCars = a.cars;
-        ts.spawnRadius = 350.f;
-        ts.despawnRadius = 550.f;
+        if (useProfile) {
+            ts = lifeProfile.traffic;
+            if (a.carsExplicit) ts.maxCars = a.cars;
+        } else {
+            ts.maxCars = a.cars;
+            ts.spawnRadius = 350.f;
+            ts.despawnRadius = 550.f;
+        }
         ts.seed = a.seed;
         ts.smoothTurns = a.smooth;
         ts.turnLanes = a.turnLanes;
         ts.connectorRadius = a.connectorRadius;
         ai::TrafficSim sim(graph, ts);
-        sim.setFocus({a.focusX, a.focusZ});
+        ai::Vec2 focus{a.focusX, a.focusZ}, viewDir{0.f, 0.f};
+        sim.setFocus(focus);
+        std::unordered_map<std::uint32_t, ai::Vec2> previousPositions;
         std::unordered_map<std::uint32_t, ai::Car> last;
         std::unordered_map<std::uint32_t, render::VehiclePoseFilter> filters;
         std::unordered_map<std::uint32_t, render::VehiclePose> lastRaw, lastSmooth;
@@ -205,7 +236,57 @@ int main(int argc, char** argv) {
         double speedSum = 0;
         long speedCount = 0;
         for (long step = 0; step < steps; ++step) {
+            if (a.flySpeed > 0.f) {  // камера летит к цели с постоянной скоростью
+                const float dx = a.flyX - focus.x, dz = a.flyZ - focus.z, left = std::hypot(dx, dz);
+                if (left > 0.5f) {
+                    const float move = std::min(left, a.flySpeed * dt);
+                    viewDir = {dx / left, dz / left};
+                    focus = {focus.x + viewDir.x * move, focus.z + viewDir.z * move};
+                    sim.setFocus(focus);
+                    sim.setView(viewDir);
+                }
+            }
+            if (useProfile) sim.setDensityScale(lifeProfile.trafficDensityAt(a.hour + static_cast<float>(step) * dt / 3600.f));
             sim.update(dt);
+            {
+                // Появления и исчезновения за шаг: сравнение множеств идентификаторов с прошлым шагом.
+                std::unordered_map<std::uint32_t, ai::Vec2> currentPositions;
+                const auto visible = [&](ai::Vec2 p) {
+                    const float dx = p.x - focus.x, dz = p.z - focus.z, d = std::hypot(dx, dz);
+                    if (d < 25.f) return true;
+                    if (d > 300.f || (viewDir.x == 0.f && viewDir.z == 0.f)) return d <= 300.f;
+                    return (dx * viewDir.x + dz * viewDir.z) / d > 0.4695f;  // cos 62°
+                };
+                for (const ai::Car& car : sim.cars()) {
+                    currentPositions[car.id] = car.pos;
+                    if (previousPositions.count(car.id) == 0) {
+                        ++pop.spawned;
+                        if (visible(car.pos)) {
+                            ++pop.popInVisible;
+                            if (std::hypot(car.pos.x - focus.x, car.pos.z - focus.z) < 100.f) ++pop.popInUnder100;
+                        }
+                    }
+                }
+                for (const auto& [id, position] : previousPositions) {
+                    if (currentPositions.count(id) != 0) continue;
+                    ++pop.removed;
+                    if (visible(position)) {
+                        ++pop.popOutVisible;
+                        if (std::hypot(position.x - focus.x, position.z - focus.z) < 150.f) ++pop.popOutUnder150;
+                    }
+                }
+                previousPositions.swap(currentPositions);
+                const int active = static_cast<int>(sim.cars().size());
+                pop.activeSum += active;
+                ++pop.activeSteps;
+                pop.minActive = std::min(pop.minActive, active);
+                pop.maxActive = std::max(pop.maxActive, active);
+                for (const ai::Car& car : sim.cars()) {
+                    const float d = std::hypot(car.pos.x - focus.x, car.pos.z - focus.z);
+                    pop.near150Sum += d < 150.f;
+                    pop.near400Sum += d < 400.f;
+                }
+            }
             for (const ai::Car& car : sim.cars()) {
                 if (car.edge < 0) continue;
                 ++cm.steps;
@@ -300,99 +381,111 @@ int main(int argc, char** argv) {
     // ---------------- Люди ----------------
     PeopleMetrics pm;
     {
-        std::vector<std::vector<ai::Vec2>> hard, roads, openings;
-        const float radius = style.crowdNavRadius;
-        const float minX = a.focusX - radius, minZ = a.focusZ - radius, maxX = a.focusX + radius, maxZ = a.focusZ + radius;
-        const auto convert = [&](const std::vector<std::vector<world::Vec2>>& polygons, std::vector<std::vector<ai::Vec2>>& out) {
-            for (const auto& poly : polygons) {
-                float lox = 1e30f, hix = -1e30f, loz = 1e30f, hiz = -1e30f;
-                for (const auto& p : poly) { lox = std::min(lox, p.x); hix = std::max(hix, p.x); loz = std::min(loz, p.y); hiz = std::max(hiz, p.y); }
-                if (hix < minX || lox > maxX || hiz < minZ || loz > maxZ) continue;
-                std::vector<ai::Vec2> c;
-                for (const auto& p : poly) c.push_back({p.x, p.y});
-                out.push_back(std::move(c));
-            }
-        };
-        convert(layout.buildings, hard);
-        if (!a.legacyNav) {
-            convert(layout.water, hard);
-            convert(layout.carriageways, roads);
-            convert(layout.crossings, openings);
+        // Толпа — та же библиотека, что в демо (CityCrowd): сетка вокруг камеры, пересборка при смещении, переселение вне взгляда.
+        world::WalkLayout crowdLayout = layout;
+        std::vector<std::vector<world::Vec2>> crowdBuildings = layout.buildings;
+        if (a.legacyNav) {  // прежняя сетка: только здания, без воды, проезжей части и переходов
+            crowdLayout.water.clear();
+            crowdLayout.carriageways.clear();
+            crowdLayout.crossings.clear();
         }
-        ai::NavGrid::Settings ns;
-        ns.cellSize = style.crowdNavCell;
-        ns.maxExpansions = static_cast<std::size_t>(style.crowdPathExpansions);
-        const ai::NavGrid grid = ai::NavGrid::build(minX, minZ, maxX, maxZ, hard, roads, openings, ns);
+        crowdLayout.buildings.clear();
         ai::ArchetypeLibrary library;
         if (!library.loadDirectory("data/people/archetypes", error) || library.size() == 0) { std::fprintf(stderr, "архетипы: %s\n", error.c_str()); return 1; }
-        static const char* categories[] = {"work", "cafe", "shop", "eat", "park", "campus", "market", "nightlife", "sights", "delivery", "security"};
-        std::vector<ai::Poi> pois, nearby;
-        for (std::size_t i = 0; i < layout.buildings.size(); ++i) {
-            const auto& fp = layout.buildings[i];
-            if (fp.size() < 2) continue;
-            const ai::Vec2 edge{(fp[0].x + fp[1].x) * 0.5f, (fp[0].y + fp[1].y) * 0.5f};
-            if (std::fabs(edge.x - a.focusX) > radius || std::fabs(edge.z - a.focusZ) > radius) continue;
-            ai::Vec2 door;
-            if (!grid.nearestWalkable(edge, 12.f, door)) continue;
-            pois.push_back({door, categories[i % std::size(categories)]});
-            const float dx = door.x - a.focusX, dz = door.z - a.focusZ;
-            if (dx * dx + dz * dz < style.crowdRadius * style.crowdRadius) nearby.push_back(pois.back());
+        ai::CityCrowdSettings cs;
+        cs.navRadius = style.crowdNavRadius;
+        cs.spawnRadius = style.crowdRadius;
+        cs.navCell = style.crowdNavCell;
+        cs.pathExpansions = static_cast<std::size_t>(style.crowdPathExpansions);
+        cs.pathQueriesPerFrame = style.crowdPathQueries > 0 ? static_cast<int>(style.crowdPathQueries) : 4;
+        cs.agentCount = static_cast<std::size_t>(a.people);
+        if (useProfile) {  // радиусы, число прохожих и конвейер — из профиля; шаг сетки и поиск пути — из оформления города
+            const auto& pc = lifeProfile.crowd;
+            cs.navRadius = pc.navRadius;
+            cs.spawnRadius = pc.spawnRadius;
+            cs.recenterFraction = pc.recenterFraction;
+            cs.minRecycleDistance = pc.minRecycleDistance;
+            cs.farVisible = pc.farVisible;
+            cs.viewHalfAngleDegrees = pc.viewHalfAngleDegrees;
+            cs.treadmillInterval = pc.treadmillInterval;
+            cs.treadmillBatch = pc.treadmillBatch;
+            cs.treadmillMinDistance = pc.treadmillMinDistance;
+            if (!a.peopleExplicit) cs.agentCount = pc.agentCount;
         }
-        if (nearby.empty()) { std::fprintf(stderr, "рядом с точкой %.0f %.0f нет зданий для спавна толпы\n", a.focusX, a.focusZ); return 1; }
-        ai::CrowdSettings cs;
-        cs.maxAgents = static_cast<std::size_t>(a.people);
-        cs.maxPathQueriesPerFrame = style.crowdPathQueries > 0 ? static_cast<int>(style.crowdPathQueries) : 4;
         cs.seed = 12345u + a.seed;
-        ai::Crowd crowd(grid, std::move(pois), cs);
-        const auto archetypes = library.pointers();
-        for (int i = 0; i < a.people; ++i) {
-            const auto& place = nearby[(static_cast<std::size_t>(i) * 73) % nearby.size()];
-            const float jx = static_cast<float>((i * 17) % 11 - 5) * 0.7f, jz = static_cast<float>((i * 23) % 13 - 6) * 0.7f;
-            crowd.spawn(*archetypes[static_cast<std::size_t>(i) % archetypes.size()], {place.pos.x + jx, place.pos.z + jz});
-        }
-        pm.agents = crowd.agents().size();
-        for (const auto& ag : crowd.agents())
-            if (!grid.walkable(ag.pos.x, ag.pos.z)) ++pm.spawnedBlocked;
-        crowd.setHour(12.f);
-        std::vector<ai::Vec2> lastPos(crowd.agents().size());
-        std::vector<float> stillFor(crowd.agents().size(), 0.f);
-        for (std::size_t i = 0; i < crowd.agents().size(); ++i) lastPos[i] = crowd.agents()[i].pos;
-        std::vector<char> wasStuck(crowd.agents().size(), 0);
+        cs.keepAgents = !a.legacyCrowd;
+        ai::CityCrowd city(crowdBuildings, crowdLayout, library.pointers(), cs);
+        ai::Vec2 focus{a.focusX, a.focusZ}, viewDir{0.f, 0.f};
+        city.update(0.f, focus, viewDir, 12.f);
+        if (!city.crowd() || city.crowd()->agents().empty()) { std::fprintf(stderr, "рядом с точкой %.0f %.0f нет зданий для спавна толпы\n", static_cast<double>(a.focusX), static_cast<double>(a.focusZ)); return 1; }
+        pm.agents = city.crowd()->agents().size();
+        for (const auto& ag : city.crowd()->agents())
+            if (!city.grid().walkable(ag.pos.x, ag.pos.z)) ++pm.spawnedBlocked;
+        std::vector<ai::Vec2> lastPos(pm.agents);
+        std::vector<float> stillFor(pm.agents, 0.f);
+        std::vector<char> wasStuck(pm.agents, 0);
+        for (std::size_t i = 0; i < pm.agents; ++i) lastPos[i] = city.crowd()->agents()[i].pos;
+        const auto visible = [&](ai::Vec2 p) {
+            const float dx = p.x - focus.x, dz = p.z - focus.z, d = std::hypot(dx, dz);
+            if (d < 25.f) return true;
+            if (d > 300.f) return false;
+            if (viewDir.x == 0.f && viewDir.z == 0.f) return true;
+            return (dx * viewDir.x + dz * viewDir.z) / d > 0.4695f;
+        };
+        long densitySum = 0, densityMin = 1 << 30;
+        int rebuildsSeen = 0;
         for (long step = 0; step < steps; ++step) {
-            crowd.setHour(12.f + static_cast<float>(step) * dt / 3600.f);
-            crowd.update(dt, {a.focusX, a.focusZ});
-            const auto& agents = crowd.agents();
+            if (a.flySpeed > 0.f) {
+                const float dx = a.flyX - focus.x, dz = a.flyZ - focus.z, left = std::hypot(dx, dz);
+                if (left > 0.5f) {
+                    const float move = std::min(left, a.flySpeed * dt);
+                    viewDir = {dx / left, dz / left};
+                    focus = {focus.x + viewDir.x * move, focus.z + viewDir.z * move};
+                }
+            }
+            city.update(dt, focus, viewDir, 12.f + static_cast<float>(step) * dt / 3600.f);
+            if (city.stats().rebuilds != rebuildsSeen) {
+                rebuildsSeen = city.stats().rebuilds;
+                pm.maxRebuildMs = std::max(pm.maxRebuildMs, city.stats().lastRebuildMs);
+            }
+            const auto& agents = city.crowd()->agents();
+            if (agents.size() != pm.agents) { std::fprintf(stderr, "число агентов изменилось: %zu -> %zu\n", pm.agents, agents.size()); return 1; }
+            int within180 = 0;
             for (std::size_t i = 0; i < agents.size(); ++i) {
                 const ai::Agent& ag = agents[i];
                 ++pm.steps;
+                if (std::hypot(ag.pos.x - focus.x, ag.pos.z - focus.z) < style.crowdDrawRadius) ++within180;
                 if (buildings.depth(ag.pos.x, ag.pos.z) > kDepth) ++pm.inBuilding;
                 if (water.depth(ag.pos.x, ag.pos.z) > kDepth) ++pm.inWater;
                 const bool onRoad = roadway.depth(ag.pos.x, ag.pos.z) > kDepth;
                 if (onRoad && crossings.contains(ag.pos.x, ag.pos.z)) ++pm.crossingSteps;
                 else if (onRoad) ++pm.onRoadwayOutsideCrossing;
+                const float minX = city.grid().minX(), minZ = city.grid().minZ(), maxX = city.grid().maxX(), maxZ = city.grid().maxZ();
                 if (ag.pos.x < minX || ag.pos.x > maxX || ag.pos.z < minZ || ag.pos.z > maxZ) ++pm.outsideNav;
                 const float jump = std::hypot(ag.pos.x - lastPos[i].x, ag.pos.z - lastPos[i].z);
                 pm.maxJump = std::max(pm.maxJump, jump);
-                if (jump > 1.5f) {
+                if (jump > 25.f) {  // телепорт: переселение при пересборке толпы; видимым считается, если до или после точка в поле зрения
+                    ++pm.teleports;
+                    if (visible(ag.pos) || visible(lastPos[i])) ++pm.visibleTeleports;
+                } else if (jump > 1.5f) {
                     ++pm.jumps;
                     if (ag.lod == ai::LodTier::Near || ag.lod == ai::LodTier::Mid) ++pm.nearJumps;  // дальние агенты обновляются реже по замыслу LOD
                 }
                 const bool moving = ag.state == ai::AgentState::Walking || ag.state == ai::AgentState::Fleeing;
                 stillFor[i] = (moving && jump < 0.005f) ? stillFor[i] + dt : 0.f;
-                if (stillFor[i] > 120.f && !wasStuck[i]) {
-                    wasStuck[i] = 1;
-                    ++pm.stuck;
-                    if (pm.stuck <= 4)  // первые застрявшие: куда шли, есть ли путь, стоят ли на проходимой клетке
-                        std::fprintf(stderr, "ЗАСТРЯЛ агент %u: t=%.0f с, состояние %d, LOD %d, поз %.1f %.1f, цель %.1f %.1f, путь %zu/%zu, needsPath %d, клетка проходима %d\n", ag.id, static_cast<double>(step) * static_cast<double>(dt),
-                                     static_cast<int>(ag.state), static_cast<int>(ag.lod), static_cast<double>(ag.pos.x), static_cast<double>(ag.pos.z), static_cast<double>(ag.destination.x),
-                                     static_cast<double>(ag.destination.z), ag.pathIndex, ag.path.size(), ag.needsPath ? 1 : 0, grid.walkable(ag.pos.x, ag.pos.z) ? 1 : 0);
-                }
+                if (stillFor[i] > 120.f && !wasStuck[i]) { wasStuck[i] = 1; ++pm.stuck; }
                 pm.maxStuckSeconds = std::max(pm.maxStuckSeconds, static_cast<std::size_t>(stillFor[i]));
                 lastPos[i] = ag.pos;
             }
+            densitySum += within180;
+            densityMin = std::min<long>(densityMin, within180);
         }
-        pm.pathFailures = crowd.stats().pathFailures;
-        pm.pathQueries = crowd.stats().pathQueries;
+        pm.pathFailures = city.crowd()->stats().pathFailures;
+        pm.pathQueries = city.crowd()->stats().pathQueries;
+        pm.rebuilds = city.stats().rebuilds;
+        pm.recycled = city.stats().recycled;
+        pm.within180Mean = steps > 0 ? static_cast<double>(densitySum) / static_cast<double>(steps) : 0.0;
+        pm.within180Min = densityMin == (1 << 30) ? 0 : densityMin;
     }
 
     char buffer[4096];
@@ -408,6 +501,16 @@ int main(int argc, char** argv) {
         static_cast<unsigned long long>(cm.stuckResets), static_cast<double>(cm.meanSpeed), pm.agents, pm.steps, pm.spawnedBlocked, pm.inBuilding, pm.inWater,
         pm.onRoadwayOutsideCrossing, pm.crossingSteps, pm.outsideNav, pm.jumps, pm.nearJumps, static_cast<double>(pm.maxJump), pm.stuck, pm.maxStuckSeconds, pm.pathQueries, pm.pathFailures);
     std::string text = buffer;
+    {
+        char popBuffer[1024];
+        const double steps2 = pop.activeSteps > 0 ? static_cast<double>(pop.activeSteps) : 1.0;
+        std::snprintf(popBuffer, sizeof(popBuffer),
+            "{\"traffic_flow\": {\"fly_m_per_s\": %.1f, \"spawned\": %ld, \"removed\": %ld, \"visible_pop_in\": %ld, \"visible_pop_in_under_100m\": %ld, \"visible_pop_out\": %ld, \"visible_pop_out_under_150m\": %ld,\n"
+            "  \"active_cars_mean\": %.1f, \"active_min\": %d, \"active_max\": %d, \"cars_within_150m_mean\": %.1f, \"cars_within_400m_mean\": %.1f}}\n",
+            static_cast<double>(a.flySpeed), pop.spawned, pop.removed, pop.popInVisible, pop.popInUnder100, pop.popOutVisible, pop.popOutUnder150, static_cast<double>(pop.activeSum) / steps2,
+            pop.minActive == (1 << 30) ? 0 : pop.minActive, pop.maxActive, static_cast<double>(pop.near150Sum) / steps2, static_cast<double>(pop.near400Sum) / steps2);
+        text += popBuffer;
+    }
     if (!a.terrain.empty()) {
         char poseBuffer[2048];
         std::snprintf(poseBuffer, sizeof(poseBuffer),
@@ -419,6 +522,13 @@ int main(int argc, char** argv) {
             static_cast<double>(pose.legacySinkMax), static_cast<double>(pose.legacyHoverMax), pose.newSinkSteps, static_cast<double>(pose.newSinkMax), static_cast<double>(pose.newHoverMax),
             static_cast<double>(pose.rawStepMax), static_cast<double>(pose.filteredStepMax));
         text += poseBuffer;
+    }
+    {
+        char crowdBuffer[768];
+        std::snprintf(crowdBuffer, sizeof(crowdBuffer),
+            "{\"crowd_flow\": {\"rebuilds\": %d, \"recycled_agents\": %zu, \"teleports_over_25m\": %ld, \"visible_teleports\": %ld, \"max_rebuild_ms\": %.1f, \"agents_within_draw_radius_mean\": %.1f, \"agents_within_draw_radius_min\": %ld}}\n",
+            pm.rebuilds, pm.recycled, pm.teleports, pm.visibleTeleports, pm.maxRebuildMs, pm.within180Mean, pm.within180Min);
+        text += crowdBuffer;
     }
     std::fputs(text.c_str(), stdout);
     if (!a.out.empty()) std::ofstream(a.out, std::ios::binary) << text;

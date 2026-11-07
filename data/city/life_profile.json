@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "description": "Профиль жизни города (этап 06): бюджет и радиусы трафика и толпы, политика появления и удаления, плотность трафика по часу суток. Числа — рабочая настройка по измерениям han_city_audit и city_baseline, не утверждённая владельцем плотность реального Сеула.",
+  "traffic": {
+    "max_cars": 220,
+    "spawn_radius": 340,
+    "despawn_radius": 480,
+    "despawn_in_view_radius": 620,
+    "spawn_min_distance_in_view": 300,
+    "spawn_min_distance_behind": 35,
+    "view_half_angle_degrees": 62,
+    "spawn_gap": 22,
+    "class_weight": {
+      "motorway": 0.6,
+      "primary": 1.5,
+      "secondary": 1.2,
+      "local": 0.5
+    },
+    "hour_density": [
+      [
+        0,
+        0.2
+      ],
+      [
+        5,
+        0.25
+      ],
+      [
+        7,
+        0.9
+      ],
+      [
+        9,
+        1.0
+      ],
+      [
+        12,
+        0.85
+      ],
+      [
+        17,
+        1.0
+      ],
+      [
+        20,
+        0.7
+      ],
+      [
+        23,
+        0.35
+      ],
+      [
+        24,
+        0.2
+      ]
+    ]
+  },
+  "crowd": {
+    "agent_count": 420,
+    "nav_radius": 450,
+    "recenter_fraction": 0.4,
+    "spawn_radius": 180,
+    "min_recycle_distance": 140,
+    "far_visible": 450,
+    "view_half_angle_degrees": 62,
+    "treadmill_interval": 1.0,
+    "treadmill_batch": 8,
+    "treadmill_min_distance": 0.5
+  }
+}

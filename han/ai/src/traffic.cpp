@@ -427,6 +427,13 @@ void TrafficSim::removeCar(std::size_t index) {
     ++stats_.despawned;
 }
 
+bool TrafficSim::visibleFromFocus(Vec2 p) const {
+    const float dx = p.x - focus_.x, dz = p.z - focus_.z, d = std::sqrt(dx * dx + dz * dz);
+    if (d < 25.f) return true;
+    if (view_.x == 0.f && view_.z == 0.f) return true;  // направление неизвестно: видимым считается всё вокруг
+    return (dx * view_.x + dz * view_.z) / d > std::cos(cfg_.viewHalfAngleDegrees * 0.01745329f);
+}
+
 void TrafficSim::spawnCars() {
     if (g_.edges().empty()) return;
     if (cfg_.spawnRadius > 0.f) {
@@ -448,15 +455,29 @@ void TrafficSim::spawnCars() {
                     spawnCandidates_.push_back(index);
             }
             spawnCandidatesReady_ = true;
+            spawnCumulative_.clear();
+            if (cfg_.weightByLength) {
+                float total = 0.f;
+                for (const std::size_t index : spawnCandidates_) {
+                    const auto& edge = g_.edges()[index];
+                    total += edge.length * cfg_.classWeight[static_cast<std::size_t>(edge.cls)];
+                    spawnCumulative_.push_back(total);
+                }
+            }
         }
         if (spawnCandidates_.empty()) return;
     }
     std::uniform_real_distribution<float> u(0.f, 1.f);
     int attempts = 12;
-    while (static_cast<int>(cars_.size()) < cfg_.maxCars && attempts-- > 0) {
+    while (static_cast<int>(cars_.size()) < targetCars() && attempts-- > 0) {
         // На большой карте выбор из всех дорог почти всегда попадал за радиус игрока: улицы оставались пустыми.
         const auto count = cfg_.spawnRadius > 0.f ? spawnCandidates_.size() : g_.edges().size();
-        const auto picked = static_cast<std::size_t>(u(rng_) * static_cast<float>(count)) % count;
+        std::size_t picked = static_cast<std::size_t>(u(rng_) * static_cast<float>(count)) % count;
+        if (cfg_.weightByLength && cfg_.spawnRadius > 0.f && !spawnCumulative_.empty() && spawnCumulative_.back() > 0.f) {
+            const float x = u(rng_) * spawnCumulative_.back();
+            picked = static_cast<std::size_t>(std::lower_bound(spawnCumulative_.begin(), spawnCumulative_.end(), x) - spawnCumulative_.begin());
+            if (picked >= count) picked = count - 1;
+        }
         const std::size_t ei = cfg_.spawnRadius > 0.f ? spawnCandidates_[picked] : picked;
         const RoadEdge& e = g_.edges()[ei];
         if (e.length < 12.f) continue;
@@ -466,10 +487,13 @@ void TrafficSim::spawnCars() {
             const Vec2 p = e.pointAt(s);
             const float dx = p.x - focus_.x, dz = p.z - focus_.z;
             if (dx * dx + dz * dz > cfg_.spawnRadius * cfg_.spawnRadius) continue;
+            const float d = std::sqrt(dx * dx + dz * dz);
+            if (d < cfg_.spawnMinDistanceBehind) continue;  // не вплотную к камере в любом месте
+            if (cfg_.spawnMinDistanceInView > 0.f && d < cfg_.spawnMinDistanceInView && visibleFromFocus(p)) continue;  // не на глазах
         }
         bool free = true;
         for (const Car& o : cars_)
-            if (o.edge == static_cast<int>(ei) && o.lane == lane && std::fabs(o.s - s) < 18.f) free = false;
+            if (o.edge == static_cast<int>(ei) && o.lane == lane && std::fabs(o.s - s) < cfg_.spawnGap) free = false;
         if (!free) continue;
         Car c;
         c.id = nextId_++;
@@ -528,9 +552,23 @@ void TrafficSim::step(float dt) {
     // Появление и уход машин.
     if (cfg_.despawnRadius > 0.f) {
         for (std::size_t i = cars_.size(); i-- > 0;) {
-            const float dx = cars_[i].pos.x - focus_.x, dz = cars_[i].pos.z - focus_.z;
-            if (dx * dx + dz * dz > cfg_.despawnRadius * cfg_.despawnRadius) removeCar(i);
+            const float dx = cars_[i].pos.x - focus_.x, dz = cars_[i].pos.z - focus_.z, d2 = dx * dx + dz * dz;
+            if (d2 <= cfg_.despawnRadius * cfg_.despawnRadius) continue;
+            // Видимая машина не исчезает рядом: её убирают только за despawnInViewRadius (если задан).
+            if (cfg_.despawnInViewRadius > cfg_.despawnRadius && d2 <= cfg_.despawnInViewRadius * cfg_.despawnInViewRadius && visibleFromFocus(cars_[i].pos)) continue;
+            removeCar(i);
         }
+    }
+    // Лишние машины (кривая по часу суток): уходит самая далёкая невидимая, по одной за шаг — число плавно подстраивается.
+    if (static_cast<int>(cars_.size()) > targetCars()) {
+        std::size_t worst = cars_.size();
+        float worstD2 = -1.f;
+        for (std::size_t i = 0; i < cars_.size(); ++i) {
+            if (visibleFromFocus(cars_[i].pos)) continue;
+            const float dx = cars_[i].pos.x - focus_.x, dz = cars_[i].pos.z - focus_.z, d2 = dx * dx + dz * dz;
+            if (d2 > worstD2) { worstD2 = d2; worst = i; }
+        }
+        if (worst < cars_.size()) removeCar(worst);
     }
     spawnCars();
 

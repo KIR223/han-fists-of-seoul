@@ -82,6 +82,17 @@ public:
     // n прохожих в случайных проходимых местах карты, архетипы по кругу из списка (указатели на элементы библиотеки).
     std::size_t populate(const std::vector<const Archetype*>& archetypes, std::size_t n);
 
+    // Смена мира без пересоздания толпы: после пересборки сетки (grid уже заменена вызывающим в том же объекте) агенты остаются на своих местах
+    // со своими занятиями; переселяются только вышедшие за сетку или стоящие на непроходимой клетке, и то в точки вне взгляда камеры
+    // (не ближе minDistance, либо вне конуса зрения с косинусом полуугла viewCos, либо дальше farVisible). Пути, ставшие непроходимыми, сбрасываются.
+    // Возвращает, сколько агентов переселено.
+    struct RebaseView { Vec2 camera, direction; float minDistance = 140.f, viewCos = 0.4695f, farVisible = 450.f; };
+    std::size_t rebase(std::vector<Poi> pois, const RebaseView& view);
+
+    // «Конвейер» при движении камеры: невидимые агенты дальше eligibleDistance переселяются (не больше maxMoves за вызов) к дверям вне взгляда,
+    // предпочтительно впереди по ходу камеры, чтобы плотность людей рядом с камерой не падала, а появление шло вне поля зрения.
+    std::size_t recycleFar(const RebaseView& view, float eligibleDistance, std::size_t maxMoves);
+
     void setHour(float hour) { hour_ = hour; }
     float hour() const { return hour_; }
     void postEvent(const WorldEvent& event);
@@ -108,6 +119,8 @@ private:
     std::vector<CrowdEvent> events_;
 
     float rand01();
+    std::size_t recycleCursor_ = 0;
+    bool relocate(Agent& a, const RebaseView& view, bool preferAhead);
     float randRange(float a, float b) { return a + (b - a) * rand01(); }
     void chooseDestination(Agent& a);
     void tickAgent(Agent& a, float dt, bool separate);
