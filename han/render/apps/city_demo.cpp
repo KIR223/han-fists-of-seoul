@@ -22,6 +22,8 @@
 #include "han/ai/district_catalog.h"
 #include "han/ai/metro.h"
 #include "han/ai/traffic.h"
+#include "han/ai/city_crowd.h"
+#include "han/ai/life_profile.h"
 #include "han/ai/crowd.h"
 #include "han/ai/archetype.h"
 #include "han/render/street_models.h"
@@ -176,6 +178,7 @@ int main(int argc, char** argv) {
     bool walk = false;  // режим прогулки: физика, коллайдеры домов, рельеф и игрок вместо летающей камеры
     float wetness = 0.f;
     int trafficCars = 120;
+    bool trafficCarsExplicit = false;
     han::core::enterRepoRoot(argv[0]);  // запуск двойным щелчком из любой папки
     long maxFrames = -1;
     bool captured = true, noUi = false, deterministic = false;
@@ -189,6 +192,7 @@ int main(int argc, char** argv) {
     float exposureArg = 1.0f;  // нейтральный множитель; дневная и ночная экспозиция — в streetscape.json
     float hourArg = -1.f;
     bool vsync = true;  // --no-vsync: IMMEDIATE/MAILBOX для замеров
+    bool legacyCrowd = false, legacyLife = false;
     bool watchSteepCar = false;
     bool carPoseEnabled = true;  // --flat-cars: без шага и крена корпуса
     bool taaEnabled = true;  // --no-taa: диагностика резкости (TAA не должен оставаться выключенным как исправление)
@@ -204,6 +208,8 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = std::atol(argv[i + 1]);
         if (!std::strcmp(argv[i], "--no-vsync")) vsync = false;
         if (!std::strcmp(argv[i], "--watch-steep-car")) watchSteepCar = true;  // камера сбоку от машины на самом крутом уклоне (для кадров «до/после»)
+        if (!std::strcmp(argv[i], "--legacy-crowd")) legacyCrowd = true;  // прежняя пересборка толпы (для сравнения)
+        if (!std::strcmp(argv[i], "--legacy-life")) legacyLife = true;  // прежние радиусы и политика трафика и толпы без профиля (для сравнения)
         if (!std::strcmp(argv[i], "--flat-cars")) carPoseEnabled = false;  // прежняя горизонтальная поза корпуса (для сравнения)
         if (!std::strcmp(argv[i], "--no-taa")) taaEnabled = false;
         if (!std::strcmp(argv[i], "--fly") && i + 3 < argc) {  // скриптовый пролёт свободной камеры: x z скорость (м/с) — одинаковый маршрут для замеров
@@ -228,7 +234,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--shadow-batch") && i + 1 < argc) shadowBatchArg = static_cast<float>(std::atof(argv[i + 1]));
         if (!std::strcmp(argv[i], "--camera") && i + 5 < argc)
             for (int k = 0; k < 5; ++k) cameraArgs[k] = static_cast<float>(std::atof(argv[i + 1 + k]));
-        if (!std::strcmp(argv[i], "--traffic") && i + 1 < argc) trafficCars = std::clamp(std::atoi(argv[i + 1]), 0, 400);
+        if (!std::strcmp(argv[i], "--traffic") && i + 1 < argc) { trafficCars = std::clamp(std::atoi(argv[i + 1]), 0, 400); trafficCarsExplicit = true; }
         if (!std::strcmp(argv[i], "--walk")) walk = true;
         if (!std::strcmp(argv[i], "--hour") && i + 1 < argc) hourArg = static_cast<float>(std::atof(argv[i + 1]));
         if (!std::strcmp(argv[i], "--cooked") && i + 1 < argc) { cookedDir = argv[i + 1]; cookedExplicit = true; }
@@ -314,10 +320,19 @@ int main(int argc, char** argv) {
     han::ai::RoadGraphSettings roadGraphSettings;
     roadGraphSettings.profile = &roadProfile;
     const han::ai::RoadGraph roads = haveOsm ? han::ai::RoadGraph::build(osm, projection, roadGraphSettings) : han::ai::RoadGraph();
+    // Профиль жизни города: бюджет, радиусы, политика появления и плотность по часу — из data/city/life_profile.json (--legacy-life — прежние значения).
+    han::ai::LifeProfile lifeProfile;
+    if (!legacyLife && !han::ai::loadLifeProfile("data/city/life_profile.json", lifeProfile, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
     han::ai::TrafficSettings trafficSettings;
-    trafficSettings.maxCars = trafficCars;
-    trafficSettings.spawnRadius = 350.f;
-    trafficSettings.despawnRadius = 550.f;
+    if (legacyLife) {
+        trafficSettings.maxCars = trafficCars;
+        trafficSettings.spawnRadius = 350.f;
+        trafficSettings.despawnRadius = 550.f;
+    } else {
+        trafficSettings = lifeProfile.traffic;
+        if (trafficCarsExplicit) trafficSettings.maxCars = trafficCars;  // --traffic N переопределяет бюджет профиля
+        else trafficCars = trafficSettings.maxCars;
+    }
     han::ai::TrafficSim traffic(roads, trafficSettings);
     // Районы (G6): контуры и настроение из data/world/districts; цветокоррекция, неон и свет фонарей плавно меняются по ходу камеры.
     han::ai::DistrictCatalog districts;
@@ -541,9 +556,7 @@ int main(int argc, char** argv) {
     // Толпа и трафик живут в том же городе: локальная навигация строится вокруг камеры,
     // а не на всей карте сразу. Внутрь зданий прохожие не появляются.
     han::ai::ArchetypeLibrary people;
-    han::ai::NavGrid crowdGrid;
-    std::unique_ptr<han::ai::Crowd> crowd;
-    han::ai::Vec2 crowdCenter{cameraArgs[0], cameraArgs[2]};
+    std::unique_ptr<han::ai::CityCrowd> cityCrowd;  // толпа следует за камерой, пересборка без пересоздания прохожих
     auto footprints = haveOsm ? world::buildingFootprints(osm, projection) : std::vector<std::vector<world::Vec2>>{};
     for (const auto& scene : districtScenes) for (const auto& footprint : scene.footprints) {
         std::vector<world::Vec2> polygon;
@@ -560,57 +573,6 @@ int main(int argc, char** argv) {
         if (std::filesystem::exists(waterFile) && !walkLayout.addWaterAreas(waterFile, projection, waterError)) std::fprintf(stderr, "%s\n", waterError.c_str());
     }
     std::vector<std::array<han::render::MeshId, 4>> pedestrianMeshes;
-    const auto toNav = [](const std::vector<std::vector<world::Vec2>>& polygons, float minX, float minZ, float maxX, float maxZ, std::vector<std::vector<han::ai::Vec2>>& out) {
-        for (const auto& poly : polygons) {
-            float lox = 1e30f, hix = -1e30f, loz = 1e30f, hiz = -1e30f;
-            for (const auto& p : poly) { lox = std::min(lox, p.x); hix = std::max(hix, p.x); loz = std::min(loz, p.y); hiz = std::max(hiz, p.y); }
-            if (hix < minX || lox > maxX || hiz < minZ || loz > maxZ) continue;
-            std::vector<han::ai::Vec2> converted;
-            converted.reserve(poly.size());
-            for (const auto& p : poly) converted.push_back({p.x, p.y});
-            out.push_back(std::move(converted));
-        }
-    };
-    const auto rebuildCrowd = [&](float focusX, float focusZ) {
-        crowd.reset();
-        const float radius = citySettings.style.crowdNavRadius;
-        std::vector<std::vector<han::ai::Vec2>> obstacles, roadPolygons, openings;
-        const float navMinX = focusX - radius, navMinZ = focusZ - radius, navMaxX = focusX + radius, navMaxZ = focusZ + radius;
-        toNav(footprints, navMinX, navMinZ, navMaxX, navMaxZ, obstacles);
-        toNav(walkLayout.water, navMinX, navMinZ, navMaxX, navMaxZ, obstacles);
-        toNav(walkLayout.carriageways, navMinX, navMinZ, navMaxX, navMaxZ, roadPolygons);
-        toNav(walkLayout.crossings, navMinX, navMinZ, navMaxX, navMaxZ, openings);
-        han::ai::NavGrid::Settings navSettings;
-        navSettings.cellSize = citySettings.style.crowdNavCell;
-        navSettings.maxExpansions = static_cast<std::size_t>(citySettings.style.crowdPathExpansions);
-        crowdGrid = han::ai::NavGrid::build(navMinX, navMinZ, navMaxX, navMaxZ, obstacles, roadPolygons, openings, navSettings);
-        if (!crowdGrid.valid() || people.size() == 0) return;
-        static const char* categories[] = {"work", "cafe", "shop", "eat", "park", "campus", "market", "nightlife", "sights", "delivery", "security"};
-        std::vector<han::ai::Poi> pois, nearby;
-        for (std::size_t i = 0; i < footprints.size(); ++i) {
-            const auto& fp = footprints[i];
-            if (fp.size() < 2) continue;
-            const han::ai::Vec2 edge{(fp[0].x + fp[1].x) * 0.5f, (fp[0].y + fp[1].y) * 0.5f};
-            if (std::fabs(edge.x - focusX) > radius || std::fabs(edge.z - focusZ) > radius) continue;
-            han::ai::Vec2 door;
-            if (!crowdGrid.nearestWalkable(edge, 12.f, door)) continue;
-            pois.push_back({door, categories[i % std::size(categories)]});
-            const float dx = door.x - focusX, dz = door.z - focusZ;
-            if (dx * dx + dz * dz < citySettings.style.crowdRadius * citySettings.style.crowdRadius) nearby.push_back(pois.back());
-        }
-        if (nearby.empty()) return;
-        han::ai::CrowdSettings settings;
-        settings.maxAgents = static_cast<std::size_t>(citySettings.style.crowdCount);
-        settings.maxPathQueriesPerFrame = citySettings.style.crowdPathQueries;
-        crowd = std::make_unique<han::ai::Crowd>(crowdGrid, std::move(pois), settings);
-        const auto archetypes = people.pointers();
-        for (int i = 0; i < citySettings.style.crowdCount; ++i) {
-            const auto& place = nearby[(static_cast<std::size_t>(i) * 73) % nearby.size()];
-            const float jitterX = static_cast<float>((i * 17) % 11 - 5) * 0.7f, jitterZ = static_cast<float>((i * 23) % 13 - 6) * 0.7f;
-            crowd->spawn(*archetypes[static_cast<std::size_t>(i) % archetypes.size()], {place.pos.x + jitterX, place.pos.z + jitterZ});
-        }
-        crowdCenter = {focusX, focusZ};
-    };
     if (haveOsm && people.loadDirectory("data/people/archetypes", error)) {
         for (const auto color : {han::core::Vec3{0.15f, 0.18f, 0.23f}, {0.36f, 0.29f, 0.23f}, {0.28f, 0.32f, 0.26f}, {0.46f, 0.4f, 0.34f}, {0.42f, 0.21f, 0.2f}, {0.21f, 0.25f, 0.37f}}) {
             std::array<han::render::MeshId, 4> poses{};
@@ -618,8 +580,30 @@ int main(int argc, char** argv) {
             for (std::size_t p = 0; p < poses.size(); ++p) poses[p] = renderer->uploadMesh(han::render::makeAdultCityPerson(citySettings.style.personHeight, color, strides[p]));
             pedestrianMeshes.push_back(poses);
         }
-        rebuildCrowd(cameraArgs[0], cameraArgs[2]);
-        std::printf("городская толпа: %zu взрослых прохожих\n", crowd ? crowd->agents().size() : 0);
+        han::ai::CityCrowdSettings crowdSettings;
+        crowdSettings.navRadius = citySettings.style.crowdNavRadius;
+        crowdSettings.spawnRadius = citySettings.style.crowdRadius;
+        crowdSettings.navCell = citySettings.style.crowdNavCell;
+        crowdSettings.pathExpansions = static_cast<std::size_t>(citySettings.style.crowdPathExpansions);
+        crowdSettings.pathQueriesPerFrame = citySettings.style.crowdPathQueries;
+        crowdSettings.agentCount = static_cast<std::size_t>(citySettings.style.crowdCount);
+        crowdSettings.keepAgents = !legacyCrowd && !legacyLife;
+        if (!legacyLife) {  // данные профиля: радиусы и число прохожих; сетку (шаг, поиск пути) задаёт оформление города
+            const auto fromProfile = lifeProfile.crowd;
+            crowdSettings.navRadius = fromProfile.navRadius;
+            crowdSettings.spawnRadius = fromProfile.spawnRadius;
+            crowdSettings.recenterFraction = fromProfile.recenterFraction;
+            crowdSettings.agentCount = fromProfile.agentCount;
+            crowdSettings.minRecycleDistance = fromProfile.minRecycleDistance;
+            crowdSettings.farVisible = fromProfile.farVisible;
+            crowdSettings.viewHalfAngleDegrees = fromProfile.viewHalfAngleDegrees;
+            crowdSettings.treadmillInterval = fromProfile.treadmillInterval;
+            crowdSettings.treadmillBatch = fromProfile.treadmillBatch;
+            crowdSettings.treadmillMinDistance = fromProfile.treadmillMinDistance;
+        }
+        cityCrowd = std::make_unique<han::ai::CityCrowd>(footprints, walkLayout, people.pointers(), crowdSettings);
+        cityCrowd->update(0.f, {cameraArgs[0], cameraArgs[2]}, {0.f, 0.f}, cityHour);
+        std::printf("городская толпа: %zu взрослых прохожих\n", cityCrowd->crowd() ? cityCrowd->crowd()->agents().size() : 0);
     }
 
     han::platform::InputMap input;
@@ -801,16 +785,18 @@ int main(int argc, char** argv) {
 
         if (trafficCars > 0) {
             traffic.setFocus({camera.position.x, camera.position.z});
+            {
+                const auto look = camera.forward();
+                const float lookLength = std::hypot(look.x, look.z);
+                traffic.setView(lookLength > 1e-3f ? han::ai::Vec2{look.x / lookLength, look.z / lookLength} : han::ai::Vec2{});
+            }
+            if (!legacyLife) traffic.setDensityScale(lifeProfile.trafficDensityAt(cityHour));
             traffic.update(std::min(dt, 0.1f));
         }
         if (!pedestrianMeshes.empty()) {
-            const float dx = camera.position.x - crowdCenter.x, dz = camera.position.z - crowdCenter.z;
-            if (dx * dx + dz * dz > citySettings.style.crowdNavRadius * citySettings.style.crowdNavRadius * 0.25f)
-                rebuildCrowd(camera.position.x, camera.position.z);
-            if (crowd) {
-                crowd->setHour(cityHour);
-                crowd->update(std::min(dt, 0.1f), {camera.position.x, camera.position.z});
-            }
+            const auto look = camera.forward();
+            const float lookLength = std::hypot(look.x, look.z);
+            if (cityCrowd) cityCrowd->update(dt, {camera.position.x, camera.position.z}, lookLength > 1e-3f ? han::ai::Vec2{look.x / lookLength, look.z / lookLength} : han::ai::Vec2{}, cityHour);
         }
         std::vector<han::render::DrawItem> items;
         for (std::size_t i = 0; i < districtScenes.size(); ++i) {
@@ -857,8 +843,8 @@ int main(int argc, char** argv) {
             if (gpu.interior.id) items.push_back({gpu.interior.id, model});
         }
         drawnPeople = 0;
-        if (crowd) {
-            for (const auto& person : crowd->agents()) {
+        if (cityCrowd && cityCrowd->crowd()) {
+            for (const auto& person : cityCrowd->crowd()->agents()) {
                 const float dx = person.pos.x - camera.position.x, dz = person.pos.z - camera.position.z;
                 if (dx * dx + dz * dz > citySettings.style.crowdDrawRadius * citySettings.style.crowdDrawRadius) continue;
                 ++drawnPeople;
@@ -958,7 +944,7 @@ int main(int argc, char** argv) {
                     if (!propMeshes[kind].near.id || shop != spec.shop || seed % static_cast<std::uint32_t>(spec.anchorStride) != 0) continue;
                     const float x = lamp.x + spec.offsetX, z = lamp.z + spec.offsetZ;
                     const float dx = x - camera.position.x, dz = z - camera.position.z, d2 = dx * dx + dz * dz;
-                    if (d2 > spec.drawRadius * spec.drawRadius || (crowdGrid.valid() && !crowdGrid.walkable(x, z))) continue;
+                    if (d2 > spec.drawRadius * spec.drawRadius || (cityCrowd && cityCrowd->grid().valid() && !cityCrowd->grid().walkable(x, z))) continue;
                     propDraws.push_back({d2, kind, {x, (haveTerrain ? terrain.heightAt(x, z) : 0.f) + 0.17f, z}});
                 }
             }
@@ -1103,7 +1089,7 @@ int main(int argc, char** argv) {
         }
     }
     std::printf("ячеек загружено: %d, треугольников: %zu\n", stats.loaded, loader.uploadedTriangles);
-    std::printf("источников ночного света: %zu; трафик: %zu; прохожих: %zu\n", activeLights, traffic.cars().size(), crowd ? crowd->agents().size() : 0);
+    std::printf("источников ночного света: %zu; трафик: %zu; прохожих: %zu\n", activeLights, traffic.cars().size(), cityCrowd && cityCrowd->crowd() ? cityCrowd->crowd()->agents().size() : 0);
     std::printf("импортированных пропсов в кадре: %zu\n", visibleProps);
     std::printf("деревьев в радиусе отрисовки: %zu\n", visibleTrees);
     if (!frameTimes.empty()) {

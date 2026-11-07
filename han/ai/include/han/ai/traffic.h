@@ -3,6 +3,8 @@
 // развороты — только в тупике. Физические машины (han_physics) заводятся только рядом с игроком; здесь они едут «издали».
 // Данные OSM — только геометрия и классы дорог. Скорости — по классам (городские лимиты Кореи: 50 км/ч, жилые зоны 30, магистрали 80).
 #pragma once
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <random>
@@ -98,6 +100,14 @@ struct TrafficSettings {
     float wheelbase = 2.6f;              // расстояние между осями, м: по нему считаются высоты полотна под осями на мосту
     float minGap = 2.0f, timeHeadway = 1.4f, maxAccel = 2.2f, comfortBrake = 3.2f;
     float stuckSeconds = 40.f;           // машина почти стоит дольше — убирается и появляется в другом месте
+    // Политика появления и удаления (этап 06). Значения по умолчанию сохраняют прежнее поведение: появляться где угодно в радиусе, удаляться за despawnRadius.
+    float spawnMinDistanceInView = 0.f;   // > 0 — в конусе зрения (и ближе 25 м) машины не появляются ближе этого расстояния
+    float spawnMinDistanceBehind = 0.f;   // > 0 — не появляться ближе этого к камере в любом месте
+    float despawnInViewRadius = 0.f;      // > 0 — видимая машина удаляется только за этим расстоянием (а не за despawnRadius)
+    float viewHalfAngleDegrees = 62.f;    // половина угла конуса зрения
+    float spawnGap = 18.f;                // свободное место на полосе вокруг точки появления, м
+    bool weightByLength = false;          // выбор дороги для появления пропорционален длине и весу класса (иначе равновероятно по дорогам)
+    float classWeight[4] = {1.f, 1.f, 1.f, 1.f};  // вес по RoadClass: Motorway, Primary, Secondary, Local
     bool smoothTurns = true;             // дуга Безье через перекрёсток и полоса по типу поворота; false — прежний рывок на смещение полосы
     bool turnLanes = false;              // правый поворот — в крайнюю правую полосу, левый — в ближайшую к оси; false (по умолчанию) — полоса по номеру:
                                          // на реальной карте крайние полосы вплотную к зданиям, аудит показал рост наездов на здания в 1,8 раза
@@ -120,6 +130,10 @@ public:
     TrafficSim(const RoadGraph& graph, const TrafficSettings& settings = {});
 
     void setFocus(Vec2 p) { focus_ = p; }
+    // Направление взгляда (единичный вектор; нулевой — неизвестно, всё вокруг считается видимым): появление и удаление машин не на глазах.
+    void setView(Vec2 direction) { view_ = direction; }
+    // Доля от maxCars, которая должна быть на дорогах сейчас (кривая по часу суток из данных); лишние машины уходят, когда они вне взгляда.
+    void setDensityScale(float scale) { densityScale_ = std::clamp(scale, 0.f, 4.f); }
     // Шаг симуляции; dt до 0,25 с (больше разбивается).
     void update(float dt);
     const std::vector<Car>& cars() const { return cars_; }
@@ -156,6 +170,11 @@ private:
     std::vector<std::vector<std::vector<int>>> lanes_;  // edge → lane → индексы машин, спереди назад (пересобирается каждый шаг)
     std::mt19937 rng_;
     Vec2 focus_;
+    Vec2 view_;
+    float densityScale_ = 1.f;
+    std::vector<float> spawnCumulative_;  // накопленные веса кандидатов (weightByLength)
+    bool visibleFromFocus(Vec2 p) const;
+    int targetCars() const { return std::max(0, static_cast<int>(std::lround(static_cast<float>(cfg_.maxCars) * densityScale_))); }
     Vec2 spawnFocus_;
     bool spawnCandidatesReady_ = false;
     std::vector<std::size_t> spawnCandidates_;
