@@ -7,6 +7,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "han/render/lighting.h"
@@ -21,6 +22,8 @@ struct RendererDesc {
     std::vector<const char*> instanceExtensions;  // расширения для поверхности окна (от SDL)
     bool vsync = true;                            // false — IMMEDIATE/MAILBOX для замеров без привязки к частоте монитора
     bool validation = true;                       // слой VK_LAYER_KHRONOS_validation, если установлен
+    bool meshStagedUpload = false;                // диагностика: не использовать окно BAR, грузить меши в память видеокарты через промежуточный буфер
+    bool meshInSystemMemory = false;              // диагностика (этап 10): буферы мешей в системной памяти, как было раньше; по умолчанию — в памяти видеокарты, если она доступна процессору
     int width = 1280, height = 720;
     int shadowMapSize = 2048;  // сторона карты теней каждого из трёх каскадов (1024 / 2048 / 4096 — пресеты качества)
     float shadowBatchCellSize = 0.f;  // 0 — прежний проход; город объединяет непрозрачные тени по ячейкам
@@ -137,6 +140,10 @@ public:
     const char* presentModeName() const;  // FIFO / MAILBOX / IMMEDIATE
     const std::string& deviceName() const;
     bool validationEnabled() const;
+    // (буферов в памяти видеокарты, буферов в системной памяти) среди созданных мешей.
+    std::pair<std::uint32_t, std::uint32_t> meshBufferPlacement() const;
+    std::uint32_t meshStagedBuffers() const;  // из них загруженных через промежуточный буфер (память видеокарты без доступа процессора)
+    std::uint64_t meshVramBytes() const;  // сколько байт буферов мешей выделено в памяти видеокарты (накопительно)
     // Сколько сообщений уровня ERROR и WARNING выдал слой валидации (критерий E2: ноль).
     std::uint32_t validationErrors() const;
     std::uint32_t validationWarnings() const;

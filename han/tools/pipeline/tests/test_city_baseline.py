@@ -39,6 +39,13 @@ class CityBaselineTests(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--size") + 1:cmd.index("--size") + 3], ["640", "360"])
         self.assertEqual(cmd[cmd.index("--traffic") + 1], "7")
 
+    def test_extra_arguments_are_appended_after_scene_arguments(self):
+        scene = {"id": "x", "camera": [1, 2, 3, 4, 5]}
+        cmd = cb.build_command("demo.exe", scene, {}, 13, Path("m.json"), False, None, ["--osm", "a b.osm", "--no-validation"])
+        self.assertEqual(cmd[-3:], ["--osm", "a b.osm", "--no-validation"])
+        plain = cb.build_command("demo.exe", scene, {}, 13, Path("m.json"), False)
+        self.assertNotIn("--no-validation", plain)
+
     def test_missing_data_is_reported_relative_to_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

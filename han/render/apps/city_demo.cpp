@@ -193,7 +193,9 @@ int main(int argc, char** argv) {
     float exposureArg = 1.0f;  // нейтральный множитель; дневная и ночная экспозиция — в streetscape.json
     float hourArg = -1.f;
     bool vsync = true;  // --no-vsync: IMMEDIATE/MAILBOX для замеров
-    bool legacyCrowd = false, legacyLife = false, noFarSkyline = false;
+    bool legacyCrowd = false, legacyLife = false, noFarSkyline = false, validationOff = false;
+    bool sysMemMeshes = false, stagedMeshes = false;
+    bool sortCellsNearToFar = false, skipGround = false, skipBuildings = false, skipTrees = false;
     bool watchSteepCar = false;
     bool carPoseEnabled = true;  // --flat-cars: без шага и крена корпуса
     bool taaEnabled = true;  // --no-taa: диагностика резкости (TAA не должен оставаться выключенным как исправление)
@@ -210,6 +212,13 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--no-vsync")) vsync = false;
         if (!std::strcmp(argv[i], "--watch-steep-car")) watchSteepCar = true;  // камера сбоку от машины на самом крутом уклоне (для кадров «до/после»)
         if (!std::strcmp(argv[i], "--legacy-crowd")) legacyCrowd = true;  // прежняя пересборка толпы (для сравнения)
+        if (!std::strcmp(argv[i], "--skip-ground")) skipGround = true;  // диагностика: не рисовать землю ячеек
+        if (!std::strcmp(argv[i], "--skip-buildings")) skipBuildings = true;  // диагностика: не рисовать здания ячеек
+        if (!std::strcmp(argv[i], "--skip-trees")) skipTrees = true;  // диагностика: не рисовать деревья
+        if (!std::strcmp(argv[i], "--sort-cells")) sortCellsNearToFar = true;  // диагностика: ячейки от ближних к дальним (замер этапа 10: выигрыша не дало, по умолчанию выключено)
+        if (!std::strcmp(argv[i], "--staged-meshes")) stagedMeshes = true;  // диагностика: загрузка мешей через промежуточный буфер, без BAR
+        if (!std::strcmp(argv[i], "--sysmem-meshes")) sysMemMeshes = true;  // диагностика: меши в системной памяти (прежнее поведение)
+        if (!std::strcmp(argv[i], "--no-validation")) validationOff = true;  // без слоя валидации Vulkan: замеры скорости (слой замедляет запись команд)
         if (!std::strcmp(argv[i], "--no-far-skyline")) noFarSkyline = true;  // без дальнего силуэта высоких зданий (для сравнения)
         if (!std::strcmp(argv[i], "--legacy-life")) legacyLife = true;  // прежние радиусы и политика трафика и толпы без профиля (для сравнения)
         if (!std::strcmp(argv[i], "--flat-cars")) carPoseEnabled = false;  // прежняя горизонтальная поза корпуса (для сравнения)
@@ -369,6 +378,9 @@ int main(int argc, char** argv) {
 #endif
     han::render::RendererDesc desc;
     desc.vsync = vsync;
+    if (validationOff) desc.validation = false;
+    desc.meshInSystemMemory = sysMemMeshes;
+    desc.meshStagedUpload = stagedMeshes;
     desc.shadowBatchCellSize = shadowBatchArg >= 0.f && std::isfinite(shadowBatchArg) ? shadowBatchArg : citySettings.style.shadowBatchCellSize;
     desc.instanceExtensions = window->vulkanInstanceExtensions();
     desc.createSurface = [&](void* instance) { return window->createVulkanSurface(instance); };
@@ -943,9 +955,19 @@ int main(int argc, char** argv) {
         }
         if (riverWater.id) items.push_back({riverWater.id,Mat4::identity(),false});
         items.push_back({ground, Mat4::translation({0.f, haveTerrain ? terrain.minHeight() - 2.f : -0.25f, 0.f})});  // ниже дорог: иначе z-борьба на расстоянии
-        for (const auto& [cell, g] : loader.gpu) {
-            if (g.ground) items.push_back({g.ground, Mat4::identity()});
-            if (g.buildings) items.push_back({g.buildings, Mat4::identity()});
+        {   // Порядок ячеек: по умолчанию как в карте; --sort-cells — от ближних к дальним (в замере этапа 10 разницы не дало).
+            struct CellDraw { float distance; const decltype(loader.gpu)::mapped_type* gpu; };
+            std::vector<CellDraw> cellDraws;
+            cellDraws.reserve(loader.gpu.size());
+            for (const auto& [cell, g] : loader.gpu) {
+                const float cx = (static_cast<float>(cell.x) + 0.5f) * citySettings.cellSize - camera.position.x, cz = (static_cast<float>(cell.z) + 0.5f) * citySettings.cellSize - camera.position.z;
+                cellDraws.push_back({sortCellsNearToFar ? cx * cx + cz * cz : 0.f, &g});
+            }
+            if (sortCellsNearToFar) std::stable_sort(cellDraws.begin(), cellDraws.end(), [](const auto& a, const auto& b) { return a.distance < b.distance; });
+            for (const auto& draw : cellDraws) {
+                if (draw.gpu->ground && !skipGround) items.push_back({draw.gpu->ground, Mat4::identity()});
+                if (draw.gpu->buildings && !skipBuildings) items.push_back({draw.gpu->buildings, Mat4::identity()});
+            }
         }
         struct PropDraw { float distance; std::size_t kind; han::core::Vec3 position; };
         struct TreeDraw { float distance; const world::CityTree* tree; };
@@ -956,7 +978,7 @@ int main(int argc, char** argv) {
                 if (distance < vegetation.drawRadius * vegetation.drawRadius) treeDraws.push_back({distance, &tree});
             }
         std::sort(treeDraws.begin(), treeDraws.end(), [](const auto& a, const auto& b) { return a.distance < b.distance; });
-        visibleTrees = std::min(treeDraws.size(), static_cast<std::size_t>(vegetation.maxDraws));
+        visibleTrees = skipTrees ? 0 : std::min(treeDraws.size(), static_cast<std::size_t>(vegetation.maxDraws));
         for (std::size_t i = 0; i < visibleTrees; ++i) {
             const auto& tree = *treeDraws[i].tree;
             const auto distance = treeDraws[i].distance;
@@ -1151,6 +1173,8 @@ int main(int argc, char** argv) {
     }
     const auto errors = renderer->validationErrors();
     std::printf("ошибок валидации: %u, предупреждений: %u\n", errors, renderer->validationWarnings());
+    std::printf("буферы мешей: в памяти видеокарты с доступом процессора %u (%.0f МБ), через промежуточный буфер %u, в системной %u\n", renderer->meshBufferPlacement().first,
+                static_cast<double>(renderer->meshVramBytes()) / 1048576.0, renderer->meshStagedBuffers(), renderer->meshBufferPlacement().second);
     if (screenshotFailed) return 2;
     return errors == 0 ? 0 : 1;
 }
