@@ -71,6 +71,10 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 1;
     }
+    if (std::filesystem::exists("data/city/height_profile.json") && !loadHeightProfile("data/city/height_profile.json", settings.heights, error)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return 1;
+    }
     settings.terrain = terrain.valid() ? &terrain : nullptr;
     if (!loadRoadProfileSettings("data/city/road_profile.json", settings.roadProfile, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());

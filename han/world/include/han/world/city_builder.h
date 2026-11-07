@@ -10,6 +10,7 @@
 #include "han/world/streaming.h"
 #include "han/world/terrain.h"
 #include "han/world/city_style.h"
+#include "han/world/height_profile.h"
 
 namespace han::world {
 struct CityBuildSettings {
@@ -18,7 +19,8 @@ struct CityBuildSettings {
     bool bridges = true;                   // поднимать мосты и эстакады над землёй (по тегам bridge/layer); false — всё по рельефу
     const RoadProfile* roadProfileData = nullptr;  // готовый профиль (общий с трафиком); nullptr — считается внутри buildCity
     float cellSize = 256.f;
-    float defaultBuildingHeight = 9.f;   // если нет ни height, ни building:levels
+    float defaultBuildingHeight = 9.f;   // если нет ни height, ни building:levels (и профиль высот ничего не знает о типе)
+    HeightProfile heights;               // высота по типу и площади для зданий без тегов (data/city/height_profile.json); выключен по умолчанию
     float levelHeight = 3.2f;
     float maxBuildingHeight = 300.f;
     float minBuildingArea = 6.f;         // меньше (м²) — не здание (сарай, ошибка данных)
@@ -68,8 +70,8 @@ struct CityStats {
 // Ширина дороги (м) по классу highway; 0 — не рисовать (например, служебные линии).
 float roadWidth(std::string_view highway);
 float roadWidth(const OsmWay& way);  // явная ширина из данных; иначе — по классу
-// Высота здания по тегам (height, building:levels) или значению по умолчанию.
-float buildingHeight(const OsmWay& way, const CityBuildSettings& settings);
+// Высота здания по тегам (height, building:levels), затем по профилю высот (тип и площадь основания, м²), затем значение по умолчанию.
+float buildingHeight(const OsmWay& way, const CityBuildSettings& settings, float footprintArea = 0.f);
 
 // Контуры зданий в метрах карты (x, y = z карты) без повторяющейся замыкающей вершины: непроходимые области для навигации.
 std::vector<std::vector<Vec2>> buildingFootprints(const OsmData& data, const GeoProjection& projection, float minArea = 6.f);
