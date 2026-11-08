@@ -195,7 +195,7 @@ int main(int argc, char** argv) {
     float hourArg = -1.f;
     bool vsync = true;  // --no-vsync: IMMEDIATE/MAILBOX для замеров
     bool legacyCrowd = false, legacyLife = false, noFarSkyline = false, validationOff = false;
-    bool sysMemMeshes = false, stagedMeshes = false, noLandmarks = false;
+    bool sysMemMeshes = false, stagedMeshes = false, noLandmarks = false, farTerrainPlain = false;
     bool sortCellsNearToFar = false, skipGround = false, skipBuildings = false, skipTrees = false;
     bool watchSteepCar = false;
     bool carPoseEnabled = true;  // --flat-cars: без шага и крена корпуса
@@ -220,6 +220,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--staged-meshes")) stagedMeshes = true;  // диагностика: загрузка мешей через промежуточный буфер, без BAR
         if (!std::strcmp(argv[i], "--sysmem-meshes")) sysMemMeshes = true;  // диагностика: меши в системной памяти (прежнее поведение)
         if (!std::strcmp(argv[i], "--no-validation")) validationOff = true;  // без слоя валидации Vulkan: замеры скорости (слой замедляет запись команд)
+        if (!std::strcmp(argv[i], "--plain-far-terrain")) farTerrainPlain = true;  // дальняя земля одним цветом (для сравнения)
         if (!std::strcmp(argv[i], "--no-landmarks")) noLandmarks = true;  // без добавленных высотных ориентиров (для сравнения)
         if (!std::strcmp(argv[i], "--no-far-skyline")) noFarSkyline = true;  // без дальнего силуэта высоких зданий (для сравнения)
         if (!std::strcmp(argv[i], "--legacy-life")) legacyLife = true;  // прежние радиусы и политика трафика и толпы без профиля (для сравнения)
@@ -519,6 +520,11 @@ int main(int argc, char** argv) {
     han::render::MeshId farTerrain = 0;
     if (haveTerrain) {
         auto landscape = world::buildFarTerrain(terrain);
+        world::FarTerrainPalette palette;
+        if (std::filesystem::exists("data/city/far_terrain.json") && !farTerrainPlain) {
+            if (!world::loadFarTerrainPalette("data/city/far_terrain.json", palette, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
+            world::colorFarTerrain(landscape, palette);
+        }
         if (loader.waterMask) landscape=waterMask.removeCoveredTerrain(landscape);
         for (auto& range : landscape.ranges) range.material = world::GeoMaterial::Park;
         farTerrain = renderer->uploadMesh(han::render::citytex::toMesh(landscape, loader.textureIds, 0.95f), loader.textureIds);
