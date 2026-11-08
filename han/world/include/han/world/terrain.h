@@ -54,5 +54,20 @@ GeoMesh buildTerrainCell(const Heightmap& map, CellCoord cell, const TerrainSett
 // Рисуется всегда (отсекается по кадру); за радиусом загрузки ячеек именно она показывает холмы и горы у горизонта.
 GeoMesh buildFarTerrain(const Heightmap& map, float spacing = 128.f, float sink = 6.f, float uvTile = 64.f);
 
+// Раскраска дальней земли по высоте и крутизне (этап 08f): равнина, лесные склоны гор, голая скала на обрывах.
+// Цвета умножаются на текстуру материала дальней земли, поэтому подбираются под неё (data/city/far_terrain.json).
+struct FarTerrainPalette {
+    float lowland[3] = {0.75f, 0.75f, 0.75f};
+    float forest[3] = {0.40f, 0.55f, 0.32f};
+    float rock[3] = {0.62f, 0.60f, 0.57f};
+    float forestMinHeight = 45.f;    // выше этой отметки (м над уровнем карты) начинается лес
+    float forestFullHeight = 90.f;   // с этой отметки лес в полную силу
+    float rockNormalY = 0.72f;       // нормаль круче (ny меньше) — скала; между rockNormalY и rockNormalY + rockBlend — плавный переход
+    float rockBlend = 0.12f;
+};
+bool loadFarTerrainPalette(const std::string& file, FarTerrainPalette& out, std::string& error);
+// Перекрашивает вершины меша по высоте (position.y + sink) и нормали. Меш — результат buildFarTerrain.
+void colorFarTerrain(GeoMesh& mesh, const FarTerrainPalette& palette, float sink = 6.f);
+
 }  // namespace han::world
 // Пример: Heightmap h; h.load("assets_bin/terrain/seoul.hht", err); float y = h.heightAt(x, z); GeoMesh m = buildTerrainCell(h, {2, 1});

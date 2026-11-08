@@ -6,6 +6,8 @@
 #include <cstring>
 #include <fstream>
 
+#include "han/core/json.h"
+
 namespace han::world {
 
 bool Heightmap::load(const std::string& file, std::string& error) {
@@ -139,6 +141,56 @@ GeoMesh buildFarTerrain(const Heightmap& map, float spacing, float sink, float u
         }
     mesh.tag(GeoMaterial::Terrain, 0);
     return mesh;
+}
+
+bool loadFarTerrainPalette(const std::string& file, FarTerrainPalette& out, std::string& error) {
+    core::Json root;
+    if (!core::loadJsonFile(file, root, error)) return false;
+    if (!root.isObject() || root["version"].asNumber() != 1) {
+        error = file + ": неизвестная версия палитры дальней земли";
+        return false;
+    }
+    FarTerrainPalette p;
+    const auto color = [&](const char* key, float* dst) {
+        const auto& a = root[key];
+        if (!a.isArray() || a.size() != 3) return false;
+        for (std::size_t i = 0; i < 3; ++i) {
+            const double v = a.at(i).asNumber();
+            if (!a.at(i).isNumber() || !std::isfinite(v) || v < 0.0 || v > 2.0) return false;
+            dst[i] = static_cast<float>(v);
+        }
+        return true;
+    };
+    const auto number = [&](const char* key, float& dst, double lo, double hi) {
+        const double v = root[key].asNumber();
+        if (!root[key].isNumber() || !std::isfinite(v) || v < lo || v > hi) return false;
+        dst = static_cast<float>(v);
+        return true;
+    };
+    if (!color("lowland", p.lowland) || !color("forest", p.forest) || !color("rock", p.rock) || !number("forest_min_height", p.forestMinHeight, -100, 2000) ||
+        !number("forest_full_height", p.forestFullHeight, -100, 2000) || !number("rock_normal_y", p.rockNormalY, 0.0, 1.0) || !number("rock_blend", p.rockBlend, 0.01, 0.5) ||
+        p.forestFullHeight <= p.forestMinHeight) {
+        error = file + ": некорректная палитра дальней земли";
+        return false;
+    }
+    out = p;
+    return true;
+}
+
+void colorFarTerrain(GeoMesh& mesh, const FarTerrainPalette& p, float sink) {
+    const auto smooth = [](float a, float b, float x) {
+        const float t = std::clamp((x - a) / (b - a), 0.f, 1.f);
+        return t * t * (3.f - 2.f * t);
+    };
+    for (auto& v : mesh.vertices) {
+        const float height = v.position[1] + sink;
+        const float forest = smooth(p.forestMinHeight, p.forestFullHeight, height);
+        const float rock = 1.f - smooth(p.rockNormalY, p.rockNormalY + p.rockBlend, v.normal[1]);
+        for (int k = 0; k < 3; ++k) {
+            const float ground = p.lowland[k] + (p.forest[k] - p.lowland[k]) * forest;
+            v.color[k] = ground + (p.rock[k] - ground) * rock;
+        }
+    }
 }
 
 }  // namespace han::world
