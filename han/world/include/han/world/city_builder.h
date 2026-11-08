@@ -22,7 +22,7 @@ struct CityBuildSettings {
     float defaultBuildingHeight = 9.f;   // если нет ни height, ни building:levels (и профиль высот ничего не знает о типе)
     HeightProfile heights;               // высота по типу и площади для зданий без тегов (data/city/height_profile.json); выключен по умолчанию
     float levelHeight = 3.2f;
-    float maxBuildingHeight = 300.f;
+    float maxBuildingHeight = 600.f;     // выше — ошибка данных (самый высокий ориентир, этап 08e, 555 м)
     float minBuildingArea = 6.f;         // меньше (м²) — не здание (сарай, ошибка данных)
     float roadLift = 0.05f;              // дорога чуть выше земли
     const Heightmap* terrain = nullptr;   // рельеф: дороги, дома, парки и уличные объекты идут по высоте; nullptr — плоская земля (y = 0)
