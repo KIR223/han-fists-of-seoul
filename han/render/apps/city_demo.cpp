@@ -711,6 +711,7 @@ int main(int argc, char** argv) {
     std::size_t activeLights = 0;
     std::size_t visibleProps = 0;
     std::size_t visibleTrees = 0;
+    han::render::Renderer::VideoMemory lastVideoMemory;  // последний опрос VK_EXT_memory_budget
     bool screenshotFailed = false;
     world::StreamingStats stats;
     for (long frame = 0; (maxFrames < 0 || frame < maxFrames) && !quit; ++frame) {
@@ -1132,6 +1133,11 @@ int main(int argc, char** argv) {
             sample.frame = frame;
             sample.cameraX = camera.position.x;
             sample.cameraZ = camera.position.z;
+            if (frame % 30 == 0 || lastVideoMemory.usedMb < 0) lastVideoMemory = renderer->videoMemory();  // раз в полсекунды: запрос недорогой, но не нужен каждый кадр
+            if (lastVideoMemory.valid) {
+                sample.vramUsedMb = lastVideoMemory.usedMb;
+                sample.vramBudgetMb = lastVideoMemory.budgetMb;
+            }
 #ifdef _WIN32
             PROCESS_MEMORY_COUNTERS counters{};
             if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) sample.workingSetMb = static_cast<double>(counters.WorkingSetSize) / (1024.0 * 1024.0);

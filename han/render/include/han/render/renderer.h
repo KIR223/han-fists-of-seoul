@@ -143,7 +143,10 @@ public:
     // (буферов в памяти видеокарты, буферов в системной памяти) среди созданных мешей.
     std::pair<std::uint32_t, std::uint32_t> meshBufferPlacement() const;
     std::uint32_t meshStagedBuffers() const;  // из них загруженных через промежуточный буфер (память видеокарты без доступа процессора)
-    std::uint64_t meshVramBytes() const;  // сколько байт буферов мешей выделено в памяти видеокарты (накопительно)
+    std::uint64_t meshVramBytes() const;
+    // Память видеокарты (все её кучи) для процесса: занято и выделено системой в бюджет, МБ; valid = false, если нет VK_EXT_memory_budget.
+    struct VideoMemory { bool valid = false; double usedMb = -1, budgetMb = -1; };
+    VideoMemory videoMemory() const;  // сколько байт буферов мешей выделено в памяти видеокарты (накопительно)
     // Сколько сообщений уровня ERROR и WARNING выдал слой валидации (критерий E2: ноль).
     std::uint32_t validationErrors() const;
     std::uint32_t validationWarnings() const;

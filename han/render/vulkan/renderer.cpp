@@ -239,6 +239,7 @@ struct Renderer::Impl {
     std::array<VkCommandBuffer, kFramesInFlight> cmds{};
     // Измерения (этап 00/01 плана города): счётчики текущего кадра и GPU-время через timestamp-запросы.
     FrameStats stats;
+    bool memoryBudgetSupported = false;
     std::uint64_t vramBytes = 0;
     std::uint32_t vramBuffers = 0, systemBuffers = 0;  // куда попали буферы мешей: память видеокарты (BAR) или системная
     bool forceStaged = false;                         // диагностика: пропускать BAR, грузить через промежуточный буфер
@@ -419,13 +420,19 @@ bool Renderer::Impl::pickDevice(std::string& err) {
     f2.features.samplerAnisotropy = anisotropySupported ? VK_TRUE : VK_FALSE;
     f2.pNext = &f13;
 
-    const char* devExt = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+    // VK_EXT_memory_budget (если есть): сколько памяти видеокарты занято и сколько доступно процессу (этап 10, счётчик VRAM).
+    std::uint32_t deviceExtCount = 0;
+    vkEnumerateDeviceExtensionProperties(physical, nullptr, &deviceExtCount, nullptr);
+    std::vector<VkExtensionProperties> deviceExts(deviceExtCount);
+    vkEnumerateDeviceExtensionProperties(physical, nullptr, &deviceExtCount, deviceExts.data());
+    memoryBudgetSupported = std::any_of(deviceExts.begin(), deviceExts.end(), [](const VkExtensionProperties& e) { return !std::strcmp(e.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME); });
+    const char* devExts[2] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME};
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &f2;
     ci.queueCreateInfoCount = 1;
     ci.pQueueCreateInfos = &q;
-    ci.enabledExtensionCount = 1;
-    ci.ppEnabledExtensionNames = &devExt;
+    ci.enabledExtensionCount = memoryBudgetSupported ? 2u : 1u;
+    ci.ppEnabledExtensionNames = devExts;
     const VkResult r = vkCreateDevice(physical, &ci, nullptr, &device);
     if (r != VK_SUCCESS) return fail(err, "vkCreateDevice", r);
     vkGetDeviceQueue(device, queueFamily, 0, &queue);
@@ -2029,6 +2036,24 @@ const std::string& Renderer::deviceName() const { return impl_->deviceName; }
 bool Renderer::validationEnabled() const { return impl_->validation; }
 std::pair<std::uint32_t, std::uint32_t> Renderer::meshBufferPlacement() const { return {impl_->vramBuffers, impl_->systemBuffers}; }
 std::uint64_t Renderer::meshVramBytes() const { return impl_->vramBytes; }
+Renderer::VideoMemory Renderer::videoMemory() const {
+    VideoMemory result;
+    if (!impl_->memoryBudgetSupported) return result;
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT};
+    VkPhysicalDeviceMemoryProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2};
+    props.pNext = &budget;
+    vkGetPhysicalDeviceMemoryProperties2(impl_->physical, &props);
+    std::uint64_t used = 0, available = 0;
+    for (std::uint32_t i = 0; i < props.memoryProperties.memoryHeapCount; ++i) {
+        if (!(props.memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)) continue;
+        used += budget.heapUsage[i];
+        available += budget.heapBudget[i];
+    }
+    result.valid = true;
+    result.usedMb = static_cast<double>(used) / 1048576.0;
+    result.budgetMb = static_cast<double>(available) / 1048576.0;
+    return result;
+}
 std::uint32_t Renderer::meshStagedBuffers() const { return impl_->stagedBuffers; }
 const char* Renderer::presentModeName() const {
     switch (impl_->activePresentMode) {
