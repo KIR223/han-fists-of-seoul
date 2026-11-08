@@ -239,6 +239,11 @@ struct Renderer::Impl {
     std::array<VkCommandBuffer, kFramesInFlight> cmds{};
     // Измерения (этап 00/01 плана города): счётчики текущего кадра и GPU-время через timestamp-запросы.
     FrameStats stats;
+    bool memoryBudgetSupported = false;
+    std::uint64_t vramBytes = 0;
+    std::uint32_t vramBuffers = 0, systemBuffers = 0;  // куда попали буферы мешей: память видеокарты (BAR) или системная
+    bool forceStaged = false;                         // диагностика: пропускать BAR, грузить через промежуточный буфер
+    bool forceSystemMemory = false;                   // диагностика: мешы только в системной памяти (прежнее поведение)
     bool vsync = true;
     VkPresentModeKHR activePresentMode = VK_PRESENT_MODE_FIFO_KHR;
     VkQueryPool timestampPool = VK_NULL_HANDLE;
@@ -251,6 +256,14 @@ struct Renderer::Impl {
     std::vector<GpuMesh> meshes;  // MeshId = индекс + 1
     struct RetiredMesh { GpuMesh mesh; unsigned pendingFrames; };
     std::vector<RetiredMesh> retiredMeshes;
+    // Буферы мешей в памяти видеокарты без доступа процессора загружаются через промежуточный буфер: копии записываются в начало следующего кадра.
+    struct PendingCopy { VkBuffer src = VK_NULL_HANDLE, dst = VK_NULL_HANDLE; VkDeviceSize size = 0; VkDeviceMemory srcMemory = VK_NULL_HANDLE; };
+    std::vector<PendingCopy> pendingCopies;
+    struct RetiredStaging { VkBuffer buffer = VK_NULL_HANDLE; VkDeviceMemory memory = VK_NULL_HANDLE; unsigned pendingFrames = 0; };
+    std::vector<RetiredStaging> retiredStaging;
+    std::uint32_t stagedBuffers = 0;
+    void flushPendingCopies(VkCommandBuffer cmd);
+    void dropPendingCopy(VkBuffer dst);
     IOverlay* overlay = nullptr;
 
     // Текстуры: общий сэмплер, один набор дескрипторов на текстуру. TextureId = индекс + 1; освобождённые слоты пустые.
@@ -272,8 +285,10 @@ struct Renderer::Impl {
     bool createFrameData(std::string& err);
     bool createShadowMap(std::string& err);
     bool createFrameObjects(std::string& err);
+    // preferVram: сначала память видеокарты, доступная процессору (BAR/ReBAR), иначе обычная системная; вершины и индексы читаются шейдерами
+    // много раз за кадр, и из системной памяти по PCIe это на порядок медленнее (этап 10).
     bool createBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& buffer, VkDeviceMemory& memory,
-                      std::string& err);
+                      std::string& err, bool preferVram = false);
     bool findMemoryType(std::uint32_t typeBits, VkMemoryPropertyFlags flags, std::uint32_t& index) const;
     bool createMesh(const MeshData& mesh, std::span<const TextureId> textureIds, GpuMesh& out, std::string& err);
     void destroyMesh(GpuMesh& m);
@@ -405,13 +420,19 @@ bool Renderer::Impl::pickDevice(std::string& err) {
     f2.features.samplerAnisotropy = anisotropySupported ? VK_TRUE : VK_FALSE;
     f2.pNext = &f13;
 
-    const char* devExt = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+    // VK_EXT_memory_budget (если есть): сколько памяти видеокарты занято и сколько доступно процессу (этап 10, счётчик VRAM).
+    std::uint32_t deviceExtCount = 0;
+    vkEnumerateDeviceExtensionProperties(physical, nullptr, &deviceExtCount, nullptr);
+    std::vector<VkExtensionProperties> deviceExts(deviceExtCount);
+    vkEnumerateDeviceExtensionProperties(physical, nullptr, &deviceExtCount, deviceExts.data());
+    memoryBudgetSupported = std::any_of(deviceExts.begin(), deviceExts.end(), [](const VkExtensionProperties& e) { return !std::strcmp(e.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME); });
+    const char* devExts[2] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME};
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &f2;
     ci.queueCreateInfoCount = 1;
     ci.pQueueCreateInfos = &q;
-    ci.enabledExtensionCount = 1;
-    ci.ppEnabledExtensionNames = &devExt;
+    ci.enabledExtensionCount = memoryBudgetSupported ? 2u : 1u;
+    ci.ppEnabledExtensionNames = devExts;
     const VkResult r = vkCreateDevice(physical, &ci, nullptr, &device);
     if (r != VK_SUCCESS) return fail(err, "vkCreateDevice", r);
     vkGetDeviceQueue(device, queueFamily, 0, &queue);
@@ -431,10 +452,10 @@ bool Renderer::Impl::findMemoryType(std::uint32_t typeBits, VkMemoryPropertyFlag
 }
 
 bool Renderer::Impl::createBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& buffer,
-                                  VkDeviceMemory& memory, std::string& err) {
+                                  VkDeviceMemory& memory, std::string& err, bool preferVram) {
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bi.size = size;
-    bi.usage = usage;
+    bi.usage = usage | (preferVram && data ? VK_BUFFER_USAGE_TRANSFER_DST_BIT : 0u);
     bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     VkResult r = vkCreateBuffer(device, &bi, nullptr, &buffer);
     if (r != VK_SUCCESS) return fail(err, "vkCreateBuffer", r);
@@ -443,12 +464,46 @@ bool Renderer::Impl::createBuffer(const void* data, VkDeviceSize size, VkBufferU
     vkGetBufferMemoryRequirements(device, buffer, &req);
     VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     ai.allocationSize = req.size;
-    if (!findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, ai.memoryTypeIndex)) {
-        err = "нет подходящей памяти для буфера";
-        return false;
+    r = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+    if (preferVram && !forceSystemMemory && !forceStaged &&
+        findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, ai.memoryTypeIndex)) {
+        r = vkAllocateMemory(device, &ai, nullptr, &memory);  // окно BAR может быть мало (256 МБ без ReBAR): тогда ниже запасной путь
+        if (r == VK_SUCCESS) { ++vramBuffers; vramBytes += req.size; }
     }
-    r = vkAllocateMemory(device, &ai, nullptr, &memory);
-    if (r != VK_SUCCESS) return fail(err, "vkAllocateMemory", r);
+    if (r != VK_SUCCESS && preferVram && data && !forceSystemMemory &&
+        findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ai.memoryTypeIndex)) {
+        // Окно BAR занято или недоступно: память видеокарты без доступа процессора + промежуточный буфер, копия — в начале следующего кадра.
+        r = vkAllocateMemory(device, &ai, nullptr, &memory);
+        if (r == VK_SUCCESS) {
+            vkBindBufferMemory(device, buffer, memory, 0);
+            PendingCopy copy;
+            copy.dst = buffer;
+            copy.size = size;
+            if (createBuffer(data, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, copy.src, copy.srcMemory, err, false)) {
+                pendingCopies.push_back(copy);
+                ++stagedBuffers;
+                return true;
+            }
+            // Промежуточный буфер не создан — запасной путь (системная память) с новым буфером без флага TRANSFER_DST.
+            vkFreeMemory(device, memory, nullptr);
+            memory = VK_NULL_HANDLE;
+            vkDestroyBuffer(device, buffer, nullptr);
+            bi.usage = usage;
+            if (vkCreateBuffer(device, &bi, nullptr, &buffer) != VK_SUCCESS) return fail(err, "vkCreateBuffer", r);
+            vkGetBufferMemoryRequirements(device, buffer, &req);
+            ai.allocationSize = req.size;
+            r = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        }
+    }
+    if (r != VK_SUCCESS) {
+        if (!findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, ai.memoryTypeIndex)) {
+            err = "нет подходящей памяти для буфера";
+            return false;
+        }
+        r = vkAllocateMemory(device, &ai, nullptr, &memory);
+        if (r != VK_SUCCESS) return fail(err, "vkAllocateMemory", r);
+        if (preferVram) ++systemBuffers;
+    }
     vkBindBufferMemory(device, buffer, memory, 0);
 
     if (!data) return true;  // буфер под результат (например, чтение кадра): содержимое не нужно
@@ -899,7 +954,38 @@ bool Renderer::Impl::createFrameObjects(std::string& err) {
     return true;
 }
 
+void Renderer::Impl::dropPendingCopy(VkBuffer dst) {
+    for (auto it = pendingCopies.begin(); it != pendingCopies.end();) {
+        if (it->dst == dst) {
+            vkDestroyBuffer(device, it->src, nullptr);
+            vkFreeMemory(device, it->srcMemory, nullptr);
+            it = pendingCopies.erase(it);
+        } else ++it;
+    }
+}
+
+void Renderer::Impl::flushPendingCopies(VkCommandBuffer cmd) {
+    if (pendingCopies.empty()) return;
+    for (const PendingCopy& c : pendingCopies) {
+        const VkBufferCopy region{0, 0, c.size};
+        vkCmdCopyBuffer(cmd, c.src, c.dst, 1, &region);
+        retiredStaging.push_back({c.src, c.srcMemory, (1u << kFramesInFlight) - 1u});
+    }
+    pendingCopies.clear();
+    VkMemoryBarrier2 b{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    b.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    b.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    b.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+    b.dstAccessMask = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT;
+    VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(cmd, &dep);
+}
+
 void Renderer::Impl::destroyMesh(GpuMesh& m) {
+    if (m.vertexBuffer) dropPendingCopy(m.vertexBuffer);
+    if (m.indexBuffer) dropPendingCopy(m.indexBuffer);
     if (m.vertexBuffer) vkDestroyBuffer(device, m.vertexBuffer, nullptr);
     if (m.indexBuffer) vkDestroyBuffer(device, m.indexBuffer, nullptr);
     if (m.vertexMemory) vkFreeMemory(device, m.vertexMemory, nullptr);
@@ -1215,9 +1301,9 @@ bool Renderer::Impl::createMesh(const MeshData& mesh, std::span<const TextureId>
     out.shadowSubmeshes.assign(out.submeshes.begin() + static_cast<std::ptrdiff_t>(colorParts),out.submeshes.end());
     out.submeshes.resize(colorParts);
     const bool ok = createBuffer(vertices.data(), vertices.size() * sizeof(vk::GpuVertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                 out.vertexBuffer, out.vertexMemory, err) &&
+                                 out.vertexBuffer, out.vertexMemory, err, true) &&
                     createBuffer(indices.data(), indices.size() * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                 out.indexBuffer, out.indexMemory, err);
+                                 out.indexBuffer, out.indexMemory, err, true);
     if (!ok) destroyMesh(out);
     return ok;
 }
@@ -1228,6 +1314,16 @@ void Renderer::Impl::destroyAll() {
         if (timestampPool) vkDestroyQueryPool(device, timestampPool, nullptr);
         for (GpuMesh& m : meshes) destroyMesh(m);
         for (auto& retired : retiredMeshes) destroyMesh(retired.mesh);
+        for (const PendingCopy& c : pendingCopies) {
+            vkDestroyBuffer(device, c.src, nullptr);
+            vkFreeMemory(device, c.srcMemory, nullptr);
+        }
+        pendingCopies.clear();
+        for (const RetiredStaging& r : retiredStaging) {
+            vkDestroyBuffer(device, r.buffer, nullptr);
+            vkFreeMemory(device, r.memory, nullptr);
+        }
+        retiredStaging.clear();
         for (int i = 0; i < kFramesInFlight; ++i) {
             if (imageAvailable[i]) vkDestroySemaphore(device, imageAvailable[i], nullptr);
             if (inFlight[i]) vkDestroyFence(device, inFlight[i], nullptr);
@@ -1306,6 +1402,8 @@ std::unique_ptr<Renderer> Renderer::create(const RendererDesc& desc, std::string
     Impl& s = *r->impl_;
     s.shadowMapSize = std::clamp(desc.shadowMapSize, 256, 8192);
     s.vsync = desc.vsync;
+    s.forceSystemMemory = desc.meshInSystemMemory;
+    s.forceStaged = desc.meshStagedUpload;
     s.shadowBatchCellSize = std::isfinite(desc.shadowBatchCellSize) ? std::max(0.f,desc.shadowBatchCellSize) : 0.f;
     if (!s.createInstance(desc, error)) return nullptr;
     s.surface = reinterpret_cast<VkSurfaceKHR>(desc.createSurface ? desc.createSurface(s.instance) : 0);
@@ -1376,6 +1474,8 @@ MeshId Renderer::uploadMesh(const MeshData& mesh, std::span<const TextureId> tex
 void Renderer::releaseMesh(MeshId id) {
     Impl& s = *impl_;
     if (id == 0 || id > s.meshes.size() || s.meshes[id - 1].indexCount == 0) return;
+    s.dropPendingCopy(s.meshes[id - 1].vertexBuffer);  // копия ещё не записана в кадр — отменяем: меш уже не нужен
+    s.dropPendingCopy(s.meshes[id - 1].indexBuffer);
     s.retiredMeshes.push_back({std::move(s.meshes[id - 1]), (1u << kFramesInFlight) - 1u});
     s.meshes[id - 1] = {};
 }
@@ -1389,6 +1489,8 @@ bool Renderer::replaceMesh(MeshId id, const MeshData& mesh, std::span<const Text
         std::fprintf(stderr, "replaceMesh: %s\n", err.c_str());
         return false;
     }
+    s.dropPendingCopy(s.meshes[id - 1].vertexBuffer);  // копия ещё не записана в кадр — отменяем: меш уже не нужен
+    s.dropPendingCopy(s.meshes[id - 1].indexBuffer);
     s.retiredMeshes.push_back({std::move(s.meshes[id - 1]), (1u << kFramesInFlight) - 1u});
     s.meshes[id - 1] = fresh;
     return true;
@@ -1425,6 +1527,14 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
             s.stats.gpuMs = static_cast<double>(ticks[3] - ticks[0]) * s.timestampPeriodMs;
         }
         s.timestampPending[f] = false;
+    }
+    for (auto it = s.retiredStaging.begin(); it != s.retiredStaging.end();) {
+        it->pendingFrames &= ~(1u << f);
+        if (it->pendingFrames == 0) {
+            vkDestroyBuffer(s.device, it->buffer, nullptr);
+            vkFreeMemory(s.device, it->memory, nullptr);
+            it = s.retiredStaging.erase(it);
+        } else ++it;
     }
     for (auto it = s.retiredMeshes.begin(); it != s.retiredMeshes.end();) {
         it->pendingFrames &= ~(1u << f);
@@ -1535,6 +1645,7 @@ bool Renderer::drawFrame(const FrameParams& frame, std::span<const DrawItem> ite
         vkCmdResetQueryPool(cmd, s.timestampPool, static_cast<uint32_t>(f) * 4, 4);
         vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, s.timestampPool, static_cast<uint32_t>(f) * 4);
     }
+    s.flushPendingCopies(cmd);
 
     auto barrier = [&](VkImage image, VkImageAspectFlags aspect, VkImageLayout from, VkImageLayout to, VkPipelineStageFlags2 srcStage,
                        VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess) {
@@ -1923,6 +2034,27 @@ const std::string& Renderer::screenshotError() const { return impl_->shotError; 
 
 const std::string& Renderer::deviceName() const { return impl_->deviceName; }
 bool Renderer::validationEnabled() const { return impl_->validation; }
+std::pair<std::uint32_t, std::uint32_t> Renderer::meshBufferPlacement() const { return {impl_->vramBuffers, impl_->systemBuffers}; }
+std::uint64_t Renderer::meshVramBytes() const { return impl_->vramBytes; }
+Renderer::VideoMemory Renderer::videoMemory() const {
+    VideoMemory result;
+    if (!impl_->memoryBudgetSupported) return result;
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT};
+    VkPhysicalDeviceMemoryProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2};
+    props.pNext = &budget;
+    vkGetPhysicalDeviceMemoryProperties2(impl_->physical, &props);
+    std::uint64_t used = 0, available = 0;
+    for (std::uint32_t i = 0; i < props.memoryProperties.memoryHeapCount; ++i) {
+        if (!(props.memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)) continue;
+        used += budget.heapUsage[i];
+        available += budget.heapBudget[i];
+    }
+    result.valid = true;
+    result.usedMb = static_cast<double>(used) / 1048576.0;
+    result.budgetMb = static_cast<double>(available) / 1048576.0;
+    return result;
+}
+std::uint32_t Renderer::meshStagedBuffers() const { return impl_->stagedBuffers; }
 const char* Renderer::presentModeName() const {
     switch (impl_->activePresentMode) {
         case VK_PRESENT_MODE_IMMEDIATE_KHR: return "IMMEDIATE";

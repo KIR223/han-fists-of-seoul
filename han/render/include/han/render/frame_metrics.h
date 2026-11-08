@@ -51,6 +51,7 @@ struct FrameSample {
     double cameraX = 0, cameraZ = 0;  // для привязки худших кадров к месту (координаты могут быть отрицательными)
     long frame = -1;                  // номер кадра с начала запуска (включая прогрев)
     double workingSetMb = -1;
+    double vramUsedMb = -1, vramBudgetMb = -1;  // память видеокарты процесса (VK_EXT_memory_budget), -1 — недоступно
 };
 
 class MetricsRecorder {
@@ -129,6 +130,8 @@ inline std::string metricsToJson(const MetricsRecorder& recorder, const std::vec
     row("cars_within_150m", &FrameSample::carsWithin150);
     row("cars_within_400m", &FrameSample::carsWithin400);
     row("working_set_mb", &FrameSample::workingSetMb);
+    row("vram_used_mb", &FrameSample::vramUsedMb);
+    row("vram_budget_mb", &FrameSample::vramBudgetMb);
     out += ",\n  \"worst_frames\": [";
     const auto worst = recorder.worst(5);
     for (std::size_t i = 0; i < worst.size(); ++i) {
