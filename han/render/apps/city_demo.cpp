@@ -25,6 +25,7 @@
 #include "han/ai/city_crowd.h"
 #include "han/ai/life_profile.h"
 #include "han/world/far_skyline.h"
+#include "han/world/landmarks.h"
 #include "han/ai/crowd.h"
 #include "han/ai/archetype.h"
 #include "han/render/street_models.h"
@@ -194,7 +195,7 @@ int main(int argc, char** argv) {
     float hourArg = -1.f;
     bool vsync = true;  // --no-vsync: IMMEDIATE/MAILBOX для замеров
     bool legacyCrowd = false, legacyLife = false, noFarSkyline = false, validationOff = false;
-    bool sysMemMeshes = false, stagedMeshes = false;
+    bool sysMemMeshes = false, stagedMeshes = false, noLandmarks = false;
     bool sortCellsNearToFar = false, skipGround = false, skipBuildings = false, skipTrees = false;
     bool watchSteepCar = false;
     bool carPoseEnabled = true;  // --flat-cars: без шага и крена корпуса
@@ -219,6 +220,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--staged-meshes")) stagedMeshes = true;  // диагностика: загрузка мешей через промежуточный буфер, без BAR
         if (!std::strcmp(argv[i], "--sysmem-meshes")) sysMemMeshes = true;  // диагностика: меши в системной памяти (прежнее поведение)
         if (!std::strcmp(argv[i], "--no-validation")) validationOff = true;  // без слоя валидации Vulkan: замеры скорости (слой замедляет запись команд)
+        if (!std::strcmp(argv[i], "--no-landmarks")) noLandmarks = true;  // без добавленных высотных ориентиров (для сравнения)
         if (!std::strcmp(argv[i], "--no-far-skyline")) noFarSkyline = true;  // без дальнего силуэта высоких зданий (для сравнения)
         if (!std::strcmp(argv[i], "--legacy-life")) legacyLife = true;  // прежние радиусы и политика трафика и толпы без профиля (для сравнения)
         if (!std::strcmp(argv[i], "--flat-cars")) carPoseEnabled = false;  // прежняя горизонтальная поза корпуса (для сравнения)
@@ -285,6 +287,12 @@ int main(int argc, char** argv) {
     if (!haveOsm && cookedDir.empty()) {
         std::fprintf(stderr, "%s\nСкачайте данные: python han/tools/pipeline/han_osm_fetch.py\n", error.c_str());
         return 1;
+    }
+    if (haveOsm && !noLandmarks && std::filesystem::exists("data/city/landmarks.json")) {  // высотные ориентиры, которых нет в выгрузке OSM (этап 08e)
+        std::vector<world::Landmark> landmarks;
+        if (!world::loadLandmarks("data/city/landmarks.json", landmarks, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
+        const auto landmarkStats = world::applyLandmarks(osm, landmarks);
+        std::printf("ориентиры: добавлено %d, уже есть в данных %d\n", landmarkStats.added, landmarkStats.skippedPresent);
     }
     if (!haveOsm) trafficCars = 0;  // без OSM нет графа дорог для трафика (запечённые ячейки дорог не хранят)
     world::CityStats cityStats;

@@ -14,6 +14,7 @@
 #include "han/world/cell_io.h"
 #include "han/world/city_builder.h"
 #include "han/world/district_scene.h"
+#include "han/world/landmarks.h"
 #include "han/world/osm.h"
 #include "han/world/terrain.h"
 
@@ -58,6 +59,17 @@ int main(int argc, char** argv) {
     if (!terrainPath.empty() && !terrain.load(terrainPath, error)) {
         std::fprintf(stderr, "рельеф: %s\n", error.c_str());
         return 1;
+    }
+    {
+        std::vector<Landmark> landmarks;
+        if (std::filesystem::exists("data/city/landmarks.json")) {
+            if (!loadLandmarks("data/city/landmarks.json", landmarks, error)) {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return 1;
+            }
+            const auto lm = applyLandmarks(osm, landmarks);
+            std::printf("ориентиры: добавлено %d, уже есть в данных %d\n", lm.added, lm.skippedPresent);
+        }
     }
     if (terrain.valid()) {
         std::vector<DistrictScene> scenes;
